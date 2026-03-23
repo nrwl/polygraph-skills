@@ -389,23 +389,12 @@ function processSkills(platformKey, config) {
  * Generate Codex config.toml with MCP servers and agent definitions.
  */
 function writeCodexConfig() {
-  const pkgJson = JSON.parse(
-    readFileSync(join(rootDir, 'package.json'), 'utf-8')
-  );
-  const mcpServersConfig = pkgJson.polygraph?.mcpServers;
-  if (!mcpServersConfig) {
-    console.log('  Skipped .codex/config.toml (no mcpServers in package.json)');
-    return;
-  }
-
-  const mcpServers = {};
-  for (const [name, server] of Object.entries(mcpServersConfig)) {
-    const entry = {};
-    if (server.command) entry.command = server.command;
-    if (server.args) entry.args = server.args;
-    if (server.env) entry.env = server.env;
-    mcpServers[name] = entry;
-  }
+  const mcpServers = {
+    'polygraph-mcp': {
+      command: 'npx',
+      args: ['polygraph-mcp@latest'],
+    },
+  };
 
   // Collect generated agent TOML files
   const codexAgentsDir = join(generatedDir, 'codex', 'agents');

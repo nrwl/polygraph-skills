@@ -20,17 +20,6 @@
     ".mcp.json",
     ".claude-plugin/"
   ],
-  "polygraph": {
-    "claudePlugin": {
-      "name": "polygraph"
-    },
-    "mcpServers": {
-      "polygraph-mcp": {
-        "command": "npx",
-        "args": ["polygraph-mcp@latest"]
-      }
-    }
-  },
   "devDependencies": {
     "js-yaml": "^4.1.1",
     "liquidjs": "^10.21.0",

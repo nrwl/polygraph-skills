@@ -53,12 +53,9 @@ if (existsSync(hooksDir)) {
   console.log('  Copied hooks/');
 }
 
-// Generate plugin metadata from package.json
-const pluginName = pkgJson.polygraph?.claudePlugin?.name || 'polygraph';
-
-// .claude-plugin/plugin.json
+// Generate .claude-plugin/plugin.json
 const pluginJson = {
-  name: pluginName,
+  name: 'polygraph',
   version: pkgJson.version,
   description: pkgJson.description,
   author: pkgJson.author,
@@ -73,29 +70,29 @@ writeFileSync(
 );
 console.log('  Generated .claude-plugin/plugin.json');
 
-// .claude-plugin/marketplace.json
+// Copy .claude-plugin/marketplace.json
 const marketplaceSrc = join(__dirname, '.claude-plugin', 'marketplace.json');
 if (existsSync(marketplaceSrc)) {
   cpSync(marketplaceSrc, join(claudePluginDir, 'marketplace.json'));
   console.log('  Copied .claude-plugin/marketplace.json');
 }
 
-// .mcp.json
-const mcpServers = pkgJson.polygraph?.mcpServers;
-if (mcpServers) {
-  const mcpJson = {};
-  for (const [name, server] of Object.entries(mcpServers)) {
-    mcpJson[name] = {
-      type: 'stdio',
-      ...server,
-    };
-  }
-  writeFileSync(
-    join(distDir, '.mcp.json'),
-    JSON.stringify(mcpJson, null, 2) + '\n'
-  );
-  console.log('  Generated .mcp.json');
-}
+// Generate .mcp.json
+writeFileSync(
+  join(distDir, '.mcp.json'),
+  JSON.stringify(
+    {
+      'polygraph-mcp': {
+        type: 'stdio',
+        command: 'npx',
+        args: ['polygraph-mcp@latest'],
+      },
+    },
+    null,
+    2
+  ) + '\n'
+);
+console.log('  Generated .mcp.json');
 
 // Copy README.md and LICENSE if they exist
 for (const file of ['README.md', 'LICENSE']) {
