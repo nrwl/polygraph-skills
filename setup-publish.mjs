@@ -32,14 +32,8 @@ writeFileSync(
 );
 console.log('  Copied package.json');
 
-// Copy generated/ → dist/generated/
-const generatedDir = join(__dirname, 'generated');
-if (existsSync(generatedDir)) {
-  cpSync(generatedDir, join(distDir, 'generated'), { recursive: true });
-  console.log('  Copied generated/');
-}
-
 // Copy Claude output to root level for the Claude plugin
+const generatedDir = join(__dirname, 'generated');
 const claudeSkills = join(generatedDir, 'claude', 'skills');
 if (existsSync(claudeSkills)) {
   cpSync(claudeSkills, join(distDir, 'skills'), { recursive: true });
