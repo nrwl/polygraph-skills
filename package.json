@@ -1,0 +1,40 @@
+{
+  "name": "@nrwl/polygraph-skills",
+  "version": "0.2.32",
+  "description": "AI agent skills and subagents for Polygraph multi-repo coordination",
+  "license": "MIT",
+  "private": false,
+  "author": {
+    "name": "Narwhal Technologies Inc",
+    "email": "hello@nrwl.io"
+  },
+  "repository": "https://github.com/nrwl/polygraph-skills",
+  "scripts": {
+    "sync-artifacts": "node scripts/sync-artifacts.mjs",
+    "setup-publish": "npm run sync-artifacts && node setup-publish.mjs"
+  },
+  "files": [
+    "skills/",
+    "agents/",
+    "hooks/",
+    "generated/",
+    ".mcp.json",
+    ".claude-plugin/"
+  ],
+  "polygraph": {
+    "claudePlugin": {
+      "name": "polygraph"
+    },
+    "mcpServers": {
+      "polygraph-mcp": {
+        "command": "npx",
+        "args": ["polygraph-mcp@latest"]
+      }
+    }
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.1",
+    "liquidjs": "^10.21.0",
+    "smol-toml": "^1.3.1"
+  }
+}

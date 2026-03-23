@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - publish-only
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Configure git
+        if: inputs.bump != 'publish-only'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
+        if: inputs.bump != 'publish-only'
+        run: node release.mjs ${{ inputs.bump }}
+
+      - name: Push
+        if: inputs.bump != 'publish-only'
+        run: git push origin main --tags
+
+      - run: npm ci
+
+      - name: Build and prepare publish artifact
+        run: npm run setup-publish
+
+      - name: Publish to npm
+        run: npm publish --access public
+        working-directory: dist
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
