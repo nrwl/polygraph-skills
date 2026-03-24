@@ -1,5 +1,5 @@
 {
-  "name": "polygraph-claude-plugin",
+  "name": "polygraph-plugins",
   "owner": {
     "name": "Nx",
     "email": "hello@nrwl.io"
@@ -10,7 +10,7 @@
       "description": "Coordinate changes across multiple repositories using Polygraph - delegate work to child agents, monitor CI across repos, and manage multi-repo sessions",
       "source": {
         "source": "npm",
-        "package": "polygraph-skills"
+        "package": "polygraph-claude-plugin"
       }
     }
   ]
