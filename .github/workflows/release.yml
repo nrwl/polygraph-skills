@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: "Version bump type"
         required: true
         type: choice
         options:
@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Configure git
         if: inputs.bump != 'publish-only'
@@ -36,7 +36,7 @@ jobs:
 
       - name: Release
         if: inputs.bump != 'publish-only'
-        run: node release.mjs ${{ inputs.bump }}
+        run: node scripts/release.mjs ${{ inputs.bump }}
 
       - name: Push
         if: inputs.bump != 'publish-only'

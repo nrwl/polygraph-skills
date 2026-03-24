@@ -1,8 +1,8 @@
 {
-  "name": "@nrwl/polygraph-skills",
+  "name": "polygraph-skills",
   "version": "0.2.32",
   "description": "AI agent skills and subagents for Polygraph multi-repo coordination",
-  "license": "MIT",
+  "license": "PROPRIETARY",
   "private": false,
   "author": {
     "name": "Narwhal Technologies Inc",
@@ -11,7 +11,7 @@
   "repository": "https://github.com/nrwl/polygraph-skills",
   "scripts": {
     "sync-artifacts": "node scripts/sync-artifacts.mjs",
-    "setup-publish": "npm run sync-artifacts && node setup-publish.mjs"
+    "setup-publish": "npm run sync-artifacts && node scripts/setup-publish.mjs"
   },
   "files": [
     "skills/",
