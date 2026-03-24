@@ -10,7 +10,7 @@
       "description": "Coordinate changes across multiple repositories using Polygraph - delegate work to child agents, monitor CI across repos, and manage multi-repo sessions",
       "source": {
         "source": "npm",
-        "package": "@nrwl/polygraph-skills"
+        "package": "polygraph-skills"
       }
     }
   ]

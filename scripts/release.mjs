@@ -14,7 +14,7 @@ if (!['patch', 'minor', 'major'].includes(bump)) {
 execSync(`npm version ${bump} --no-git-tag-version`, { stdio: 'inherit' });
 
 const packageJson = JSON.parse(
-  readFileSync(join(__dirname, 'package.json'), 'utf8')
+  readFileSync(join(__dirname, '..', 'package.json'), 'utf8')
 );
 const version = packageJson.version;
 
