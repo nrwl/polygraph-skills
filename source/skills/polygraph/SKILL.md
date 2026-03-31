@@ -34,55 +34,31 @@ This skill applies when the user mentions:
 
 ## Available Tools
 
-**CRITICAL:** These are **MCP tool function calls**, NOT CLI commands. You MUST invoke them as tool calls (the same way you call `Read`, `Edit`, `Bash`, etc.). Do NOT run them via Bash, `npx`, `nx`, or any CLI.
+Polygraph functionality is available via both MCP tools and CLI commands. Use whichever is available in your current environment.
 
-| Tool Name (use with prefix above) | Description                                                                                                                                                                                                                                         |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `polygraph_candidates`            | Discover candidate workspaces with descriptions and graph relationships                                                                                                                                                                             |
-| `polygraph_init`                  | Initialize Polygraph for the Nx Cloud workspace                                                                                                                                                                                                     |
-| `polygraph_delegate`              | Start a task in a child agent in a dependent repository (non-blocking)                                                                                                                                                                              |
-| `polygraph_child_status`          | Get the status and recent output of child agents in a Polygraph session                                                                                                                                                                             |
-| `polygraph_stop_child`            | Stop an in-progress child agent in a Polygraph session                                                                                                                                                                                              |
-| `polygraph_push_branch`           | Push a local git branch to the remote repository                                                                                                                                                                                                    |
-| `polygraph_create_prs`            | Create draft pull requests with session metadata linking related PRs                                                                                                                                                                                |
-| `polygraph_get_session`           | Query status of the current polygraph session                                                                                                                                                                                                       |
-| `polygraph_mark_ready`            | Mark draft PRs as ready for review                                                                                                                                                                                                                  |
-| `polygraph_associate_pr`          | Associate an existing PR with a Polygraph session                                                                                                                                                                                                   |
-| `polygraph_modify_session`        | Modify a running Polygraph session. Pass `addWorkspaceIds` to add workspaces for delegation, or pass `complete: true` to mark the session as completed (closes all open/draft PRs and seals it from further changes). These are mutually exclusive. |
-| `ci_get_logs`                     | Retrieve the full plain-text log for a specific CI job. Use `jobId` from CI run data. Only call for jobs where the run has completed                                                                                                                |
-
-### How to invoke these tools
-
-These are MCP tool calls. Invoke them the same way you invoke `Read`, `Bash`, `Grep`, or any other tool — as a **function call**, not a shell command.
-
-**Correct — MCP tool function call:**
-
-```
-polygraph_init()
-polygraph_delegate(sessionId: "...", target: "repo", instruction: "...")
-polygraph_child_status(sessionId: "...", target: "repo")
-polygraph_stop_child(sessionId: "...", target: "repo")
-```
-
-**WRONG — Do NOT do any of these:**
-
-```
-# ❌ Do NOT run as a Bash/CLI command
-npx nx mcp polygraph_init
-nx run polygraph_init
-bash: polygraph_init
-```
+| MCP Tool | CLI Equivalent | Description |
+| --- | --- | --- |
+| `polygraph_candidates` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
+| `polygraph_init` | `polygraph-cli session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
+| `polygraph_delegate` | — | Start a task in a child agent in another repository (non-blocking) |
+| `polygraph_child_status` | — | Get the status and recent output of child agents |
+| `polygraph_stop_child` | — | Stop an in-progress child agent |
+| `polygraph_push_branch` | — | Push a local git branch to the remote repository |
+| `polygraph_create_prs` | — | Create draft PRs with session metadata linking related PRs |
+| `polygraph_get_session` | `polygraph-cli session status <id>` | Query status of the current session |
+| `polygraph_mark_ready` | — | Mark draft PRs as ready for review |
+| `polygraph_associate_pr` | — | Associate an existing PR with a session |
+| `polygraph_modify_session` | `polygraph-cli session complete <id>` | Modify or complete a session (complete closes all PRs and seals it) |
+| `ci_get_logs` | — | Retrieve full plain-text log for a specific CI job |
+| — | `polygraph-cli login [--token]` | Authenticate with Nx Cloud (use `--token` for headless/CI) |
+| — | `polygraph-cli session list` | List all sessions |
+| — | `polygraph-cli org list` / `org select` | Organization management |
+| — | `polygraph-cli whoami` | Show current auth status and org |
 
 {%- if has_subagents %}
 
-**CRITICAL — Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_get_session`, `polygraph_push_branch`, `polygraph_create_prs`, `polygraph_mark_ready`, `polygraph_associate_pr`, and `polygraph_modify_session` should be called directly as MCP tools. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
+**Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
 {%- endif %}
-
-If the first prefix fails, retry with the second prefix:
-
-```
-polygraph_init()
-```
 
 ## Workflow Overview
 
@@ -248,7 +224,7 @@ Bash("tail -50 <output_file_path>")
 
 {% endraw %}
 
-In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `polygraph_child_status` as a one-off MCP tool call. Do NOT use this for regular polling — that MUST happen in background subagents:
+In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `polygraph_child_status` as a one-off tool call. Do NOT use this for regular polling — that MUST happen in background subagents:
 
 {% raw %}
 
