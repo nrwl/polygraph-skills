@@ -143,7 +143,7 @@ The subagent will:
 | REPO_FULL_NAME | LOCAL_PATH |
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName`
-- LOCAL_PATH: the absolute path to the local clone of the repo. For the initiator workspace (if one exists), this is the current working directory. For all other workspaces (or all workspaces if there is no initiator), the path is available from `polygraph_child_status`.
+- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `polygraph_child_status`.
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 
 ### 1. Delegate Work to Each Repository
@@ -614,7 +614,7 @@ If the session has a `plan` or `agentSessionId`, also display:
 - REPO_FULL_NAME: LOCAL_PATH
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
-- LOCAL_PATH: the absolute path to the local clone of the repo. For the initiator workspace (if one exists), this is the current working directory. For all other workspaces (or all workspaces if there is no initiator), the path is available from `polygraph_child_status`.
+- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `polygraph_child_status`.
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
 - CI_STATUS: from `ciStatus[prId].status`
 - SELF_HEALING_STATUS: from `ciStatus[prId].selfHealingStatus` (omit or show `-` if null)
