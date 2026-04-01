@@ -2,6 +2,18 @@
 name: await-polygraph-ci
 description: Wait for CI to settle across all repos in a Polygraph session, then report results and investigate failures. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
 user-invocable: true
+allowed-tools:
+  - Bash
+  - Read
+  - Task
+  - AskUserQuestion
+  - mcp__polygraph-mcp__polygraph_get_session
+  - mcp__polygraph-mcp__polygraph_delegate
+  - mcp__polygraph-mcp__polygraph_child_status
+  - mcp__polygraph-mcp__polygraph_stop_child
+  - mcp__polygraph-mcp__ci_get_logs
+  - mcp__plugin_nx_nx-mcp__ci_information
+  - mcp__plugin_nx_nx-mcp__update_self_healing_fix
 ---
 
 # Await Polygraph CI

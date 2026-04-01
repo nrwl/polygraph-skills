@@ -2,6 +2,11 @@
 name: polygraph-init-subagent
 description: Discovers candidate repositories and initializes a Polygraph session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
 model: haiku
+allowed-tools:
+  - Bash
+  - polygraph_candidates
+  - polygraph_init
+  - polygraph_get_session
 ---
 
 # Polygraph Init Subagent
