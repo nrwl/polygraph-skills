@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for coordinating changes across multiple repositories using Polygraph. When the request implies that some information from another repo has to be read, another repo has to be updated, or the user asks about what other repos are doing with shared code/APIs/endpoints, use this skill.
+description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
 ---
 
 {%- assign has_subagents = false -%}
@@ -11,26 +11,6 @@ description: Guidance for coordinating changes across multiple repositories usin
 **IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `polygraph_delegate` tool to perform work in other repositories.
 
 This skill provides guidance for working on features that span multiple repositories using Polygraph for coordination.
-
-## When to Use This Skill
-
-- Working on a feature that affects another repository
-- Need to coordinate changes, branches, and PRs across multiple repos
-- Want to delegate tasks to child agents in different repositories
-- User asks about what other repositories are doing (e.g., "what repos use this endpoint?")
-- User mentions "other repos" in relation to shared code, APIs, or dependencies
-- Need to discover or research how code is consumed across repositories
-- Need to start a multi-repo coordination session (even outside a specific repository)
-
-## Trigger Phrases
-
-This skill applies when the user mentions:
-
-- "other repos", "other repositories"
-- "who uses this", "what uses this", "what are they doing"
-- "cross-repo", "multi-repo"
-- "consuming this API/endpoint"
-- "dependent repositories"
 
 ## Available Tools
 
