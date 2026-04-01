@@ -2,15 +2,21 @@
 name: polygraph-init-subagent
 description: Discovers candidate repositories and initializes a Polygraph session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
 model: haiku
-allowed-tools:
-  - polygraph_candidates
-  - polygraph_init
-  - polygraph_get_session
 ---
 
 # Polygraph Init Subagent
 
 You are a Polygraph initialization subagent. Your job is to discover candidate repositories, select the relevant ones, initialize a Polygraph session, and return a structured summary.
+
+## Available Tools
+
+These tools are available via MCP and CLI. Use whichever is available in your environment.
+
+| MCP Tool | CLI Equivalent | Description |
+| --- | --- | --- |
+| `polygraph_candidates` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
+| `polygraph_init` | `polygraph-cli session start --repo <ids>` | Initialize a session with selected workspaces |
+| `polygraph_get_session` | `polygraph-cli session status <id>` | Get full session details including URL |
 
 ## Input Parameters (from Main Agent)
 
@@ -22,11 +28,17 @@ The main agent provides these parameters in the prompt:
 | `userContext`          | Description of what the user wants to do, to help select relevant repos |
 | `selectedWorkspaceIds` | (Optional) Pre-selected workspace IDs to include; skip repo selection   |
 
+Additionally, the main agent may pass in repos via **MCP resource syntax** (e.g. `polygraph://repos/org/repo-name`). If the user's prompt already clearly defines which repos to use, use those directly — skip the candidates call and go straight to initializing the session. Only call `polygraph_candidates` when:
+- No repos were provided, OR
+- The user mentions they want to include additional repos beyond what was provided
+
 ## Workflow
 
 ### Step 1: Discover Candidate Repos
 
-Call the `polygraph_candidates` tool to discover available workspaces:
+**Skip this step** if repos were already provided (via `selectedWorkspaceIds` or MCP resource syntax) and the user hasn't asked to discover more.
+
+Call `polygraph_candidates` to discover available workspaces:
 
 ```
 polygraph_candidates()
@@ -97,13 +109,14 @@ Return a structured summary in this format:
 | REPO_FULL_NAME | WORKSPACE_ID | DESCRIPTION | DIRECTION (distance: N) |
 
 ### All Candidates Discovered
+(Only include this section if `polygraph_candidates` was called)
 
 | Repo | Workspace ID | Description | Selected |
 | --- | --- | --- | --- |
 | REPO_FULL_NAME | WORKSPACE_ID | DESCRIPTION | Yes/No |
 
 ### Initiator
-(Only include this section if `initiator` is non-null in the candidates response)
+(Only include this section if `polygraph_candidates` was called and `initiator` is non-null)
 - **Name:** <initiator name>
 - **Repo:** <initiator repo full name>
 ```
