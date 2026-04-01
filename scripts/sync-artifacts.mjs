@@ -169,8 +169,8 @@ function writeClaudeAgent(destPath, content, meta) {
     description: meta.description,
   };
   if (meta.model) frontmatter.model = meta.model;
-  if (meta['allowed-tools'])
-    frontmatter['allowed-tools'] = meta['allowed-tools'];
+  if (meta['tools'])
+    frontmatter['tools'] = meta['tools'];
 
   const output = serializeYamlFrontmatter(frontmatter) + content;
   writeFileSync(destPath, output);

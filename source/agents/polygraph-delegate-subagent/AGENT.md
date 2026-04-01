@@ -2,9 +2,9 @@
 name: polygraph-delegate-subagent
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 model: haiku
-allowed-tools:
-  - polygraph_delegate
-  - polygraph_child_status
+tools:
+  - mcp__plugin_polygraph_polygraph-mcp__polygraph_delegate
+  - mcp__plugin_polygraph_polygraph-mcp__polygraph_child_status
 ---
 
 # Polygraph Delegate Subagent
