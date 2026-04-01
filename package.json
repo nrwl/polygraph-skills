@@ -1,6 +1,6 @@
 {
   "name": "polygraph-skills",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI agent skills and subagents for Polygraph multi-repo coordination",
   "license": "PROPRIETARY",
   "private": false,
