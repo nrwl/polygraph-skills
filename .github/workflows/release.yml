@@ -29,7 +29,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.11.0
 
       - name: Configure git
         if: inputs.bump != 'publish-only'
