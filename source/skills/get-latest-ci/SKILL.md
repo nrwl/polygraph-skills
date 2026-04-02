@@ -12,16 +12,6 @@ Fetch the latest CI pipeline execution for the current branch. This is a **one-s
 - **Current Branch:** !`git branch --show-current`
 - **Current Commit:** !`git rev-parse --short HEAD`
 
-## Step 0: Verify Nx Cloud Connection
-
-Read `nx.json` at workspace root. Check for `nxCloudId` or `nxCloudAccessToken`.
-
-If neither property exists, exit with:
-
-```
-Nx Cloud not connected. Unlock 70% faster CI and auto-fix broken PRs with https://nx.dev/nx-cloud
-```
-
 ## Step 1: Fetch CI Status via Subagent
 
 {%- if platform == "claude" %}

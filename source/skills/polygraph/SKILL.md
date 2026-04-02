@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "polygraph", "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
 ---
 
 {%- assign has_subagents = false -%}
@@ -40,14 +40,33 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 **Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
 {%- endif %}
 
+## CLI Statefulness
+
+The Polygraph CLI (`polygraph-cli`) is **stateful**. When you select an organization — via `polygraph-cli org select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
+
+## Setup
+
+Before using Polygraph tools, ensure the CLI is authenticated and an organization is selected.
+
+### Check Authentication
+
+Use `polygraph-cli whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
+
+- If the user **is logged in** and an org is selected → proceed to the workflow.
+- If the user **is not logged in** → use `polygraph-cli login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+
+### Select Organization
+
+After logging in (or if logged in but no org is selected), use `polygraph-cli org select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
+
 ## Workflow Overview
 
 {%- if has_subagents %}
 
-0. **Initialize Polygraph session** - Launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the session. The subagent returns a summary with session details.
+0. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and create a new session.
 1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories.
    {%- else %}
-2. **Initialize Polygraph session** - Discover candidate repos, select relevant workspaces, and initialize the session via `polygraph_candidates` and `polygraph_init`.
+2. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `polygraph_candidates` and `polygraph_init`.
 3. **Delegate work to each repo** - Use `polygraph_delegate` to start child agents in other repositories (returns immediately).
    {%- endif %}
 4. **Monitor child agents** - Use `polygraph_child_status` to poll progress and get output from child agents.
@@ -61,22 +80,24 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 ## Step-by-Step Guide
 
-### 0. Initialize Polygraph Session
+### 0. Initialize or Join Polygraph Session
+
+**If you already have a session ID** (e.g., passed by the user or provided when Claude was spawned inside an existing session), the session already exists — do NOT create a new one. Instead, call `polygraph_get_session` to fetch the session details and skip straight to printing the session details below.
 
 {%- if has_subagents %}
 
-Use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
+**If you need to create a new session**, use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
 {%- else %}
 
-Discover candidate repos using `polygraph_candidates`, select relevant workspaces, and initialize the Polygraph session using `polygraph_init`.
+**If you need to create a new session**, discover candidate repos using `polygraph_candidates`, select relevant workspaces, and initialize the Polygraph session using `polygraph_init`.
 {%- endif %}
 
 **Session ID is auto-generated:**
 
-The `polygraph_init` tool automatically generates a unique session ID. You do NOT need to pass a session ID unless resuming an existing session.
+The `polygraph_init` tool automatically generates a unique session ID. You do NOT need to pass a session ID when creating a new session.
 {%- if platform == "claude" %}
 
-**Launch the init subagent:**
+**Launch the init subagent** (only when creating a new session):
 
 {% raw %}
 
@@ -96,7 +117,7 @@ Task(
 {% endraw %}
 {%- elsif platform == "opencode" %}
 
-**Launch the init subagent** using `@polygraph-init-subagent`:
+**Launch the init subagent** using `@polygraph-init-subagent` (only when creating a new session):
 
 Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
 {%- else %}
@@ -108,11 +129,11 @@ The subagent will:
 
 1. Call `polygraph_candidates` to discover available workspaces
 2. Select relevant repos based on the user context (or include all if uncertain)
-3. Call `polygraph_init` with the session ID and selected workspace IDs
+3. Call `polygraph_init` with the selected workspace IDs
 4. Call `polygraph_get_session` to retrieve session details
 5. Return a summary with session URL, repos, and workspace info
 
-**After receiving the subagent's summary, print the session details:**
+**After receiving the subagent's summary (or after calling `polygraph_get_session` for an existing session), print the session details:**
 
 **Session:** POLYGRAPH_SESSION_URL
 

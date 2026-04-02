@@ -1,6 +1,6 @@
 ---
 name: polygraph-init-subagent
-description: Discovers candidate repositories and initializes a Polygraph session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
+description: Discovers candidate repositories and initializes a Polygraph session, or fetches details of an existing session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
 model: haiku
 tools:
   - Bash
@@ -29,7 +29,7 @@ The main agent provides these parameters in the prompt:
 
 | Parameter              | Description                                                             |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `sessionId`            | (Optional) Only needed when resuming an existing session                |
+| `sessionId`            | (Optional) If provided, the session already exists — skip creation and just fetch details |
 | `userContext`          | Description of what the user wants to do, to help select relevant repos |
 | `selectedWorkspaceIds` | (Optional) Pre-selected workspace IDs to include; skip repo selection   |
 
@@ -39,9 +39,13 @@ Additionally, the main agent may pass in repos via **MCP resource syntax** (e.g.
 
 ## Workflow
 
+### If `sessionId` is provided — session already exists
+
+When the main agent passes a `sessionId`, the session was already created (e.g., via the CLI before Claude was spawned). Do NOT call `polygraph_candidates` or `polygraph_init`. Skip directly to **Step 4** to fetch the session details and then **Step 5** to return the summary.
+
 ### Step 1: Discover Candidate Repos
 
-**Skip this step** if repos were already provided (via `selectedWorkspaceIds` or MCP resource syntax) and the user hasn't asked to discover more.
+**Skip this step** if `sessionId` was provided, or if repos were already provided (via `selectedWorkspaceIds` or MCP resource syntax) and the user hasn't asked to discover more.
 
 Call `polygraph_candidates` to discover available workspaces:
 
@@ -62,6 +66,8 @@ This returns:
 
 ### Step 2: Select Relevant Repos
 
+**Skip this step** if `sessionId` was provided.
+
 If `selectedWorkspaceIds` was provided by the main agent, use those directly and skip selection.
 
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
@@ -76,6 +82,8 @@ Otherwise, analyze the candidates using the `userContext` to determine which rep
 4. If uncertain which repos are relevant, include all candidates (safe default)
 
 ### Step 3: Initialize Polygraph Session
+
+**Skip this step** if `sessionId` was provided.
 
 Call the `polygraph_init` tool:
 
@@ -129,6 +137,7 @@ Return a structured summary in this format:
 ## Important Notes
 
 - Do NOT delegate work to repos — that is the main agent's responsibility
-- Do NOT call `polygraph_delegate` — only initialize the session
+- Do NOT call `polygraph_delegate` — only initialize the session or fetch existing session details
+- If `sessionId` is provided, the session already exists — skip discovery and initialization, go straight to `polygraph_get_session`
 - If `polygraph_init` fails, return the error details so the main agent can handle it
-- Always call `polygraph_get_session` after init to get the session URL
+- Always call `polygraph_get_session` after init (or directly when joining an existing session) to get the session URL
