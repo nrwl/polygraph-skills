@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "polygraph", "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
 ---
 
 {%- assign has_subagents = false -%}
@@ -39,6 +39,25 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 **Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
 {%- endif %}
+
+## CLI Statefulness
+
+The Polygraph CLI (`polygraph-cli`) is **stateful**. When you select an organization — via `polygraph-cli org select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
+
+## Setup
+
+Before using Polygraph tools, ensure the CLI is authenticated and an organization is selected.
+
+### Check Authentication
+
+Use `polygraph-cli whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
+
+- If the user **is logged in** and an org is selected → proceed to the workflow.
+- If the user **is not logged in** → use `polygraph-cli login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+
+### Select Organization
+
+After logging in (or if logged in but no org is selected), use `polygraph-cli org select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
 
 ## Workflow Overview
 
