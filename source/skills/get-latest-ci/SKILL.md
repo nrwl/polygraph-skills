@@ -1,6 +1,8 @@
 ---
 name: get-latest-ci
 description: Fetch the latest CI pipeline execution for the current branch. Returns the most recent CIPE which may be completed, in progress, or null. Use when you need to review CI status, check failures, or inspect CI state.
+allowed-tools:
+  - mcp__plugin_nx_nx-mcp
 ---
 
 # Get Latest CI Information

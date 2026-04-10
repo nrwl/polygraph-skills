@@ -7,13 +7,8 @@ allowed-tools:
   - Read
   - Task
   - AskUserQuestion
-  - mcp__polygraph-mcp__polygraph_get_session
-  - mcp__polygraph-mcp__polygraph_delegate
-  - mcp__polygraph-mcp__polygraph_child_status
-  - mcp__polygraph-mcp__polygraph_stop_child
-  - mcp__polygraph-mcp__ci_get_logs
-  - mcp__plugin_nx_nx-mcp__ci_information
-  - mcp__plugin_nx_nx-mcp__update_self_healing_fix
+  - mcp__plugin_polygraph_polygraph-mcp
+  - mcp__plugin_nx_nx-mcp
 ---
 
 # Await Polygraph CI
