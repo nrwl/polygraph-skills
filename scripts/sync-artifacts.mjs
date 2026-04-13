@@ -185,9 +185,10 @@ function writeClaudeSkill(destPath, content, meta, config) {
     frontmatter['user-invocable'] = true;
     if (meta['argument-hint'])
       frontmatter['argument-hint'] = meta['argument-hint'];
-    if (meta['allowed-tools'])
-      frontmatter['allowed-tools'] = meta['allowed-tools'];
   }
+
+  if (meta['allowed-tools'])
+    frontmatter['allowed-tools'] = meta['allowed-tools'];
 
   if (meta.subagent) {
     frontmatter.subagent =
