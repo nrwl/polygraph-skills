@@ -1,0 +1,76 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.11.0
+
+      - name: Detect release version bump
+        id: release
+        run: |
+          before="${{ github.event.before }}"
+          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before_version="$(git show "$before:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          after_version="$(node -p "require('./package.json').version")"
+
+          if [ "$before_version" = "$after_version" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$after_version" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.release.outputs.should_publish == 'true'
+        run: npm ci
+
+      - name: Build and prepare publish artifact
+        if: steps.release.outputs.should_publish == 'true'
+        run: npm run setup-publish
+
+      - name: Create release tag
+        if: steps.release.outputs.should_publish == 'true'
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "Tag v$version already exists"
+            exit 1
+          fi
+          git tag "v$version"
+
+      - name: Publish to npm
+        if: steps.release.outputs.should_publish == 'true'
+        run: npm publish --provenance --access public
+        working-directory: dist
+
+      - name: Push release tag
+        if: steps.release.outputs.should_publish == 'true'
+        run: git push origin "v${{ steps.release.outputs.version }}"

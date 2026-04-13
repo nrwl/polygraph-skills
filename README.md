@@ -61,6 +61,12 @@ npm run sync-artifacts
 npm run setup-publish
 ```
 
+## Releasing
+
+Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
+It opens a release PR against `main` instead of pushing directly.
+When that PR is merged, the `Publish` workflow automatically tags the release and publishes it to npm.
+
 ## Learn More
 
 - **[Nx Cloud Polygraph](https://nx.dev/features/polygraph)** — Multi-repo coordination with Nx Cloud
