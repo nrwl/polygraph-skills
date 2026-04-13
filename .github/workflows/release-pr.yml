@@ -1,0 +1,58 @@
+name: Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Upgrade npm
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.11.0
+
+      - name: Prepare release
+        run: node scripts/release.mjs ${{ inputs.bump }}
+
+      - name: Read version
+        id: version
+        run: |
+          echo "value=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Open release pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: release/v${{ steps.version.outputs.value }}
+          base: main
+          title: "release: v${{ steps.version.outputs.value }}"
+          commit-message: "release: v${{ steps.version.outputs.value }}"
+          add-paths: |
+            package.json
+            package-lock.json
+          body: |
+            Automated release PR for `v${{ steps.version.outputs.value }}`.
+
+            Merge this PR into `main` to publish the release to npm automatically.
+          delete-branch: true
