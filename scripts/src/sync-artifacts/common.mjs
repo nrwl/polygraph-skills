@@ -22,7 +22,21 @@ export function renderArtifact(raw, platformKey) {
     platformKey === 'claude'
       ? result
       : result.replace(/Claude Code/g, 'AI agent');
-  return normalized.replace(/\n{3,}/g, '\n\n');
+  return normalizeLeadingFrontmatter(normalized).replace(/\n{3,}/g, '\n\n');
+}
+
+function normalizeLeadingFrontmatter(content) {
+  const frontmatter = content.match(/^---\n[\s\S]*?\n---/);
+  if (!frontmatter) {
+    return content;
+  }
+
+  const frontmatterEnd = frontmatter[0].length;
+  if (content[frontmatterEnd] === '\n' || content[frontmatterEnd] === undefined) {
+    return content;
+  }
+
+  return `${content.slice(0, frontmatterEnd)}\n${content.slice(frontmatterEnd)}`;
 }
 
 export function writeJson(path, value) {

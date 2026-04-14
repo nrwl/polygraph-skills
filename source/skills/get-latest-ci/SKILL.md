@@ -18,7 +18,7 @@ Fetch the latest CI pipeline execution for the current branch. This is a **one-s
 
 ## Step 1: Fetch CI Status via Subagent
 
-{%- if platform == "claude" %}
+{% if platform == "claude" %}
 
 Spawn a `general-purpose` subagent using the Task tool. The subagent will call the MCP tool and return results. Do NOT attempt to fetch CI information yourself — always delegate to the subagent.
 
@@ -43,7 +43,7 @@ Task(
 ```
 
 {% endraw %}
-{%- else %}
+{% else %}
 
 Call the `ci_information` tool from the nx MCP server with these parameters:
 
@@ -66,7 +66,7 @@ select: 'taskOutputSummary,suggestedFix,suggestedFixReasoning,suggestedFixDescri
 {% endraw %}
 
 Only return the first page — do not paginate.
-{%- endif %}
+{% endif %}
 
 ## Step 2: Report Results
 
@@ -183,8 +183,8 @@ When `cipeStatus == 'FAILED'` AND `failedTaskIds` is empty AND `selfHealingStatu
 ## Important
 
 - This skill is **read-only**. Do NOT apply fixes, push code, or modify anything.
-  {%- if platform == "claude" %}
+  {% if platform == "claude" %}
 - Always delegate the MCP call to a subagent. Do NOT call ci_information yourself.
-  {%- endif %}
+  {% endif %}
 - If the user wants to act on the results (apply a fix, monitor, etc.), suggest `/monitor-ci`.
 - If the subagent returns an error, report it and suggest the user check their Nx Cloud connection.
