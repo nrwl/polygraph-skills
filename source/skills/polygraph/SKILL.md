@@ -7,8 +7,10 @@ allowed-tools:
 {% endif %}
 ---
 
-{%- assign has_subagents = false -%}
-{%- if platform == "claude" or platform == "opencode" -%}{%- assign has_subagents = true -%}{%- endif -%}
+{% assign has_subagents = false %}
+{% if platform == "claude" or platform == "opencode" %}
+{% assign has_subagents = true %}
+{% endif %}
 
 # Multi-Repo Coordination with Polygraph
 
@@ -39,10 +41,10 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | — | `polygraph-cli org list` / `org select` | Organization management |
 | — | `polygraph-cli whoami` | Show current auth status and org |
 
-{%- if has_subagents %}
+{% if has_subagents %}
 
 **Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
-{%- endif %}
+{% endif %}
 
 ## CLI Statefulness
 
@@ -65,14 +67,14 @@ After logging in (or if logged in but no org is selected), use `polygraph-cli or
 
 ## Workflow Overview
 
-{%- if has_subagents %}
+{% if has_subagents %}
 
 0. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and create a new session.
 1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories.
-   {%- else %}
+   {% else %}
 2. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `polygraph_candidates` and `polygraph_init`.
 3. **Delegate work to each repo** - Use `polygraph_delegate` to start child agents in other repositories (returns immediately).
-   {%- endif %}
+   {% endif %}
 4. **Monitor child agents** - Use `polygraph_child_status` to poll progress and get output from child agents.
 5. **Stop child agents** (if needed) - Use `polygraph_stop_child` to cancel an in-progress child agent.
 6. **Push branches** - Use `polygraph_push_branch` after making commits.
@@ -88,18 +90,18 @@ After logging in (or if logged in but no org is selected), use `polygraph-cli or
 
 **If you already have a session ID** (e.g., passed by the user or provided when Claude was spawned inside an existing session), the session already exists — do NOT create a new one. Instead, call `polygraph_get_session` to fetch the session details and skip straight to printing the session details below.
 
-{%- if has_subagents %}
+{% if has_subagents %}
 
 **If you need to create a new session**, use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
-{%- else %}
+{% else %}
 
 **If you need to create a new session**, discover candidate repos using `polygraph_candidates`, select relevant workspaces, and initialize the Polygraph session using `polygraph_init`.
-{%- endif %}
+{% endif %}
 
 **Session ID is auto-generated:**
 
 The `polygraph_init` tool automatically generates a unique session ID. You do NOT need to pass a session ID when creating a new session.
-{%- if platform == "claude" %}
+{% if platform == "claude" %}
 
 **Launch the init subagent** (only when creating a new session):
 
@@ -119,15 +121,15 @@ Task(
 ```
 
 {% endraw %}
-{%- elsif platform == "opencode" %}
+{% elsif platform == "opencode" %}
 
 **Launch the init subagent** using `@polygraph-init-subagent` (only when creating a new session):
 
 Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
-{%- else %}
+{% else %}
 
 Call `polygraph_candidates` to discover available workspaces, select relevant repos based on user context, then call `polygraph_init` with the selected workspace IDs.
-{%- endif %}
+{% endif %}
 
 The subagent will:
 
@@ -153,7 +155,7 @@ The subagent will:
 
 ### 1. Delegate Work to Each Repository
 
-{%- if platform == "claude" %}
+{% if platform == "claude" %}
 
 **CRITICAL:** `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
@@ -240,7 +242,7 @@ polygraph_child_status(sessionId: "<session-id>", target: "org/repo-name", tail:
 {% endraw %}
 
 Always verify all background subagents have completed before proceeding to push branches and create PRs.
-{%- elsif platform == "opencode" %}
+{% elsif platform == "opencode" %}
 
 **CRITICAL:** `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
@@ -258,7 +260,7 @@ Use the `polygraph-delegate-subagent` agent (`@polygraph-delegate-subagent`) for
 ### 1a. Check on Child Agents
 
 Use `polygraph_child_status` to check progress:
-{%- else %}
+{% else %}
 
 Use `polygraph_delegate` to start a child agent in each target repository. The call returns immediately — use `polygraph_child_status` to poll for completion with backoff.
 
@@ -283,7 +285,7 @@ polygraph_child_status(sessionId: "<session-id>", target: "org/repo-name", tail:
 {% endraw %}
 
 Always verify all child agents have completed before proceeding to push branches and create PRs.
-{%- endif %}
+{% endif %}
 
 ### 1b. Stop an In-Progress Child Agent
 
@@ -630,30 +632,30 @@ If the session has a `plan` or `agentSessionId`, also display:
 
 ## Best Practices
 
-{%- if platform == "claude" %}
+{% if platform == "claude" %}
 
 1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `polygraph_delegate` and `polygraph_child_status` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
-   {%- elsif platform == "opencode" %}
+   {% elsif platform == "opencode" %}
 1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `polygraph_delegate` and `polygraph_child_status` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
-   {%- else %}
+   {% else %}
 1. **Delegate asynchronously** — Use `polygraph_delegate` which returns immediately, then poll with `polygraph_child_status`.
-   {%- endif %}
+   {% endif %}
 1. **Poll child status before proceeding** — Always verify child agents have completed via `polygraph_child_status` before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
-   {%- if platform == "claude" %}
+   {% if platform == "claude" %}
 1. **NEVER call `polygraph_delegate` or `polygraph_child_status` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
-   {%- elsif platform == "opencode" %}
+   {% elsif platform == "opencode" %}
 1. **NEVER call `polygraph_delegate` or `polygraph_child_status` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
-   {%- endif %}
+   {% endif %}
 1. **Use `polygraph_stop_child` to clean up** — Stop child agents that are stuck or no longer needed
-   {%- if platform == "claude" %}
+   {% if platform == "claude" %}
 1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later with `claude --continue`
-   {%- elsif platform == "opencode" %}
+   {% elsif platform == "opencode" %}
 1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later with `opencode --continue`
-   {%- else %}
+   {% else %}
 1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later.
-   {%- endif %}
+   {% endif %}
 1. **Only complete sessions when asked** — Only call `polygraph_modify_session` with `complete: true` when the user explicitly requests it. Completing a session closes all open/draft PRs and seals the session. Do not automatically complete sessions.
