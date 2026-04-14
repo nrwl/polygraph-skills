@@ -1,7 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { distDir, rootDir, sourceDir } from './paths.mjs';
-import { writeJson } from './writers.mjs';
+import { distDir, rootDir, sourceDir, writeJson } from './common.mjs';
 
 export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));

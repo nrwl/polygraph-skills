@@ -2,11 +2,11 @@ import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   readArtifact,
+  sourceDir,
+  transformContent,
   validateAgentMeta,
   validateSkillMeta,
-} from './frontmatter.mjs';
-import { sourceDir } from './paths.mjs';
-import { transformContent } from './render.mjs';
+} from './common.mjs';
 
 export function processAgents(platformKey, config) {
   if (!config.supportsAgents) {

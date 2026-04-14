@@ -1,17 +1,17 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { createPlatformConfigs } from './src/sync-artifacts/platforms.mjs';
+import {
+  createPlatformConfigs,
+  distDir,
+  legacyGeneratedDir,
+  recreateDir,
+  rootDir,
+} from './src/sync-artifacts/common.mjs';
 import { processAgents, processSkills } from './src/sync-artifacts/processors.mjs';
 import {
   finalizeClaudeDist,
   finalizeCodexDist,
   readRootPackageJson,
 } from './src/sync-artifacts/package-artifacts.mjs';
-import {
-  distDir,
-  legacyGeneratedDir,
-  rootDir,
-} from './src/sync-artifacts/paths.mjs';
-import { recreateDir } from './src/sync-artifacts/fs-utils.mjs';
 
 function runSync() {
   console.log('Syncing artifacts into dist/...\n');
