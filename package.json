@@ -21,9 +21,12 @@
   ],
   "scripts": {
     "sync-artifacts": "node scripts/sync-artifacts.mjs",
-    "build": "npm run sync-artifacts"
+    "build": "npm run sync-artifacts",
+    "test": "node --test"
   },
   "devDependencies": {
-    "liquidjs": "^10.21.0"
+    "esbuild": "^0.28.0",
+    "liquidjs": "^10.21.0",
+    "smol-toml": "^1.6.1"
   }
 }

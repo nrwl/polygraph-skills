@@ -1,5 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { buildSync } from 'esbuild';
 import { distDir, rootDir, sourceDir, writeJson } from './common.mjs';
 
 export function readRootPackageJson() {
@@ -58,7 +59,7 @@ function buildCodexPluginManifest(pkgJson) {
   };
 }
 
-function buildPublishPackageJson(pkgJson, packageName, files) {
+function buildPublishPackageJson(pkgJson, packageName, files, extraFields = {}) {
   return {
     name: packageName,
     version: pkgJson.version,
@@ -73,6 +74,7 @@ function buildPublishPackageJson(pkgJson, packageName, files) {
       access: 'public',
     },
     files,
+    ...extraFields,
   };
 }
 
@@ -121,6 +123,7 @@ export function finalizeCodexDist(pkgJson) {
   const codexDir = join(distDir, 'codex');
   const pluginDir = join(codexDir, '.codex-plugin');
   mkdirSync(pluginDir, { recursive: true });
+  bundleCodexInstaller(codexDir);
 
   writeJson(
     join(codexDir, 'package.json'),
@@ -129,9 +132,32 @@ export function finalizeCodexDist(pkgJson) {
       'skills/',
       '.mcp.json',
       'README.md',
-    ])
+      'bin/',
+    ], {
+      bin: {
+        'polygraph-codex-plugin': './bin/polygraph-codex-plugin.mjs',
+      },
+    })
   );
   writeJson(join(codexDir, '.mcp.json'), buildMcpConfig());
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
   copySharedDocs(codexDir);
+}
+
+function bundleCodexInstaller(codexDir) {
+  const outputPath = join(codexDir, 'bin', 'polygraph-codex-plugin.mjs');
+  mkdirSync(join(codexDir, 'bin'), { recursive: true });
+
+  buildSync({
+    entryPoints: [join(sourceDir, 'codex', 'bin', 'polygraph-codex-plugin.mjs')],
+    outfile: outputPath,
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    packages: 'bundle',
+    logLevel: 'silent',
+  });
+
+  chmodSync(outputPath, 0o755);
 }
