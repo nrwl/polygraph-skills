@@ -24,7 +24,6 @@
     "build": "npm run sync-artifacts"
   },
   "devDependencies": {
-    "js-yaml": "^4.1.1",
     "liquidjs": "^10.21.0"
   }
 }

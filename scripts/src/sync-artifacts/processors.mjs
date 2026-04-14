@@ -1,11 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
-  readArtifact,
+  renderArtifact,
   sourceDir,
-  transformContent,
-  validateAgentMeta,
-  validateSkillMeta,
 } from './common.mjs';
 
 export function processAgents(platformKey, config) {
@@ -30,11 +27,10 @@ export function processAgents(platformKey, config) {
     const srcPath = join(srcDir, agentDir, 'AGENT.md');
     if (!existsSync(srcPath)) continue;
 
-    const { content: rawContent, meta } = readArtifact(srcPath);
-    validateAgentMeta(meta, srcPath);
-    const content = transformContent(rawContent, platformKey);
+    const raw = readFileSync(srcPath, 'utf-8');
+    const content = renderArtifact(raw, platformKey);
     const destPath = join(destDir, `${agentDir}${config.agentsExt}`);
-    config.writeAgent(destPath, content, meta);
+    writeArtifact(destPath, content);
     count++;
   }
 
@@ -56,13 +52,12 @@ export function processSkills(platformKey, config) {
     const srcSkillFile = join(srcDir, skillDir, 'SKILL.md');
     if (!existsSync(srcSkillFile)) continue;
 
-    const { content: rawContent, meta } = readArtifact(srcSkillFile);
-    validateSkillMeta(meta, srcSkillFile);
-    const content = transformContent(rawContent, platformKey);
+    const raw = readFileSync(srcSkillFile, 'utf-8');
+    const content = renderArtifact(raw, platformKey);
 
     const destSkillDir = join(config.outputDir, config.skillsDir, skillDir);
     mkdirSync(destSkillDir, { recursive: true });
-    config.writeSkill(join(destSkillDir, config.skillsFile), content, meta, config);
+    writeArtifact(join(destSkillDir, config.skillsFile), content);
 
     const srcSkillDir = join(srcDir, skillDir);
     for (const entry of readdirSync(srcSkillDir)) {
@@ -76,4 +71,9 @@ export function processSkills(platformKey, config) {
   }
 
   console.log(`  Processed ${count} skill(s)`);
+}
+
+function writeArtifact(destPath, content) {
+  mkdirSync(dirname(destPath), { recursive: true });
+  writeFileSync(destPath, content);
 }
