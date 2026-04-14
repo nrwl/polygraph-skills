@@ -8,12 +8,12 @@
 <h1 align="center">Polygraph Skills</h1>
 
 <p align="center">
-  AI agent skills and subagents for <a href="https://nx.dev/features/polygraph">Polygraph</a> multi-repo coordination. Published as a <a href="https://www.npmjs.com/package/@nrwl/polygraph-skills">Claude Code plugin</a>.
+  AI agent skills and subagents for <a href="https://nx.dev/features/polygraph">Polygraph</a> multi-repo coordination. The build writes publishable package roots into <code>dist/</code>.
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Codex-555?logo=openai&logoColor=white&style=flat" alt="Codex">
   <img src="https://img.shields.io/badge/Claude_Code-555?logo=anthropic&logoColor=white&style=flat" alt="Claude Code">
-  <img src="https://img.shields.io/badge/Cursor-555?logo=cursor&logoColor=white&style=flat" alt="Cursor">
   <img src="https://img.shields.io/badge/GitHub_Copilot-555?logo=github&logoColor=white&style=flat" alt="GitHub Copilot">
   <img src="https://img.shields.io/badge/Gemini-555?logo=google&logoColor=white&style=flat" alt="Gemini">
   <img src="https://img.shields.io/badge/OpenCode-555?logo=terminal&logoColor=white&style=flat" alt="OpenCode">
@@ -36,17 +36,11 @@ Polygraph coordinates changes across multiple repositories using [Nx Cloud](http
 - **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session
 - **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion
 
-## Installation
+## Dist Layout
 
-### Claude Code
-
-```sh
-claude plugin add @nrwl/polygraph-skills
-```
-
-### Other agents
-
-Platform-specific outputs are generated at build time for Cursor, GitHub Copilot, Gemini, OpenCode, and Codex. Distribution for non-Claude agents is coming soon.
+- `dist/claude` — publishable Claude plugin npm package (`polygraph-claude-plugin`)
+- `dist/codex` — publishable Codex plugin npm package (`polygraph-codex-plugin`)
+- `dist/opencode` — generated OpenCode artifacts
 
 ## Development
 
@@ -54,18 +48,15 @@ Platform-specific outputs are generated at build time for Cursor, GitHub Copilot
 # Install dependencies
 npm install
 
-# Generate platform-specific outputs from source/
+# Generate dist/ directly from source/
 npm run sync-artifacts
-
-# Build dist/ for publishing
-npm run setup-publish
 ```
 
 ## Releasing
 
 Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
 It opens a release PR against `main` instead of pushing directly.
-When that PR is merged, the `Publish` workflow automatically tags the release and publishes it to npm.
+When that PR is merged, the `Publish` workflow automatically tags the release and publishes both `dist/claude` and `dist/codex` to npm.
 
 ## Learn More
 
@@ -75,4 +66,4 @@ When that PR is merged, the `Publish` workflow automatically tags the release an
 
 ## License
 
-MIT
+License information is defined in the package metadata.

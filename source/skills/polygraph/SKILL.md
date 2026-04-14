@@ -1,8 +1,10 @@
 ---
 name: polygraph
 description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, discovering how code is consumed across repositories, or starting a multi-repo coordination session. TRIGGER when user mentions "polygraph", "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+{% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
+{% endif %}
 ---
 
 {%- assign has_subagents = false -%}

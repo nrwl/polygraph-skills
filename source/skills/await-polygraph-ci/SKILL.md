@@ -1,6 +1,7 @@
 ---
 name: await-polygraph-ci
 description: Wait for CI to settle across all repos in a Polygraph session, then report results and investigate failures. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
+{% if platform == "claude" %}
 user-invocable: true
 allowed-tools:
   - Bash
@@ -9,6 +10,7 @@ allowed-tools:
   - AskUserQuestion
   - mcp__plugin_polygraph_polygraph-mcp
   - mcp__plugin_nx_nx-mcp
+{% endif %}
 ---
 
 # Await Polygraph CI

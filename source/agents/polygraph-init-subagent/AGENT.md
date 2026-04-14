@@ -1,4 +1,5 @@
 ---
+{% if platform == "claude" %}
 name: polygraph-init-subagent
 description: Discovers candidate repositories and initializes a Polygraph session, or fetches details of an existing session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
 model: haiku
@@ -7,6 +8,10 @@ tools:
   - mcp__plugin_polygraph_polygraph-mcp__polygraph_candidates
   - mcp__plugin_polygraph_polygraph-mcp__polygraph_init
   - mcp__plugin_polygraph_polygraph-mcp__polygraph_get_session
+{% elsif platform == "opencode" %}
+description: Discovers candidate repositories and initializes a Polygraph session, or fetches details of an existing session. Returns a structured summary of the session with repos, workspace IDs, and session URL.
+mode: subagent
+{% endif %}
 ---
 
 # Polygraph Init Subagent
