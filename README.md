@@ -42,6 +42,34 @@ Polygraph coordinates changes across multiple repositories using [Nx Cloud](http
 - `dist/codex` — publishable Codex plugin npm package (`polygraph-codex-plugin`)
 - `dist/opencode` — generated OpenCode artifacts
 
+## Codex Installer
+
+The publishable Codex package now exposes an explicit installer CLI:
+
+```sh
+npx polygraph-codex-plugin
+```
+
+That command copies the packaged Codex plugin payload into:
+
+```text
+$CODEX_HOME/plugins/cache/polygraph/polygraph/<version>
+```
+
+and enables the plugin in:
+
+```text
+$CODEX_HOME/config.toml
+```
+
+`CODEX_HOME` defaults to `~/.codex` when unset.
+
+To verify an install, run:
+
+```sh
+npx polygraph-codex-plugin check
+```
+
 ## Development
 
 ```sh
