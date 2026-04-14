@@ -14,7 +14,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Codex-555?logo=openai&logoColor=white&style=flat" alt="Codex">
   <img src="https://img.shields.io/badge/Claude_Code-555?logo=anthropic&logoColor=white&style=flat" alt="Claude Code">
-  <img src="https://img.shields.io/badge/Cursor-555?logo=cursor&logoColor=white&style=flat" alt="Cursor">
   <img src="https://img.shields.io/badge/GitHub_Copilot-555?logo=github&logoColor=white&style=flat" alt="GitHub Copilot">
   <img src="https://img.shields.io/badge/Gemini-555?logo=google&logoColor=white&style=flat" alt="Gemini">
   <img src="https://img.shields.io/badge/OpenCode-555?logo=terminal&logoColor=white&style=flat" alt="OpenCode">
@@ -42,7 +41,6 @@ Polygraph coordinates changes across multiple repositories using [Nx Cloud](http
 - `dist/claude` — publishable Claude plugin npm package (`polygraph-claude-plugin`)
 - `dist/codex` — publishable Codex plugin npm package (`polygraph-codex-plugin`)
 - `dist/opencode` — generated OpenCode artifacts
-- `dist/cursor` — generated Cursor artifacts
 
 ## Development
 
