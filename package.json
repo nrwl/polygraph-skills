@@ -3,26 +3,28 @@
   "version": "0.3.6",
   "description": "AI agent skills and subagents for Polygraph multi-repo coordination",
   "license": "PROPRIETARY",
-  "private": false,
+  "private": true,
   "author": {
     "name": "Narwhal Technologies Inc",
-    "email": "hello@nrwl.io"
+    "email": "hello@nrwl.io",
+    "url": "https://nx.dev"
   },
+  "homepage": "https://github.com/nrwl/polygraph-skills#readme",
   "repository": "https://github.com/nrwl/polygraph-skills",
+  "keywords": [
+    "claude",
+    "codex",
+    "nx",
+    "opencode",
+    "polygraph",
+    "skills"
+  ],
   "scripts": {
     "sync-artifacts": "node scripts/sync-artifacts.mjs",
-    "setup-publish": "npm run sync-artifacts && node scripts/setup-publish.mjs"
+    "build": "npm run sync-artifacts"
   },
-  "files": [
-    "skills/",
-    "agents/",
-    "hooks/",
-    ".mcp.json",
-    ".claude-plugin/"
-  ],
   "devDependencies": {
     "js-yaml": "^4.1.1",
-    "liquidjs": "^10.21.0",
-    "smol-toml": "^1.3.1"
+    "liquidjs": "^10.21.0"
   }
 }

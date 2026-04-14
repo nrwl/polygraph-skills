@@ -52,9 +52,9 @@ jobs:
         if: steps.release.outputs.should_publish == 'true'
         run: npm ci
 
-      - name: Build and prepare publish artifact
+      - name: Build dist artifacts
         if: steps.release.outputs.should_publish == 'true'
-        run: npm run setup-publish
+        run: npm run build
 
       - name: Create release tag
         if: steps.release.outputs.should_publish == 'true'
@@ -66,10 +66,15 @@ jobs:
           fi
           git tag "v$version"
 
-      - name: Publish to npm
+      - name: Publish Claude plugin to npm
         if: steps.release.outputs.should_publish == 'true'
         run: npm publish --provenance --access public
-        working-directory: dist
+        working-directory: dist/claude
+
+      - name: Publish Codex plugin to npm
+        if: steps.release.outputs.should_publish == 'true'
+        run: npm publish --provenance --access public
+        working-directory: dist/codex
 
       - name: Push release tag
         if: steps.release.outputs.should_publish == 'true'
