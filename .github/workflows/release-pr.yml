@@ -39,7 +39,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          echo "value=$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
+          echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Open release pull request
         uses: peter-evans/create-pull-request@v7
