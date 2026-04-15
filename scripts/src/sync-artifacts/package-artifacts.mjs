@@ -7,12 +7,14 @@ export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 }
 
-function buildMcpConfig() {
+export function buildMcpConfig() {
   return {
-    'polygraph-mcp': {
-      type: 'stdio',
-      command: 'npx',
-      args: ['polygraph-mcp@latest'],
+    mcpServers: {
+      'polygraph-mcp': {
+        type: 'stdio',
+        command: 'npx',
+        args: ['polygraph-mcp@latest'],
+      },
     },
   };
 }

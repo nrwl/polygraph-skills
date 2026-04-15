@@ -56,23 +56,28 @@ async function main() {
   } else if (command === 'check') {
     if (result.ok) {
       console.log(`Polygraph Codex plugin is enabled.`);
-      console.log(`Cache root: ${result.cacheRoot}`);
-      console.log(`Installed versions: ${result.installedVersions.join(', ')}`);
+      console.log(`Plugin path: ${result.pluginPath}`);
       console.log(`Config: ${result.configPath}`);
+      console.log(`Marketplace: ${result.marketplacePath}`);
     } else {
-      const installState =
-        result.installedVersions.length > 0
-          ? `found installed version(s): ${result.installedVersions.join(', ')}`
-          : 'no installed plugin versions found';
+      const pluginState = result.pluginInstalled
+        ? 'plugin files present'
+        : 'plugin files not present';
       const configState = result.configEnabled
         ? 'plugin enabled in config'
         : 'plugin not enabled in config';
-      console.error(`Polygraph Codex plugin check failed: ${installState}; ${configState}.`);
+      const marketplaceState = result.marketplaceConfigured
+        ? 'plugin present in marketplace'
+        : 'plugin not present in marketplace';
+      console.error(
+        `Polygraph Codex plugin check failed: ${pluginState}; ${configState}; ${marketplaceState}.`
+      );
     }
   } else {
     console.log(`Installed Polygraph Codex plugin ${result.version}.`);
-    console.log(`Cache install: ${result.installPath}`);
+    console.log(`Plugin path: ${result.pluginPath}`);
     console.log(`Config: ${result.configPath}`);
+    console.log(`Marketplace: ${result.marketplacePath}`);
   }
 
   if (command === 'check' && !result.ok) {

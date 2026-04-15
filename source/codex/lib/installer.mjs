@@ -2,22 +2,22 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
-} from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { parse, stringify } from 'smol-toml';
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse, stringify } from "smol-toml";
 
-const PLUGIN_NAME = 'polygraph';
-const PLUGIN_ID = 'polygraph@polygraph';
+const PLUGIN_NAME = "polygraph";
+const PLUGIN_ID = "polygraph@polygraph-plugins";
+const MARKETPLACE_NAME = "polygraph-plugins";
+const MARKETPLACE_DISPLAY_NAME = "Polygraph Plugins";
 
 export function getPackageRootFromMetaUrl(metaUrl) {
-  return resolve(dirname(fileURLToPath(metaUrl)), '..');
+  return resolve(dirname(fileURLToPath(metaUrl)), "..");
 }
 
 export function resolveCodexHome(env = process.env) {
@@ -27,20 +27,33 @@ export function resolveCodexHome(env = process.env) {
   }
 
   const userHome = env.HOME?.trim() || homedir();
-  return join(resolve(expandHome(userHome, env)), '.codex');
+  return join(resolve(expandHome(userHome, env)), ".codex");
 }
 
 export function getConfigPath(codexHome) {
-  return join(codexHome, 'config.toml');
+  return join(codexHome, "config.toml");
 }
 
 export function getCacheRoot(codexHome) {
-  return join(codexHome, 'plugins', 'cache', PLUGIN_NAME, PLUGIN_NAME);
+  return join(codexHome, "plugins", "cache", PLUGIN_NAME, PLUGIN_NAME);
+}
+
+export function resolveUserHome(env = process.env) {
+  const userHome = env.HOME?.trim() || homedir();
+  return resolve(expandHome(userHome, env));
+}
+
+export function getMarketplacePath(userHome) {
+  return join(userHome, ".agents", "plugins", "marketplace.json");
+}
+
+export function getPluginInstallPath(userHome) {
+  return join(userHome, ".agents", "plugins", PLUGIN_NAME);
 }
 
 export function loadPackageMetadata(packageRoot) {
-  const packageJsonPath = join(packageRoot, 'package.json');
-  const pluginManifestPath = join(packageRoot, '.codex-plugin', 'plugin.json');
+  const packageJsonPath = join(packageRoot, "package.json");
+  const pluginManifestPath = join(packageRoot, ".codex-plugin", "plugin.json");
 
   if (!existsSync(packageJsonPath)) {
     throw new Error(`Missing package.json at ${packageJsonPath}`);
@@ -50,12 +63,12 @@ export function loadPackageMetadata(packageRoot) {
     throw new Error(`Missing Codex plugin manifest at ${pluginManifestPath}`);
   }
 
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-  const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, 'utf8'));
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, "utf8"));
 
   if (pluginManifest.name !== PLUGIN_NAME) {
     throw new Error(
-      `Expected .codex-plugin/plugin.json name to be "${PLUGIN_NAME}", received "${pluginManifest.name ?? 'undefined'}"`
+      `Expected .codex-plugin/plugin.json name to be "${PLUGIN_NAME}", received "${pluginManifest.name ?? "undefined"}"`,
     );
   }
 
@@ -63,9 +76,12 @@ export function loadPackageMetadata(packageRoot) {
     throw new Error(`Missing package version in ${packageJsonPath}`);
   }
 
-  if (pluginManifest.version && pluginManifest.version !== packageJson.version) {
+  if (
+    pluginManifest.version &&
+    pluginManifest.version !== packageJson.version
+  ) {
     throw new Error(
-      `Package version mismatch: package.json has "${packageJson.version}" but plugin manifest has "${pluginManifest.version}"`
+      `Package version mismatch: package.json has "${packageJson.version}" but plugin manifest has "${pluginManifest.version}"`,
     );
   }
 
@@ -82,75 +98,96 @@ export function installPlugin({
   force = false,
 } = {}) {
   if (!packageRoot) {
-    throw new Error('packageRoot is required');
+    throw new Error("packageRoot is required");
   }
 
   const { packageJson, version } = loadPackageMetadata(packageRoot);
   const codexHome = resolveCodexHome(env);
+  const userHome = resolveUserHome(env);
   const configPath = getConfigPath(codexHome);
-  const cacheRoot = getCacheRoot(codexHome);
-  const installPath = join(cacheRoot, version);
-  const installAlreadyPresent = existsSync(installPath);
+  const marketplacePath = getMarketplacePath(userHome);
+  const pluginPath = getPluginInstallPath(userHome);
+  const installAlreadyPresent = existsSync(pluginPath);
 
-  if (installAlreadyPresent && !force && !isValidInstalledVersionDir(installPath)) {
+  if (
+    installAlreadyPresent &&
+    !force &&
+    !isValidInstalledPluginDir(pluginPath)
+  ) {
     throw new Error(
-      `Existing install at ${installPath} is incomplete or invalid. Re-run with --force to overwrite it.`
+      `Existing install at ${pluginPath} is incomplete or invalid. Re-run with --force to overwrite it.`,
     );
   }
 
   if (installAlreadyPresent && force) {
-    rmSync(installPath, { recursive: true, force: true });
+    rmSync(pluginPath, { recursive: true, force: true });
   }
 
   let copied = false;
   if (!installAlreadyPresent || force) {
-    mkdirSync(installPath, { recursive: true });
-    for (const relativePath of getPackagePayloadPaths(packageRoot, packageJson)) {
-      copyRelativeEntry(packageRoot, installPath, relativePath);
+    mkdirSync(pluginPath, { recursive: true });
+    for (const relativePath of getPackagePayloadPaths(
+      packageRoot,
+      packageJson,
+    )) {
+      copyRelativeEntry(packageRoot, pluginPath, relativePath);
     }
     copied = true;
   }
 
   const configChanged = enablePluginInConfig(configPath);
+  const marketplaceChanged = enablePluginInMarketplace({
+    marketplacePath,
+    pluginPath,
+    userHome,
+  });
 
   return {
     ok: true,
-    action: 'install',
+    action: "install",
     plugin: PLUGIN_ID,
     version,
     codexHome,
-    installPath,
+    pluginPath,
     configPath,
+    marketplacePath,
     copied,
     overwritten: installAlreadyPresent && force,
     configChanged,
+    marketplaceChanged,
   };
 }
 
-export function checkInstall({
-  packageRoot,
-  env = process.env,
-} = {}) {
+export function checkInstall({ packageRoot, env = process.env } = {}) {
   if (packageRoot) {
     loadPackageMetadata(packageRoot);
   }
 
   const codexHome = resolveCodexHome(env);
+  const userHome = resolveUserHome(env);
   const configPath = getConfigPath(codexHome);
-  const cacheRoot = getCacheRoot(codexHome);
-  const installedVersions = findInstalledVersions(cacheRoot);
+  const marketplacePath = getMarketplacePath(userHome);
+  const pluginPath = getPluginInstallPath(userHome);
+  const pluginInstalled = isValidInstalledPluginDir(pluginPath);
   const configEnabled = isPluginEnabled(configPath);
-  const ok = installedVersions.length > 0 && configEnabled;
+  const marketplaceConfigured = isPluginConfiguredInMarketplace({
+    marketplacePath,
+    userHome,
+    pluginPath,
+  });
+  const ok = pluginInstalled && configEnabled && marketplaceConfigured;
 
   return {
     ok,
-    action: 'check',
+    action: "check",
     plugin: PLUGIN_ID,
     codexHome,
-    cacheRoot,
+    pluginPath,
     configPath,
+    marketplacePath,
+    pluginInstalled,
     configEnabled,
-    installedVersions,
+    marketplaceConfigured,
   };
 }
 
@@ -158,14 +195,18 @@ export function enablePluginInConfig(configPath) {
   const config = readTomlFile(configPath);
 
   if (config.plugins !== undefined && !isPlainObject(config.plugins)) {
-    throw new Error(`Expected plugins table in ${configPath} to be a TOML table`);
+    throw new Error(
+      `Expected plugins table in ${configPath} to be a TOML table`,
+    );
   }
 
   const plugins = config.plugins ?? {};
   const pluginConfig = plugins[PLUGIN_ID];
 
   if (pluginConfig !== undefined && !isPlainObject(pluginConfig)) {
-    throw new Error(`Expected plugins."${PLUGIN_ID}" in ${configPath} to be a TOML table`);
+    throw new Error(
+      `Expected plugins."${PLUGIN_ID}" in ${configPath} to be a TOML table`,
+    );
   }
 
   const wasEnabled = pluginConfig?.enabled === true;
@@ -186,22 +227,9 @@ export function isPluginEnabled(configPath) {
   return config.plugins?.[PLUGIN_ID]?.enabled === true;
 }
 
-export function findInstalledVersions(cacheRoot) {
-  if (!existsSync(cacheRoot)) {
-    return [];
-  }
-
-  return readdirSync(cacheRoot)
-    .filter((entry) => {
-      const candidatePath = join(cacheRoot, entry);
-      return statSync(candidatePath).isDirectory() && isValidInstalledVersionDir(candidatePath, entry);
-    })
-    .sort();
-}
-
 function getPackagePayloadPaths(packageRoot, packageJson) {
   const relativePaths = new Set(packageJson.files ?? []);
-  relativePaths.add('package.json');
+  relativePaths.add("package.json");
 
   if (packageJson.bin) {
     for (const relativePath of Object.values(packageJson.bin)) {
@@ -209,7 +237,7 @@ function getPackagePayloadPaths(packageRoot, packageJson) {
     }
   }
 
-  for (const extraFile of ['README.md', 'LICENSE']) {
+  for (const extraFile of ["README.md", "LICENSE"]) {
     if (existsSync(join(packageRoot, extraFile))) {
       relativePaths.add(extraFile);
     }
@@ -227,13 +255,102 @@ function copyRelativeEntry(sourceRoot, targetRoot, relativePath) {
   cpSync(sourcePath, join(targetRoot, relativePath), { recursive: true });
 }
 
+export function enablePluginInMarketplace({
+  marketplacePath,
+  pluginPath,
+  userHome,
+}) {
+  const marketplace = readJsonFile(marketplacePath, {});
+
+  if (
+    marketplace.plugins !== undefined &&
+    !Array.isArray(marketplace.plugins)
+  ) {
+    throw new Error(`Expected plugins array in ${marketplacePath}`);
+  }
+
+  const marketplacePluginPath = toMarketplaceSourcePath(userHome, pluginPath);
+  const nextPluginEntry = {
+    name: PLUGIN_NAME,
+    source: {
+      source: "local",
+      path: marketplacePluginPath,
+    },
+    policy: {
+      installation: "AVAILABLE",
+      authentication: "ON_INSTALL",
+    },
+    category: "Productivity",
+  };
+
+  const plugins = marketplace.plugins ?? [];
+  const existingIndex = plugins.findIndex(
+    (plugin) => plugin?.name === PLUGIN_NAME,
+  );
+  const nextPlugins =
+    existingIndex === -1
+      ? [...plugins, nextPluginEntry]
+      : plugins.map((plugin, index) =>
+          index === existingIndex ? nextPluginEntry : plugin,
+        );
+
+  const nextMarketplace = {
+    ...marketplace,
+    name: marketplace.name ?? MARKETPLACE_NAME,
+    interface: isPlainObject(marketplace.interface)
+      ? {
+          ...marketplace.interface,
+          displayName:
+            marketplace.interface.displayName ?? MARKETPLACE_DISPLAY_NAME,
+        }
+      : { displayName: MARKETPLACE_DISPLAY_NAME },
+    plugins: nextPlugins,
+  };
+
+  const changed =
+    JSON.stringify(nextMarketplace) !== JSON.stringify(marketplace);
+  if (changed) {
+    writeJsonFile(marketplacePath, nextMarketplace);
+  }
+
+  return changed;
+}
+
+export function isPluginConfiguredInMarketplace({
+  marketplacePath,
+  userHome,
+  pluginPath,
+}) {
+  if (!existsSync(marketplacePath)) {
+    return false;
+  }
+
+  const marketplace = readJsonFile(marketplacePath);
+  if (!Array.isArray(marketplace.plugins)) {
+    return false;
+  }
+
+  const pluginEntry = marketplace.plugins.find(
+    (plugin) => plugin?.name === PLUGIN_NAME,
+  );
+  if (
+    !isPlainObject(pluginEntry?.source) ||
+    pluginEntry.source.source !== "local"
+  ) {
+    return false;
+  }
+
+  const configuredPath = resolve(userHome, pluginEntry.source.path);
+  return configuredPath === resolve(pluginPath);
+}
+
 function readTomlFile(path) {
   if (!existsSync(path)) {
     return {};
   }
 
-  const raw = readFileSync(path, 'utf8');
-  if (raw.trim() === '') {
+  const raw = readFileSync(path, "utf8");
+  if (raw.trim() === "") {
     return {};
   }
 
@@ -249,48 +366,77 @@ function writeTomlFile(path, value) {
   writeFileSync(path, `${stringify(value).trimEnd()}\n`);
 }
 
-function isValidInstalledVersionDir(candidatePath, expectedVersion) {
-  const pluginManifestPath = join(candidatePath, '.codex-plugin', 'plugin.json');
-  const mcpConfigPath = join(candidatePath, '.mcp.json');
-  const skillsPath = join(candidatePath, 'skills');
+function readJsonFile(path, fallbackValue) {
+  if (!existsSync(path)) {
+    return fallbackValue;
+  }
 
-  if (!existsSync(pluginManifestPath) || !existsSync(mcpConfigPath) || !existsSync(skillsPath)) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function writeJsonFile(path, value) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function isValidInstalledPluginDir(candidatePath) {
+  const pluginManifestPath = join(
+    candidatePath,
+    ".codex-plugin",
+    "plugin.json",
+  );
+  const mcpConfigPath = join(candidatePath, ".mcp.json");
+  const skillsPath = join(candidatePath, "skills");
+
+  if (
+    !existsSync(pluginManifestPath) ||
+    !existsSync(mcpConfigPath) ||
+    !existsSync(skillsPath)
+  ) {
     return false;
   }
 
   try {
-    const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, 'utf8'));
-    if (pluginManifest.name !== PLUGIN_NAME) {
-      return false;
-    }
-
-    if (expectedVersion && pluginManifest.version && pluginManifest.version !== expectedVersion) {
-      return false;
-    }
-
-    return true;
+    const pluginManifest = JSON.parse(readFileSync(pluginManifestPath, "utf8"));
+    return pluginManifest.name === PLUGIN_NAME;
   } catch {
     return false;
   }
 }
 
 function expandHome(inputPath, env) {
-  if (!inputPath.startsWith('~')) {
+  if (!inputPath.startsWith("~")) {
     return inputPath;
   }
 
   const userHome = env.HOME?.trim() || homedir();
-  if (inputPath === '~') {
+  if (inputPath === "~") {
     return userHome;
   }
 
-  if (inputPath.startsWith('~/')) {
+  if (inputPath.startsWith("~/")) {
     return join(userHome, inputPath.slice(2));
   }
 
   return inputPath;
 }
 
+function toMarketplaceSourcePath(userHome, targetPath) {
+  const relativePath = relative(userHome, targetPath);
+  if (
+    relativePath === "" ||
+    relativePath === "." ||
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath === ".."
+  ) {
+    throw new Error(
+      `Expected plugin install path ${targetPath} to be inside ${userHome} so it can be referenced from the personal marketplace`,
+    );
+  }
+
+  return `./${relativePath.split(sep).join("/")}`;
+}
+
 function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
