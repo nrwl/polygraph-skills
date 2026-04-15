@@ -50,13 +50,19 @@ The publishable Codex package now exposes an explicit installer CLI:
 npx polygraph-codex-plugin
 ```
 
-That command copies the packaged Codex plugin payload into:
+That command copies the packaged Codex plugin into:
 
 ```text
-$CODEX_HOME/plugins/cache/polygraph/polygraph/<version>
+~/.agents/plugins/polygraph
 ```
 
-and enables the plugin in:
+updates the personal Codex marketplace at:
+
+```text
+~/.agents/plugins/marketplace.json
+```
+
+so the `polygraph` plugin points at `./.agents/plugins/polygraph`, and enables the plugin in:
 
 ```text
 $CODEX_HOME/config.toml

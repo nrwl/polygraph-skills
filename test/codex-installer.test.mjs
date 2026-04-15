@@ -22,15 +22,37 @@ test('resolveCodexHome respects CODEX_HOME and falls back to HOME', () => {
 });
 
 test('installPlugin copies the package payload and preserves unrelated config', () => {
-  const fixture = createFixturePackage();
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
   const codexHome = join(homeDir, '.codex');
   const configPath = join(codexHome, 'config.toml');
+  const marketplacePath = join(homeDir, '.agents', 'plugins', 'marketplace.json');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
 
   mkdirSync(codexHome, { recursive: true });
   writeFileSync(
     configPath,
     ['default_model = "gpt-5"', '', '[plugins."other@vendor"]', 'enabled = false', ''].join('\n')
+  );
+  mkdirSync(join(homeDir, '.agents', 'plugins'), { recursive: true });
+  writeFileSync(
+    marketplacePath,
+    JSON.stringify(
+      {
+        name: 'existing-marketplace',
+        plugins: [
+          {
+            name: 'other-plugin',
+            source: {
+              source: 'local',
+              path: './plugins/other-plugin',
+            },
+          },
+        ],
+      },
+      null,
+      2
+    )
   );
 
   const result = installPlugin({
@@ -40,21 +62,40 @@ test('installPlugin copies the package payload and preserves unrelated config', 
 
   assert.equal(result.ok, true);
   assert.equal(result.copied, true);
-  assert.equal(
-    existsSync(join(result.installPath, '.codex-plugin', 'plugin.json')),
-    true
-  );
-  assert.equal(existsSync(join(result.installPath, 'skills', 'polygraph', 'SKILL.md')), true);
+  assert.equal(result.pluginPath, installedPluginPath);
+  assert.equal(existsSync(join(result.pluginPath, '.codex-plugin', 'plugin.json')), true);
+  assert.equal(existsSync(join(result.pluginPath, 'skills', 'polygraph', 'SKILL.md')), true);
+  assert.equal(result.marketplacePath, marketplacePath);
 
   const config = parse(readFileSync(configPath, 'utf8'));
   assert.equal(config.default_model, 'gpt-5');
   assert.equal(config.plugins['other@vendor'].enabled, false);
-  assert.equal(config.plugins['polygraph@polygraph'].enabled, true);
+  assert.equal(config.plugins['polygraph@polygraph-plugins'].enabled, true);
+
+  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf8'));
+  assert.equal(marketplace.name, 'existing-marketplace');
+  assert.deepEqual(marketplace.interface, { displayName: 'Polygraph Plugins' });
+  assert.equal(marketplace.plugins.some((plugin) => plugin.name === 'other-plugin'), true);
+  assert.deepEqual(
+    marketplace.plugins.find((plugin) => plugin.name === 'polygraph'),
+    {
+      name: 'polygraph',
+      source: {
+        source: 'local',
+        path: './.agents/plugins/polygraph',
+      },
+      policy: {
+        installation: 'AVAILABLE',
+        authentication: 'ON_INSTALL',
+      },
+      category: 'Productivity',
+    }
+  );
 });
 
 test('installPlugin is idempotent and checkInstall succeeds after install', () => {
-  const fixture = createFixturePackage();
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
   const codexHome = join(homeDir, '.codex');
   const configPath = join(codexHome, 'config.toml');
 
@@ -78,23 +119,17 @@ test('installPlugin is idempotent and checkInstall succeeds after install', () =
   });
 
   assert.equal(check.ok, true);
-  assert.deepEqual(check.installedVersions, [firstInstall.version]);
+  assert.equal(check.pluginInstalled, true);
+  assert.equal(check.marketplaceConfigured, true);
 });
 
 test('installPlugin refuses to reuse an invalid target without --force', () => {
-  const fixture = createFixturePackage();
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
   const codexHome = join(homeDir, '.codex');
-  const installPath = join(
-    codexHome,
-    'plugins',
-    'cache',
-    'polygraph',
-    'polygraph',
-    fixture.version
-  );
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
 
-  mkdirSync(installPath, { recursive: true });
+  mkdirSync(installedPluginPath, { recursive: true });
 
   assert.throws(
     () =>
@@ -114,8 +149,8 @@ test('installPlugin refuses to reuse an invalid target without --force', () => {
   assert.equal(forced.overwritten, true);
 });
 
-function createFixturePackage() {
-  const packageRoot = mkdtempSync(join(tmpdir(), 'polygraph-package-'));
+function createFixturePackage(baseDir = tmpdir()) {
+  const packageRoot = mkdtempSync(join(baseDir, 'polygraph-package-'));
   const version = '1.2.3';
 
   mkdirSync(join(packageRoot, '.codex-plugin'), { recursive: true });
