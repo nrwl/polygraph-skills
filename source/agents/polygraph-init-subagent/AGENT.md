@@ -24,9 +24,9 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `polygraph_candidates` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
-| `polygraph_init` | `polygraph-cli session start --repo <ids>` | Initialize a session with selected workspaces |
-| `polygraph_get_session` | `polygraph-cli session status <id>` | Get full session details including URL |
+| `polygraph_candidates` | `polygraph repo list` | Discover candidate workspaces with descriptions and graph relationships |
+| `polygraph_init` | `polygraph session start --repo <ids>` | Initialize a session with selected workspaces |
+| `polygraph_get_session` | `polygraph session status <id>` | Get full session details including URL |
 
 ## Input Parameters (from Main Agent)
 
