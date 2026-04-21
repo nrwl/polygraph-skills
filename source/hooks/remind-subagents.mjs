@@ -11,7 +11,7 @@ console.log(
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       systemMessage:
-        'REMINDER: polygraph_delegate and polygraph_child_status should be called via background subagents (polygraph-delegate-subagent), not directly. Direct calls flood the context window with polling noise. If you are already inside a subagent, ignore this reminder.',
+        'REMINDER: spawn_agent and show_agent should be called via background subagents (polygraph-delegate-subagent), not directly. Direct calls flood the context window with polling noise. If you are already inside a subagent, ignore this reminder.',
     },
   })
 );

@@ -4,8 +4,8 @@ name: polygraph-delegate-subagent
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 model: haiku
 tools:
-  - mcp__plugin_polygraph_polygraph-mcp__polygraph_delegate
-  - mcp__plugin_polygraph_polygraph-mcp__polygraph_child_status
+  - mcp__plugin_polygraph_polygraph-mcp__spawn_agent
+  - mcp__plugin_polygraph_polygraph-mcp__show_agent
 {% elsif platform == "opencode" %}
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 mode: subagent
@@ -33,10 +33,10 @@ The main agent provides these parameters in the prompt:
 
 ### Step 1: Delegate Work
 
-Call the `polygraph_delegate` tool to start a child agent in the target repository:
+Call the `spawn_agent` tool to start a child agent in the target repository:
 
 ```
-polygraph_delegate(
+spawn_agent(
   sessionId: "<sessionId>",
   target: "<target>",
   instruction: "<instruction>",
@@ -48,10 +48,10 @@ This returns immediately — the child agent runs asynchronously.
 
 ### Step 2: Poll for Completion
 
-Poll `polygraph_child_status` with exponential backoff until the child agent completes:
+Poll `show_agent` with exponential backoff until the child agent completes:
 
 ```
-polygraph_child_status(
+show_agent(
   sessionId: "<sessionId>",
   target: "<target>",
   tail: 5
@@ -69,15 +69,15 @@ polygraph_child_status(
 
 Use `sleep` in Bash between polls. Always run sleep in the **foreground** (never background).
 
-### Step 3: Parse Status from NDJSON Logs
+### Step 3: Parse Status
 
-The `polygraph_child_status` response contains NDJSON log entries. Parse the last entry to determine status:
+The `show_agent` response returns child agent records with a `status` field and recent output in `lastOutputLines`. Use the record for the requested target to determine status:
 
-| Condition                                                | Status      |
-| -------------------------------------------------------- | ----------- |
-| Last line has `type: "result"` with `subtype: "success"` | Completed   |
-| Last line has `type: "result"` with `is_error: true`     | Failed      |
-| No `type: "result"` entry                                | In Progress |
+| Condition | Status |
+| --- | --- |
+| `status` is `completed` | Completed |
+| `status` is `failed` or `cancelled` | Failed |
+| `status` is `created` or `in-progress` | In Progress |
 
 If still in progress, continue polling (step 2).
 
@@ -109,15 +109,15 @@ If polling exceeds **30 minutes**, return with a timeout status:
 **Elapsed:** <minutes>m
 
 ### Suggestions
-- Check child agent status manually via `polygraph_child_status`
-- Consider stopping the child agent via `polygraph_stop_child`
+- Check child agent status manually via `show_agent`
+- Consider stopping the child agent via `stop_agent`
 ```
 
 ## Important Notes
 
 - You run in the background — write clear status lines so the main agent can parse your output file
 - Do NOT make decisions about the work — only delegate and monitor
-- Do NOT call `polygraph_push_branch` or `polygraph_create_prs` — those are the main agent's responsibility
-- If `polygraph_delegate` fails, return the error immediately
-- If `polygraph_child_status` returns an error, wait and retry (count as failed poll)
+- Do NOT call `push_branch` or `create_pr` — those are the main agent's responsibility
+- If `spawn_agent` fails, return the error immediately
+- If `show_agent` returns an error, wait and retry (count as failed poll)
 - After 5 consecutive poll failures, return with `status: error`
