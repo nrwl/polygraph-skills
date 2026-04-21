@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__.*polygraph_delegate|mcp__.*polygraph_child_status",
+        "matcher": "mcp__.*spawn_agent|mcp__.*show_agent",
         "hooks": [
           {
             "type": "command",

@@ -14,7 +14,7 @@ allowed-tools:
 
 # Multi-Repo Coordination with Polygraph
 
-**IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `polygraph_delegate` tool to perform work in other repositories.
+**IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `spawn_agent` tool to perform work in other repositories.
 
 This skill provides guidance for working on features that span multiple repositories using Polygraph for coordination.
 
@@ -24,18 +24,19 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `polygraph_candidates` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
-| `polygraph_init` | `polygraph-cli session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
-| `polygraph_delegate` | — | Start a task in a child agent in another repository (non-blocking) |
-| `polygraph_child_status` | — | Get the status and recent output of child agents |
-| `polygraph_stop_child` | — | Stop an in-progress child agent |
-| `polygraph_push_branch` | — | Push a local git branch to the remote repository |
-| `polygraph_create_prs` | — | Create draft PRs with session metadata linking related PRs |
-| `polygraph_get_session` | `polygraph-cli session status <id>` | Query status of the current session |
-| `polygraph_mark_ready` | — | Mark draft PRs as ready for review |
-| `polygraph_associate_pr` | — | Associate an existing PR with a session |
-| `polygraph_modify_session` | `polygraph-cli session complete <id>` | Modify or complete a session (complete closes all PRs and seals it) |
-| `ci_get_logs` | — | Retrieve full plain-text log for a specific CI job |
+| `list_repos` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
+| `start_session` | `polygraph-cli session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
+| `spawn_agent` | — | Start a task in a child agent in another repository (non-blocking) |
+| `show_agent` | — | Get the status and recent output of child agents |
+| `stop_agent` | — | Stop an in-progress child agent |
+| `push_branch` | — | Push a local git branch to the remote repository |
+| `create_pr` | — | Create draft PRs with session metadata linking related PRs |
+| `show_session` | `polygraph-cli session status <id>` | Query status of the current session |
+| `mark_pr_ready` | — | Mark draft PRs as ready for review |
+| `associate_pr` | — | Associate an existing PR with a session |
+| `add_repo` | — | Add workspaces to a running Polygraph session |
+| `complete_session` | `polygraph-cli session complete <id>` | Mark a session complete |
+| `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
 | — | `polygraph-cli login [--token]` | Authenticate with Nx Cloud (use `--token` for headless/CI) |
 | — | `polygraph-cli session list` | List all sessions |
 | — | `polygraph-cli org list` / `org select` | Organization management |
@@ -43,7 +44,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 {% if has_subagents %}
 
-**Delegation rules:** `polygraph_candidates` and `polygraph_init` MUST be called via the `polygraph-init-subagent` as described in step 0. `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
+**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in step 0. `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in step 1 — NEVER call them directly in the main conversation.
 {% endif %}
 
 ## CLI Statefulness
@@ -69,38 +70,38 @@ After logging in (or if logged in but no org is selected), use `polygraph-cli or
 
 {% if has_subagents %}
 
-0. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and create a new session.
+0. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. Otherwise, launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and create a new session.
 1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories.
    {% else %}
-2. **Initialize or join Polygraph session** - If you already have a session ID, call `polygraph_get_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `polygraph_candidates` and `polygraph_init`.
-3. **Delegate work to each repo** - Use `polygraph_delegate` to start child agents in other repositories (returns immediately).
+2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `list_repos` and `start_session`.
+3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately).
    {% endif %}
-4. **Monitor child agents** - Use `polygraph_child_status` to poll progress and get output from child agents.
-5. **Stop child agents** (if needed) - Use `polygraph_stop_child` to cancel an in-progress child agent.
-6. **Push branches** - Use `polygraph_push_branch` after making commits.
-7. **Create draft PRs** - Use `polygraph_create_prs` to create linked draft PRs. Both `plan` and `agentSessionId` are required.
-8. **Associate existing PRs** (optional) - Use `polygraph_associate_pr` to link PRs created outside Polygraph.
-9. **Query PR status** - Use `polygraph_get_session` to check progress.
-10. **Mark PRs ready** - Use `polygraph_mark_ready` when work is complete.
-11. **Complete session** - Use `polygraph_modify_session` with `complete: true` to mark the session as completed when the user requests it.
+4. **Monitor child agents** - Use `show_agent` to poll progress and get output from child agents.
+5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent.
+6. **Push branches** - Use `push_branch` after making commits.
+7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Both `plan` and `agentSessionId` are required.
+8. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
+9. **Query PR status** - Use `show_session` to check progress.
+10. **Mark PRs ready** - Use `mark_pr_ready` when work is complete.
+11. **Complete session** - Use `complete_session` to mark the session as completed when the user requests it.
 
 ## Step-by-Step Guide
 
 ### 0. Initialize or Join Polygraph Session
 
-**If you already have a session ID** (e.g., passed by the user or provided when Claude was spawned inside an existing session), the session already exists — do NOT create a new one. Instead, call `polygraph_get_session` to fetch the session details and skip straight to printing the session details below.
+**If you already have a session ID** (e.g., passed by the user or provided when Claude was spawned inside an existing session), the session already exists — do NOT create a new one. Instead, call `show_session` to fetch the session details and skip straight to printing the session details below.
 
 {% if has_subagents %}
 
-**If you need to create a new session**, use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
+**If you need to create a new session**, use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `list_repos` and `start_session` and returns a structured summary.
 {% else %}
 
-**If you need to create a new session**, discover candidate repos using `polygraph_candidates`, select relevant workspaces, and initialize the Polygraph session using `polygraph_init`.
+**If you need to create a new session**, discover candidate repos using `list_repos`, select relevant workspaces, and initialize the Polygraph session using `start_session`.
 {% endif %}
 
 **Session ID is auto-generated:**
 
-The `polygraph_init` tool automatically generates a unique session ID. You do NOT need to pass a session ID when creating a new session.
+The `start_session` tool automatically generates a unique session ID. You do NOT need to pass a session ID when creating a new session.
 {% if platform == "claude" %}
 
 **Launch the init subagent** (only when creating a new session):
@@ -125,21 +126,21 @@ Task(
 
 **Launch the init subagent** using `@polygraph-init-subagent` (only when creating a new session):
 
-Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `polygraph_candidates` and `polygraph_init` and returns a structured summary.
+Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `list_repos` and `start_session` and returns a structured summary.
 {% else %}
 
-Call `polygraph_candidates` to discover available workspaces, select relevant repos based on user context, then call `polygraph_init` with the selected workspace IDs.
+Call `list_repos` to discover available workspaces, select relevant repos based on user context, then call `start_session` with the selected workspace IDs.
 {% endif %}
 
 The subagent will:
 
-1. Call `polygraph_candidates` to discover available workspaces
+1. Call `list_repos` to discover available workspaces
 2. Select relevant repos based on the user context (or include all if uncertain)
-3. Call `polygraph_init` with the selected workspace IDs
-4. Call `polygraph_get_session` to retrieve session details
+3. Call `start_session` with the selected workspace IDs
+4. Call `show_session` to retrieve session details
 5. Return a summary with session URL, repos, and workspace info
 
-**After receiving the subagent's summary (or after calling `polygraph_get_session` for an existing session), print the session details:**
+**After receiving the subagent's summary (or after calling `show_session` for an existing session), print the session details:**
 
 **Session:** POLYGRAPH_SESSION_URL
 
@@ -150,21 +151,21 @@ The subagent will:
 | REPO_FULL_NAME | LOCAL_PATH |
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName`
-- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `polygraph_child_status`.
+- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `show_agent`.
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 
 ### 1. Delegate Work to Each Repository
 
 {% if platform == "claude" %}
 
-**CRITICAL:** `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
+**CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
 To delegate work to another repository, use the `Task` tool with `run_in_background: true` to launch a **background subagent** that handles the entire delegate-and-poll cycle. This keeps the noisy polling output hidden from the user — they only see a clean summary when the work completes.
 
 **How it works:**
 
 1. You launch a background `Task` subagent for each target repo
-2. The subagent calls `polygraph_delegate` to start the child agent, then polls `polygraph_child_status` with backoff until completion
+2. The subagent calls `spawn_agent` to start the child agent, then polls `show_agent` with backoff until completion
 3. The subagent returns a summary of what happened
 4. You can check progress anytime by reading the subagent's output file
 
@@ -207,7 +208,7 @@ Read(output_file_from_task_2)
 
 {% endraw %}
 
-You MUST ALWAYS use background Task subagents for delegation. NEVER call `polygraph_delegate` or `polygraph_child_status` directly in the main conversation — doing so floods the context window with polling output.
+You MUST ALWAYS use background Task subagents for delegation. NEVER call `spawn_agent` or `show_agent` directly in the main conversation — doing so floods the context window with polling output.
 
 ### 1a. Check on Background Subagents
 
@@ -231,12 +232,12 @@ Bash("tail -50 <output_file_path>")
 
 {% endraw %}
 
-In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `polygraph_child_status` as a one-off tool call. Do NOT use this for regular polling — that MUST happen in background subagents:
+In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `show_agent` as a one-off tool call. Do NOT use this for regular polling — that MUST happen in background subagents:
 
 {% raw %}
 
 ```
-polygraph_child_status(sessionId: "<session-id>", target: "org/repo-name", tail: 5)
+show_agent(sessionId: "<session-id>", target: "org/repo-name", tail: 5)
 ```
 
 {% endraw %}
@@ -244,9 +245,9 @@ polygraph_child_status(sessionId: "<session-id>", target: "org/repo-name", tail:
 Always verify all background subagents have completed before proceeding to push branches and create PRs.
 {% elsif platform == "opencode" %}
 
-**CRITICAL:** `polygraph_delegate` and `polygraph_child_status` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
+**CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-Use the `polygraph-delegate-subagent` agent (`@polygraph-delegate-subagent`) for each target repository. The subagent handles calling `polygraph_delegate` to start the child agent, then polls `polygraph_child_status` with backoff until completion, and returns a structured summary.
+Use the `polygraph-delegate-subagent` agent (`@polygraph-delegate-subagent`) for each target repository. The subagent handles calling `spawn_agent` to start the child agent, then polls `show_agent` with backoff until completion, and returns a structured summary.
 
 **For each target repo**, invoke `@polygraph-delegate-subagent` with:
 
@@ -259,27 +260,27 @@ Use the `polygraph-delegate-subagent` agent (`@polygraph-delegate-subagent`) for
 
 ### 1a. Check on Child Agents
 
-Use `polygraph_child_status` to check progress:
+Use `show_agent` to check progress:
 {% else %}
 
-Use `polygraph_delegate` to start a child agent in each target repository. The call returns immediately — use `polygraph_child_status` to poll for completion with backoff.
+Use `spawn_agent` to start a child agent in each target repository. The call returns immediately — use `show_agent` to poll for completion with backoff.
 
 **For each target repo:**
 
-1. Call `polygraph_delegate` with `sessionId`, `target`, and `instruction`
-2. Poll `polygraph_child_status` periodically until the child agent completes
+1. Call `spawn_agent` with `sessionId`, `target`, and `instruction`
+2. Poll `show_agent` periodically until the child agent completes
 3. Review the child agent's output before proceeding
 
-**Delegate to multiple repos** by calling `polygraph_delegate` for each repo, then polling their status.
+**Delegate to multiple repos** by calling `spawn_agent` for each repo, then polling their status.
 
 ### 1a. Check on Child Agents
 
-Use `polygraph_child_status` to check progress:
+Use `show_agent` to check progress:
 
 {% raw %}
 
 ```
-polygraph_child_status(sessionId: "<session-id>", target: "org/repo-name", tail: 5)
+show_agent(sessionId: "<session-id>", target: "org/repo-name", tail: 5)
 ```
 
 {% endraw %}
@@ -289,7 +290,7 @@ Always verify all child agents have completed before proceeding to push branches
 
 ### 1b. Stop an In-Progress Child Agent
 
-Use `polygraph_stop_child` to cancel an in-progress child agent. Use this if a child agent is stuck, taking too long, or if you need to cancel delegated work.
+Use `stop_agent` to cancel an in-progress child agent. Use this if a child agent is stuck, taking too long, or if you need to cancel delegated work.
 
 **Parameters:**
 
@@ -297,10 +298,10 @@ Use `polygraph_stop_child` to cancel an in-progress child agent. Use this if a c
 - `target` (required): Repository name or workspace ID of the child agent to stop
 
 ```
-polygraph_stop_child(sessionId: "<session-id>", target: "org/repo-name")
+stop_agent(sessionId: "<session-id>", target: "org/repo-name")
 ```
 
-**After stopping a child agent**, always print instructions for the user to continue work manually in the child repo. Get the repo path from the `cwd` field in the `system` init log entry (available via `polygraph_child_status`).
+**After stopping a child agent**, always print instructions for the user to continue work manually in the child repo. Get the repo path from the `cwd` field in the `system` init log entry (available via `show_agent`).
 
 Display:
 
@@ -315,25 +316,25 @@ Where `<path>` is the absolute path to the child repo clone (e.g., `/var/folders
 
 ### 2. Push Branches
 
-Once work is complete in a repository, push the branch using `polygraph_push_branch`. This must be done before creating a PR.
+Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
-- `repoPath` (required): Absolute file system path to the local git repository
+- `target` (required): Repository name or workspace ID to push from
 - `branch` (required): Branch name to push to remote
 
 ```
-polygraph_push_branch(
+push_branch(
   sessionId: "<session-id>",
-  repoPath: "/path/to/cloned/repo",
+  target: "org/repo-name",
   branch: "polygraph/ad5fa-add-user-preferences"
 )
 ```
 
 ### 3. Create Draft PRs
 
-Create PRs for all repositories at once using `polygraph_create_prs`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first.
+Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first.
 
 **Parameters:**
 
@@ -348,7 +349,7 @@ Create PRs for all repositories at once using `polygraph_create_prs`. PRs are cr
 - `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
 
 ```
-polygraph_create_prs(
+create_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
   agentSessionId: "<claude-session-id>",
@@ -379,7 +380,7 @@ polygraph_create_prs(
 
 ### 4. Get Current Polygraph Session
 
-Check the status of a session using `polygraph_get_session`. Returns the full session state including workspaces, PRs, CI status, and the Polygraph session URL.
+Check the status of a session using `show_session`. Returns the full session state including workspaces, PRs, CI status, and the Polygraph session URL.
 
 **Parameters:**
 
@@ -420,18 +421,18 @@ Check the status of a session using `polygraph_get_session`. Returns the full se
     - `conclusion`: Run conclusion (`success`, `failure`, `cancelled`, `timed_out`, or null)
     - `url`: GitHub Actions run URL
     - `jobs`: Array of jobs in the run, each with:
-      - `jobId`: Job ID (use with `ci_get_logs`)
+      - `jobId`: Job ID (use with `get_ci_logs`)
       - `name`: Job name
       - `status`: Job status
       - `conclusion`: Job conclusion (or null)
 
 ```
-polygraph_get_session(sessionId: "<session-id>")
+show_session(sessionId: "<session-id>")
 ```
 
 ### 5. Mark PRs Ready
 
-Once all changes are verified and ready to merge, use `polygraph_mark_ready` to transition PRs from DRAFT to OPEN status.
+Once all changes are verified and ready to merge, use `mark_pr_ready` to transition PRs from DRAFT to OPEN status.
 
 **Parameters:**
 
@@ -441,7 +442,7 @@ Once all changes are verified and ready to merge, use `polygraph_mark_ready` to 
 - `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
 
 ```
-polygraph_mark_ready(
+mark_pr_ready(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
   agentSessionId: "<claude-session-id>",
@@ -452,7 +453,7 @@ polygraph_mark_ready(
 )
 ```
 
-**After marking PRs as ready**, always print the Polygraph session URL so the user can easily access the session overview. Call `polygraph_get_session` and display:
+**After marking PRs as ready**, always print the Polygraph session URL so the user can easily access the session overview. Call `show_session` and display:
 
 ```
 **Polygraph session:** POLYGRAPH_SESSION_URL
@@ -462,7 +463,7 @@ Where `POLYGRAPH_SESSION_URL` is from `polygraphSessionUrl` in the response.
 
 ### 6. Associate Existing PRs
 
-Use `polygraph_associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
+Use `associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
 
 Provide either a `prUrl` to associate a specific PR, or a `branch` name to find and associate PRs matching that branch across session workspaces.
 
@@ -475,7 +476,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name to find 
 - `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
 
 ```
-polygraph_associate_pr(
+associate_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
   agentSessionId: "<claude-session-id>",
@@ -486,7 +487,7 @@ polygraph_associate_pr(
 Or by branch:
 
 ```
-polygraph_associate_pr(
+associate_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
   agentSessionId: "<claude-session-id>",
@@ -496,37 +497,47 @@ polygraph_associate_pr(
 
 **Returns** the list of PRs now associated with the session.
 
-### 7. Complete Session
+### 7. Add Repositories to a Session
+
+Use `add_repo` to add workspaces to an existing Polygraph session after it has already started.
+
+**Parameters:**
+
+- `sessionId` (required): The Polygraph session ID
+- `repoIds` (required): Workspace IDs or repository IDs to add. Use `list_repos` to discover available workspaces.
+
+```
+add_repo(
+  sessionId: "<session-id>",
+  repoIds: ["<workspace-id>"]
+)
+```
+
+### 8. Complete Session
 
 **IMPORTANT: Only call this tool when the user explicitly asks to complete or close the session.** Do not automatically complete sessions as part of the workflow.
 
-**⚠️ Warning:** Completing a session is a **destructive action**. It will close all associated open and draft PRs. Only complete a session when the user explicitly confirms they want to close all PRs and seal the session.
+**Warning:** Completing a session seals it from further modifications. Only complete a session when the user explicitly confirms they are done coordinating the session.
 
-Use `polygraph_modify_session` with `complete: true` to mark the session as completed. Completing a session will:
+Use `complete_session` to mark the session as completed. Completing a session will:
 
 - **Mark the session as completed** and sealed from further modifications (no new PRs, status changes, etc.)
-- **Close all open and draft PRs** associated with the session
-- Return a `closedPRs` list in the response showing which PRs were closed and whether each close succeeded
 
 This is idempotent — completing an already-completed session returns success.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
+- `clean` (optional): Remove local session worktrees after marking the session complete
 
 **Returns:**
 
 - `sessionId`: The session ID
 - `completed`: Boolean indicating completion status
-- `closedPRs`: Array of objects for each PR that was closed, each containing:
-  - `url`: The PR URL
-  - `success`: Boolean indicating whether the close succeeded
-  - `error` (optional): Error message if the close failed
 
 ```
-polygraph_modify_session(
-  sessionId: "<session-id>",
-  complete: true
+complete_session(
+  sessionId: "<session-id>"
 )
 ```
 
@@ -540,15 +551,15 @@ polygraph_modify_session(
 
 ### Retrieving CI Job Logs
 
-Use `ci_get_logs` to retrieve the full plain-text log for a specific CI job. This is the drill-in tool for investigating CI failures after identifying a failed job from the session's CI status.
+Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. This is the drill-in tool for investigating CI failures after identifying a failed job from the session's CI status.
 
-**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via `ci_information` — do NOT call `ci_get_logs`. This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
+**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via `ci_information` — do NOT call `get_ci_logs`. This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
 - `workspaceId` (required): Nx Cloud workspace ID (MongoDB ObjectId hex string, from `session.workspaces[].id`)
-- `jobId` (required): GitHub Actions job ID (from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `get_session` response)
+- `jobId` (required): GitHub Actions job ID (from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response)
 
 **Returns:**
 
@@ -558,7 +569,7 @@ Use `ci_get_logs` to retrieve the full plain-text log for a specific CI job. Thi
 The tool saves the log to a local temp file and returns the path in `logFile`. Use the `Read` tool to examine the file contents. For large logs, use `offset` and `limit` parameters to read specific sections.
 
 ```
-ci_get_logs(
+get_ci_logs(
   sessionId: "<session-id>",
   workspaceId: "<workspace-id>",
   jobId: 12345678
@@ -569,22 +580,22 @@ ci_get_logs(
 
 **Typical flow:**
 
-1. Use `polygraph_get_session` to see PR CI status
+1. Use `show_session` to see PR CI status
 2. Check `ciStatus[prId].cipeUrl` — if a CIPE exists, use `ci_information` for logs and skip this tool
 3. If NO CIPE exists, check `ciStatus[prId].externalCIRuns` — examine runs and jobs directly from the session data
-4. For a failed job, call `ci_get_logs(sessionId, workspaceId, jobId)` to save the log to a file
+4. For a failed job, call `get_ci_logs(sessionId, workspaceId, jobId)` to save the log to a file
 5. Use `Read(logFile)` to examine the log content — use `offset`/`limit` for large files
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
 ### Session State for Resume (Required)
 
-The `plan` and `agentSessionId` parameters are **required** on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. You must always provide both values together. They save session state that enables resuming the Polygraph session later.
+The `plan` and `agentSessionId` parameters are **required** on `create_pr`, `mark_pr_ready`, and `associate_pr`. You must always provide both values together. They save session state that enables resuming the Polygraph session later.
 
 - **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). This helps anyone resuming the session understand the context.
 - **`agentSessionId`**: The Claude CLI session ID for the parent agent. This is the session ID that can be passed to `claude --continue` to resume exactly where the agent left off.
 
-These fields are saved to the Polygraph session server-side and are available from `polygraph_get_session`. The Polygraph UI also shows a "Resume Session" section with copy-able commands when these fields are present.
+These fields are saved to the Polygraph session server-side and are available from `show_session`. The Polygraph UI also shows a "Resume Session" section with copy-able commands when these fields are present.
 
 ### Resuming a Polygraph Session
 
@@ -596,11 +607,11 @@ claude --continue <agentSessionId>
 
 This resumes the Claude CLI session that was coordinating the Polygraph work, restoring the full conversation context including which repos were involved, what work was delegated, and what remains to be done.
 
-To check if a session is resumable, call `polygraph_get_session` and look for the `agentSessionId` field in the response.
+To check if a session is resumable, call `show_session` and look for the `agentSessionId` field in the response.
 
 ### Print Polygraph Session Details
 
-When asked to print polygraph session details, use `polygraph_get_session` and display in the following format:
+When asked to print polygraph session details, use `show_session` and display in the following format:
 
 **Session:** POLYGRAPH_SESSION_URL
 
@@ -621,7 +632,7 @@ If the session has a `plan` or `agentSessionId`, also display:
 - REPO_FULL_NAME: LOCAL_PATH
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
-- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `polygraph_child_status`.
+- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `show_agent`.
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
 - CI_STATUS: from `ciStatus[prId].status`
 - SELF_HEALING_STATUS: from `ciStatus[prId].selfHealingStatus` (omit or show `-` if null)
@@ -634,28 +645,28 @@ If the session has a `plan` or `agentSessionId`, also display:
 
 {% if platform == "claude" %}
 
-1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `polygraph_delegate` and `polygraph_child_status` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
+1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
    {% elsif platform == "opencode" %}
-1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `polygraph_delegate` and `polygraph_child_status` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
+1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
    {% else %}
-1. **Delegate asynchronously** — Use `polygraph_delegate` which returns immediately, then poll with `polygraph_child_status`.
+1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately, then poll with `show_agent`.
    {% endif %}
-1. **Poll child status before proceeding** — Always verify child agents have completed via `polygraph_child_status` before pushing branches or creating PRs
+1. **Poll child status before proceeding** — Always verify child agents have completed via `show_agent` before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
    {% if platform == "claude" %}
-1. **NEVER call `polygraph_delegate` or `polygraph_child_status` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
+1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
    {% elsif platform == "opencode" %}
-1. **NEVER call `polygraph_delegate` or `polygraph_child_status` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
+1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
    {% endif %}
-1. **Use `polygraph_stop_child` to clean up** — Stop child agents that are stuck or no longer needed
+1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed
    {% if platform == "claude" %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later with `claude --continue`
+1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later with `claude --continue`
    {% elsif platform == "opencode" %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later with `opencode --continue`
+1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later with `opencode --continue`
    {% else %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `polygraph_create_prs`, `polygraph_mark_ready`, and `polygraph_associate_pr`. Always pass both values so the session can be resumed later.
+1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later.
    {% endif %}
-1. **Only complete sessions when asked** — Only call `polygraph_modify_session` with `complete: true` when the user explicitly requests it. Completing a session closes all open/draft PRs and seals the session. Do not automatically complete sessions.
+1. **Only complete sessions when asked** — Only call `complete_session` when the user explicitly requests it. Completing a session seals it from further modifications. Do not automatically complete sessions.
