@@ -8,7 +8,6 @@ allowed-tools:
   - Read
   - Task
   - AskUserQuestion
-  - mcp__plugin_polygraph_polygraph-mcp
 {% endif %}
 ---
 
