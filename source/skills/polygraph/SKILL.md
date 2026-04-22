@@ -24,23 +24,23 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph-cli repo list` | Discover candidate workspaces with descriptions and graph relationships |
-| `start_session` | `polygraph-cli session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
+| `list_repos` | `polygraph repo list` | Discover candidate workspaces with descriptions and graph relationships |
+| `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
 | `spawn_agent` | — | Start a task in a child agent in another repository (non-blocking) |
 | `show_agent` | — | Get the status and recent output of child agents |
 | `stop_agent` | — | Stop an in-progress child agent |
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
-| `show_session` | `polygraph-cli session status <id>` | Query status of the current session |
+| `show_session` | `polygraph session status <id>` | Query status of the current session |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add workspaces to a running Polygraph session |
-| `complete_session` | `polygraph-cli session complete <id>` | Mark a session complete |
+| `complete_session` | `polygraph session complete <id>` | Mark a session complete |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
-| — | `polygraph-cli login [--token]` | Authenticate with Nx Cloud (use `--token` for headless/CI) |
-| — | `polygraph-cli session list` | List all sessions |
-| — | `polygraph-cli org list` / `org select` | Organization management |
-| — | `polygraph-cli whoami` | Show current auth status and org |
+| — | `polygraph login [--token]` | Authenticate with Nx Cloud (use `--token` for headless/CI) |
+| — | `polygraph session list` | List all sessions |
+| — | `polygraph org list` / `org select` | Organization management |
+| — | `polygraph whoami` | Show current auth status and org |
 
 {% if has_subagents %}
 
@@ -49,7 +49,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 ## CLI Statefulness
 
-The Polygraph CLI (`polygraph-cli`) is **stateful**. When you select an organization — via `polygraph-cli org select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
+The Polygraph CLI (`polygraph`) is **stateful**. When you select an organization — via `polygraph org select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
 
 ## Setup
 
@@ -57,14 +57,14 @@ Before using Polygraph tools, ensure the CLI is authenticated and an organizatio
 
 ### Check Authentication
 
-Use `polygraph-cli whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
+Use `polygraph whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
 
 - If the user **is logged in** and an org is selected → proceed to the workflow.
-- If the user **is not logged in** → use `polygraph-cli login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+- If the user **is not logged in** → use `polygraph login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
 
 ### Select Organization
 
-After logging in (or if logged in but no org is selected), use `polygraph-cli org select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
+After logging in (or if logged in but no org is selected), use `polygraph org select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
 
 ## Workflow Overview
 
