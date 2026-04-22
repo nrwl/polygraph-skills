@@ -16,7 +16,7 @@ allowed-tools:
 Validate a publisher package change against its consumer repos **before** the publisher's version bump is merged and published. The flow is:
 
 1. Build the publisher package(s) — repo-specific, not automatable.
-2. Run `polygraph-cli _pack-and-copy` (or the `pack_and_copy` MCP tool) to pack them and install the tarballs into each consumer, rewriting `package.json` to a `file:` dependency.
+2. Run `polygraph _pack-and-copy` (or the `pack_and_copy` MCP tool) to pack them and install the tarballs into each consumer, rewriting `package.json` to a `file:` dependency.
 3. Commit the consumer changes to a branch, open a PR, and let consumer CI validate the change.
 
 This skill covers **steps 1 and 2**. PR creation / CI monitoring is left to the `polygraph` and `await-polygraph-ci` skills.
@@ -27,7 +27,7 @@ Pack-and-copy functionality is available via both an MCP tool and a CLI command.
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `pack_and_copy` | `polygraph-cli _pack-and-copy` | Pack publisher packages and install tarballs into consumer repos for pre-release validation. |
+| `pack_and_copy` | `polygraph _pack-and-copy` | Pack publisher packages and install tarballs into consumer repos for pre-release validation. |
 
 Session discovery / inspection tools (`show_session`, `list_repos`, etc.) come from the `polygraph` skill — see that skill's tool table for the full mapping.
 
@@ -73,12 +73,12 @@ Run the build. Verify the `dist/` or equivalent output exists in each publisher 
 
 ## Phase 3: Pack and Copy
 
-Run `polygraph-cli _pack-and-copy` (or the `pack_and_copy` MCP tool), passing a `--pair` for every (publisher, consumer) combination the user wants to test. The command is deterministic: it computes a unique pre-release version, runs `npm pack` in each publisher, copies the tarballs into each consumer's `.polygraph-packages/` directory, rewrites the consumer's `package.json` deps to point at the tarballs via `file:`, and POSTs a summary of published and consumed packages to the Polygraph session so the UI reflects what was packed where.
+Run `polygraph _pack-and-copy` (or the `pack_and_copy` MCP tool), passing a `--pair` for every (publisher, consumer) combination the user wants to test. The command is deterministic: it computes a unique pre-release version, runs `npm pack` in each publisher, copies the tarballs into each consumer's `.polygraph-packages/` directory, rewrites the consumer's `package.json` deps to point at the tarballs via `file:`, and POSTs a summary of published and consumed packages to the Polygraph session so the UI reflects what was packed where.
 
 CLI form:
 
 ```bash
-polygraph-cli _pack-and-copy \
+polygraph _pack-and-copy \
   --session <session-id> \
   --pair <publisher-path>=<consumer-path> \
   [--pair <publisher-path>=<consumer-path> ...] \
