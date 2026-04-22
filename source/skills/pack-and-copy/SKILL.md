@@ -16,10 +16,20 @@ allowed-tools:
 Validate a publisher package change against its consumer repos **before** the publisher's version bump is merged and published. The flow is:
 
 1. Build the publisher package(s) — repo-specific, not automatable.
-2. Run `polygraph _pack-and-copy` to pack them and install the tarballs into each consumer, rewriting `package.json` to a `file:` dependency.
+2. Run `polygraph-cli _pack-and-copy` (or the `pack_and_copy` MCP tool) to pack them and install the tarballs into each consumer, rewriting `package.json` to a `file:` dependency.
 3. Commit the consumer changes to a branch, open a PR, and let consumer CI validate the change.
 
 This skill covers **steps 1 and 2**. PR creation / CI monitoring is left to the `polygraph` and `await-polygraph-ci` skills.
+
+## Available Tools
+
+Pack-and-copy functionality is available via both an MCP tool and a CLI command. Use whichever is available in your current environment.
+
+| MCP Tool | CLI Equivalent | Description |
+| --- | --- | --- |
+| `pack_and_copy` | `polygraph-cli _pack-and-copy` | Pack publisher packages and install tarballs into consumer repos for pre-release validation. |
+
+Session discovery / inspection tools (`show_session`, `list_repos`, etc.) come from the `polygraph` skill — see that skill's tool table for the full mapping.
 
 ## Prerequisites
 
@@ -63,20 +73,28 @@ Run the build. Verify the `dist/` or equivalent output exists in each publisher 
 
 ## Phase 3: Pack and Copy
 
-Run the `_pack-and-copy` CLI command, passing a `--pair` for every (publisher, consumer) combination the user wants to test. The command is deterministic: it computes a unique pre-release version, runs `npm pack` in each publisher, copies the tarballs into each consumer's `.polygraph-packages/` directory, rewrites the consumer's `package.json` deps to point at the tarballs via `file:`, and POSTs a summary of published and consumed packages to the Polygraph session so the UI reflects what was packed where.
+Run `polygraph-cli _pack-and-copy` (or the `pack_and_copy` MCP tool), passing a `--pair` for every (publisher, consumer) combination the user wants to test. The command is deterministic: it computes a unique pre-release version, runs `npm pack` in each publisher, copies the tarballs into each consumer's `.polygraph-packages/` directory, rewrites the consumer's `package.json` deps to point at the tarballs via `file:`, and POSTs a summary of published and consumed packages to the Polygraph session so the UI reflects what was packed where.
+
+CLI form:
 
 ```bash
-polygraph _pack-and-copy \
+polygraph-cli _pack-and-copy \
   --session <session-id> \
   --pair <publisher-path>=<consumer-path> \
   [--pair <publisher-path>=<consumer-path> ...] \
   --json
 ```
 
+MCP tool form — call `pack_and_copy` with:
+
+- `sessionId` (string, required): the Polygraph session ID
+- `pairs` (array, required): one `{ publisherPath, consumerPath }` object per (publisher, consumer) combination
+- `runScripts` (boolean, optional): enable npm lifecycle scripts during `npm pack` (off by default)
+
 **Notes:**
 
-- `<publisher-path>` is the directory containing the publisher package's `package.json` (not necessarily the repo root — for monorepos, this is `packages/<name>/`).
-- `<consumer-path>` is the consumer repo's root (where its `package.json` lives).
+- `<publisher-path>` / `publisherPath` is the directory containing the publisher package's `package.json` (not necessarily the repo root — for monorepos, this is `packages/<name>/`).
+- `<consumer-path>` / `consumerPath` is the consumer repo's root (where its `package.json` lives).
 - If a consumer doesn't declare a dependency on a publisher's package, that pair is silently skipped for that consumer — the tarball is still produced but not installed there.
 - The command is idempotent across reruns within a session: each run produces a new unique version (suffix includes a timestamp) so npm won't serve a cached tarball.
 - Consumers' `.polygraph-packages/` dirs are added to `.gitignore` automatically. The `package.json` edits **are** tracked and should be committed on the consumer's branch.
