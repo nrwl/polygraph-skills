@@ -108,11 +108,6 @@ export function finalizeClaudeDist(pkgJson) {
   writeJson(join(claudeDir, '.mcp.json'), buildMcpConfig());
   writeJson(join(pluginDir, 'plugin.json'), buildClaudePluginManifest(pkgJson));
 
-  const marketplacePath = join(rootDir, '.claude-plugin', 'marketplace.json');
-  if (existsSync(marketplacePath)) {
-    cpSync(marketplacePath, join(pluginDir, 'marketplace.json'));
-  }
-
   const sourceHooksDir = join(sourceDir, 'hooks');
   if (existsSync(sourceHooksDir)) {
     cpSync(sourceHooksDir, join(claudeDir, 'hooks'), { recursive: true });
