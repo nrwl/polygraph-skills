@@ -1,0 +1,40 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate-claude-marketplace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Upgrade npm
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.11.0
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build dist artifacts
+        run: npm run build
+
+      - name: Validate marketplace manifest
+        run: claude plugin validate .
+
+      - name: Validate built Claude plugin
+        run: claude plugin validate dist/claude
