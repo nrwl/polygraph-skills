@@ -2,7 +2,7 @@
   "name": "polygraph-skills",
   "version": "0.4.0",
   "description": "AI agent skills and subagents for Polygraph multi-repo coordination",
-  "license": "PROPRIETARY",
+  "license": "UNLICENSED",
   "private": true,
   "author": {
     "name": "Narwhal Technologies Inc",

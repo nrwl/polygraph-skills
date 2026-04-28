@@ -1,5 +1,6 @@
 {
   "name": "polygraph-plugins",
+  "description": "Nx Polygraph plugins for Claude Code — multi-repo coordination, delegation, and CI monitoring",
   "owner": {
     "name": "Nx",
     "email": "hello@nrwl.io"
