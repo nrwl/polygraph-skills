@@ -32,6 +32,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
+| `link_session` | `polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID` | Link one session to another session |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add workspaces to a running Polygraph session |
@@ -362,7 +363,7 @@ create_pr(
 
 ### 4. Get Current Polygraph Session
 
-Check the status of a session using `show_session`. Returns the full session state including workspaces, PRs, CI status, and the Polygraph session URL.
+Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including workspaces, PRs, CI status, and the Polygraph session URL.
 
 **Parameters:**
 
@@ -374,6 +375,7 @@ Check the status of a session using `show_session`. Returns the full session sta
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
 - `session.plan`: High-level plan describing what this session is doing (null if not set)
 - `session.agentSessionId`: The Claude CLI session ID that can be used to resume the session (null if not set)
+- `session.linkedSessions`: Array of sessions linked to this session
 - `session.workspaces[]`: Array of connected workspaces, each with:
   - `id`: Workspace ID
   - `name`: Workspace name
@@ -411,6 +413,34 @@ Check the status of a session using `show_session`. Returns the full session sta
 ```
 show_session(sessionId: "<session-id>")
 ```
+
+### Session Linking
+
+Use `link_session` to record that one Polygraph session is linked to another. The CLI equivalent is:
+
+```
+polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID
+```
+
+**Parameters:**
+
+- `targetSessionId` (required): The current Polygraph session ID
+- `linkedSessionId` (required): The inspected session ID that should be linked to the current session
+
+```
+link_session(
+  targetSessionId: "<current-session-id>",
+  linkedSessionId: "<inspected-session-id>"
+)
+```
+
+When working inside a current Polygraph session and the user asks to inspect or show details for another session by session ID, always:
+
+1. Call `show_session(sessionId: "<inspected-session-id>")` or `polygraph session show --details <inspected-session-id>` to retrieve the full details.
+2. Call `link_session(targetSessionId: "<current-session-id>", linkedSessionId: "<inspected-session-id>")` or `polygraph session link --targetSessionId=<current-session-id> --linkedSessionId=<inspected-session-id>`.
+3. Print the inspected session details for the user.
+
+Repeat the link step every time a session is inspected this way. The canonical MCP parameters are `{ targetSessionId, linkedSessionId }`. There is no unlink command.
 
 ### 5. Mark PRs Ready
 
@@ -593,7 +623,7 @@ To check if a session is resumable, call `show_session` and look for the `agentS
 
 ### Print Polygraph Session Details
 
-When asked to print polygraph session details, use `show_session` and display in the following format:
+When asked to print polygraph session details, use `show_session` or `polygraph session show --details <session-id>` and display in the following format. If you are already working inside a current Polygraph session and the requested details are for another session ID, first retrieve the requested session details, then link it with `targetSessionId` set to the current session ID and `linkedSessionId` set to the inspected session ID.
 
 **Session:** POLYGRAPH_SESSION_URL
 

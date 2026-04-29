@@ -15,6 +15,19 @@ test('renderArtifact preserves a valid frontmatter boundary for the codex polygr
   assert.match(rendered, /\n# Multi-Repo Coordination with Polygraph\b/);
 });
 
+test('rendered polygraph skill documents session linking', () => {
+  const raw = readFileSync(join(rootDir, 'source', 'skills', 'polygraph', 'SKILL.md'), 'utf8');
+  const rendered = renderArtifact(raw, 'codex');
+
+  assert.match(rendered, /link_session/);
+  assert.match(rendered, /polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID/);
+  assert.match(rendered, /polygraph session show --details <session-id>/);
+  assert.match(rendered, /session\.linkedSessions/);
+  assert.match(rendered, /targetSessionId: "<current-session-id>"/);
+  assert.match(rendered, /linkedSessionId: "<inspected-session-id>"/);
+  assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
+});
+
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {
   assert.deepEqual(buildMcpConfig(), {
     mcpServers: {
