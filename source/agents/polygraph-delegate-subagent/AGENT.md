@@ -6,6 +6,7 @@ model: haiku
 tools:
   - mcp__plugin_polygraph_polygraph-mcp__spawn_agent
   - mcp__plugin_polygraph_polygraph-mcp__show_agent
+  - mcp__plugin_polygraph_polygraph-mcp__stop_agent
 {% elsif platform == "opencode" %}
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 mode: subagent
@@ -22,43 +23,31 @@ You run in the background. The main agent checks your output file for progress.
 
 The main agent provides these parameters in the prompt:
 
-| Parameter     | Description                                              |
-| ------------- | -------------------------------------------------------- |
-| `sessionId`   | The Polygraph session ID                                 |
-| `target`      | Repository to delegate to (e.g., `org/repo-name`)        |
-| `instruction` | The task instruction for the child agent                 |
-| `context`     | (Optional) Additional context to pass to the child agent |
+| Parameter     | Description                                                                  |
+| ------------- | ---------------------------------------------------------------------------- |
+| `sessionId`   | The Polygraph session ID                                                     |
+| `target`      | Repository to delegate to (e.g., `org/repo-name`)                            |
+| `instruction` | The task instruction for the child agent                                     |
+| `context`     | (Optional) Additional context to pass to the child agent                     |
+| `taskId`      | (Optional) Existing task to resume; omit on the first call for a new run     |
 
-## Workflow
+## Delegating work
 
-### Step 1: Delegate Work
-
-Call the `spawn_agent` tool to start a child agent in the target repository:
+Call the `spawn_agent` tool to start (or resume) a child agent on the target repo. If the main agent supplied a `taskId` — meaning this is a follow-up turn against an already active task — forward it unchanged; otherwise omit `taskId` and a new child run is started.
 
 ```
 spawn_agent(
   sessionId: "<sessionId>",
   target: "<target>",
   instruction: "<instruction>",
-  context: "<context>"
+  context: "<context>",
+  taskId: "<taskId>"  // optional — pass to resume an active task on the target
 )
 ```
 
-This returns immediately — the child agent runs asynchronously.
+The call returns immediately — the child agent runs asynchronously.
 
-### Step 2: Poll for Completion
-
-Poll `show_agent` with exponential backoff until the child agent completes:
-
-```
-show_agent(
-  sessionId: "<sessionId>",
-  target: "<target>",
-  tail: 5
-)
-```
-
-**Backoff schedule:**
+**Backoff schedule for polling:**
 
 | Poll Attempt | Wait Before Poll |
 | ------------ | ---------------- |
@@ -69,31 +58,65 @@ show_agent(
 
 Use `sleep` in Bash between polls. Always run sleep in the **foreground** (never background).
 
-### Step 3: Parse Status
+## Polling the children (multi-turn + input-required)
 
-The `show_agent` response returns child agent records with a `status` field and recent output in `lastOutputLines`. Use the record for the requested target to determine status:
+After calling `spawn_agent`, parse the structured JSON response:
 
-| Condition | Status |
-| --- | --- |
-| `status` is `completed` | Completed |
-| `status` is `failed` or `cancelled` | Failed |
-| `status` is `created` or `in-progress` | In Progress |
+```json
+{ "taskId": "…", "message": "…", "status": "delegated" }
+```
 
-If still in progress, continue polling (step 2).
+Store the returned `taskId`. You will pass it back to `spawn_agent` on any follow-up turn so the orchestrator resumes the same active task instead of starting a new run.
 
-### Step 4: Return Summary
+Then poll `show_agent` on a backoff cadence. For each child in the response (field: `children[]`), inspect:
 
-When the child agent completes, return a structured summary:
+- `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
+- `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
+- `child.lastOutputLines` — recent log tail (use for status narration; do not treat as an API surface).
+- `child.repoFullName` — human-facing identifier for which repo is talking.
+
+State machine:
+
+1. `child.status === 'created'` or `'in-progress'` — child is still executing. Continue polling.
+2. `child.status === 'input-required'` — child is paused waiting for parent input:
+   - Read `child.inputRequiredQuestion`.
+   - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
+   - Wait for the parent/user to supply an answer.
+   - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator resumes the same active task.
+   - Resume polling.
+3. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
+4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
+5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved; a new `spawn_agent` call against the same target will resume from the preserved session.
+
+## Cancelling a running child
+
+To cancel a running child mid-work, call `stop_agent` with the target repo. Response:
+
+```json
+{
+  "taskId": "…",
+  "state": "cancelled",
+  "sessionPreserved": true,
+  "output": "…",
+  "message": "…"
+}
+```
+
+Because `sessionPreserved: true`, you can resume later by calling `spawn_agent` again on the same target.
+
+## Returning the summary
+
+When the child agent reaches a terminal status, return a structured summary:
 
 ```
 ## Polygraph Delegation Result
 
 **Repo:** <target>
-**Status:** <success | failed>
+**Status:** <success | failed | cancelled>
 **Session ID:** <sessionId>
 
 ### Result
-<result text from the final log entry>
+<result text drawn from child.lastOutputLines>
 ```
 
 ## Timeout
