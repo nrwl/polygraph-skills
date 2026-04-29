@@ -26,7 +26,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate workspaces with descriptions and graph relationships |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a session with selected workspaces |
-| `show_session` | `polygraph session status <id>` | Get full session details including URL |
+| `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
 
 ## Input Parameters (from Main Agent)
 
@@ -100,10 +100,10 @@ If no repos were filtered and all candidates should be included, pass every cand
 
 ### Step 4: Get Session Details
 
-Call `show_session` to retrieve full session information:
+Call `show_session` to retrieve full session information. When joining an existing session to inspect prior work, request details if the tool exposes that option so the response includes repo IDs and PR descriptions:
 
 ```
-show_session(sessionId: "<sessionId>")
+show_session(sessionId: "<sessionId>", details: true)
 ```
 
 ### Step 5: Return Summary

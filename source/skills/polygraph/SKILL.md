@@ -31,7 +31,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, a later `spawn_agent` call against the same target resumes from the preserved agent session. |
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
-| `show_session` | `polygraph session status <id>` | Query status of the current session |
+| `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add workspaces to a running Polygraph session |
@@ -153,6 +153,48 @@ The subagent will:
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName`
 - LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `show_agent`.
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
+
+### Explore an Existing Session
+
+Use this workflow when the user gives a Polygraph session ID and asks to understand, resume, inspect, or investigate prior work.
+
+1. Fetch detailed session context:
+   - Prefer `show_session` with `details: true` when the MCP tool exposes that option.
+   - Otherwise run `polygraph session show <session-id> --details`.
+2. Treat the detailed output as authoritative context. It should include:
+   - `<summary>` — the session summary.
+   - `<repositories>` — relevant repos, including each repo's `<id>` and `<name>`.
+   - `<pullRequests>` — relevant PRs, including `<url>`, `<repoId>`, `<repoName>`, branch metadata, and `<description>`.
+3. Parse the XML-style blocks and XML-unescape text inside `<summary>` and `<description>`.
+4. Build a repo/PR map:
+   - repo id
+   - repo full name
+   - PR URL
+   - branch
+   - base branch
+   - title
+   - status
+   - PR description
+5. Use the PR descriptions and session summary to decide whether more repo investigation is needed.
+6. If the repo to investigate is already part of the session, delegate directly to that repo.
+7. If the repo to investigate is not currently initialized in the session but appears in `<repositories>`, call `add_repo` with that repo's `<id>` directly. Do not call `list_repos` just to resolve the repo.
+8. After `add_repo`, call `show_session` again to verify the repo was added, then delegate to that repo.
+9. Fall back to `list_repos` only when the desired repo is mentioned in prose but is missing from `<repositories>`, or when the details output came from an older Polygraph version that did not include repo IDs.
+
+When delegating investigation from a PR, include the PR context in the child instruction:
+
+```
+Session: <session-id>
+Repo: <repoName>
+Repo ID: <repoId>
+PR: <url>
+Branch: <branch>
+Base branch: <baseBranch>
+Description:
+<description>
+
+Inspect the PR commits/diff and investigate the requested behavior. Report findings with file paths and concrete evidence.
+```
 
 ## Simple tasks (fire-and-forget)
 
