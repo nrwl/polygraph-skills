@@ -102,10 +102,10 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.developer_instructions, /Backoff schedule for polling/);
 });
 
-test('codex plugin manifest exposes packaged agents', () => {
+test('codex plugin manifest does not advertise agents (codex ignores the field)', () => {
   const manifest = buildCodexPluginManifest(readRootPackageJson());
 
-  assert.equal(manifest.agents, './agents/');
+  assert.equal(manifest.agents, undefined);
 });
 
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {

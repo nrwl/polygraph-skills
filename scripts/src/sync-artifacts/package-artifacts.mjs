@@ -41,7 +41,6 @@ export function buildCodexPluginManifest(pkgJson) {
     license: pkgJson.license,
     keywords: pkgJson.keywords,
     skills: './skills/',
-    agents: './agents/',
     mcpServers: './.mcp.json',
     interface: {
       displayName: 'Polygraph',
