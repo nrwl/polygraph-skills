@@ -237,6 +237,23 @@ Description:
 Inspect the PR commits/diff and investigate the requested behavior. Report findings with file paths and concrete evidence.
 ```
 
+### MCP `@`-References for Repos and Sessions
+
+In compatible MCP clients (e.g. Claude Code), the Polygraph MCP server exposes repositories and sessions as MCP resources that surface as `@`-mentions with autocompletion.
+
+**URI formats:**
+
+| Resource | URI | Content |
+| --- | --- | --- |
+| Repository | `polygraph://repos/<repo-id>` | Full repo metadata as JSON |
+| Session | `polygraph://sessions/<session-id>` | Full session details as JSON (same shape as `show_session --details`) |
+
+**Usage:** Type `@` in Claude Code and select the session or repo from the autocomplete list. The resource contents are attached to your message as context — equivalent to calling `show_session --details` but without an explicit tool call.
+
+**Example:** Typing `@teach-agents-to-explore-previous-sessions-0328c237` and selecting it from the autocomplete list attaches that session's full details (plan, repositories, PRs, CI status) to the conversation.
+
+This is a client-side UX convention — the MCP server advertises the resource list, and the client handles the `@`-mention expansion. The underlying data is identical to what `show_session --details` returns.
+
 ## Simple tasks (fire-and-forget)
 
 Use this pattern when the task is well-defined and the child is not expected to need clarification. It is a single-round delegation: kick it off, poll until terminal, then push branch + create PR.
