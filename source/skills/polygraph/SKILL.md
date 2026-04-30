@@ -8,13 +8,27 @@ allowed-tools:
 ---
 
 {% assign has_subagents = false %}
-{% if platform == "claude" or platform == "opencode" %}
+{% if platform == "claude" or platform == "opencode" or platform == "codex" %}
 {% assign has_subagents = true %}
 {% endif %}
 
 # Multi-Repo Coordination with Polygraph
 
+{% if platform == "codex" %}
+**IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use Codex Polygraph subagents to invoke the Polygraph MCP `spawn_agent` tool for work in other repositories.
+
+## Critical Routing Rule (Codex Parent Conversation)
+
+Read this before the tool table below — it determines which tools are yours to call directly.
+
+- Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`. Codex `spawn_agent` launches the local custom subagents (`polygraph-init-subagent`, `polygraph-delegate-subagent`). The Polygraph MCP `spawn_agent` runs work inside another repository and must only be invoked from inside those subagents.
+- **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
+- **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
+- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, and `show_session` for read-only inspection of an existing session.
+- Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
+{% else %}
 **IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `spawn_agent` tool to perform work in other repositories.
+{% endif %}
 
 This skill provides guidance for working on features that span multiple repositories using Polygraph for coordination.
 
@@ -43,9 +57,12 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | — | `polygraph org list` / `org select` | Organization management |
 | — | `polygraph whoami` | Show current auth status and org |
 
-{% if has_subagents %}
+{% if platform == "claude" or platform == "opencode" %}
 
 **Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in step 0. `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in the delegation sections below — NEVER call them directly in the main conversation.
+{% elsif platform == "codex" %}
+
+**Routing reminder:** Per the Critical Routing Rule above, the parent conversation must use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` for new sessions and `agent_type: "polygraph-delegate-subagent"` for repo work — not the Polygraph MCP tools shown in the table. `wait_agent` collects results when needed.
 {% endif %}
 
 ## CLI Statefulness
@@ -128,6 +145,29 @@ Task(
 **Launch the init subagent** using `@polygraph-init-subagent` (only when creating a new session):
 
 Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `list_repos` and `start_session` and returns a structured summary.
+{% elsif platform == "codex" %}
+
+**Launch `polygraph-init-subagent`** (only when creating a new session):
+
+Use Codex's `spawn_agent` tool to start the custom Polygraph init subagent:
+
+{% raw %}
+
+```
+spawn_agent(
+  agent_type: "polygraph-init-subagent",
+  message: """
+    Parameters:
+    - userContext: "<description of what the user wants to do>"
+
+    Discover candidates, select relevant repos based on the user context, initialize the session, and return a structured summary.
+  """
+)
+```
+
+{% endraw %}
+
+When the main flow needs the session before proceeding, collect the result with `wait_agent`.
 {% else %}
 
 Call `list_repos` to discover available workspaces, select relevant repos based on user context, then call `start_session` with the selected workspace IDs.
@@ -242,6 +282,37 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations.
 3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Once all subagents report a terminal status, continue to `push_branch` + `create_pr`.
+
+{% elsif platform == "codex" %}
+
+**CRITICAL:** Routine Polygraph MCP `spawn_agent` and `show_agent` calls MUST run inside the custom Codex `polygraph-delegate-subagent`, not directly in the main conversation. Codex `spawn_agent` launches a local subagent; the Polygraph MCP `spawn_agent` starts work in another repository. Keeping the MCP delegate-and-poll loop inside `polygraph-delegate-subagent` prevents polling noise from filling the user's context.
+
+1. For each target repo, launch `polygraph-delegate-subagent` via Codex's `spawn_agent`:
+
+{% raw %}
+
+```
+spawn_agent(
+  agent_type: "polygraph-delegate-subagent",
+  message: """
+    Parameters:
+    - sessionId: "<session-id>"
+    - target: "<org/repo-name>"
+    - instruction: "<the task instruction>"
+    - context: "<optional context>"
+
+    Call the Polygraph MCP spawn_agent for the target repo, then poll show_agent on backoff until terminal. Return a structured summary with repo, status, session ID, and result text.
+  """
+)
+```
+
+{% endraw %}
+
+2. Delegate to multiple repos in parallel by launching multiple `polygraph-delegate-subagent` instances before waiting for results.
+3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+4. Collect completed results with `wait_agent` when the main flow needs them, then continue to `push_branch` + `create_pr`.
+
+In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call the Polygraph MCP `show_agent` as a one-off tool call. Do NOT use this for regular polling — that belongs inside `polygraph-delegate-subagent`.
 
 {% else %}
 
@@ -660,6 +731,8 @@ If the session has a `plan` or `agentSessionId`, also display:
 1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
    {% elsif platform == "opencode" %}
 1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
+   {% elsif platform == "codex" %}
+1. **MUST route through Codex Polygraph subagents** — Use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` to create new sessions and `agent_type: "polygraph-delegate-subagent"` for every routine Polygraph MCP `spawn_agent` / `show_agent` delegate-and-poll loop. Collect results with `wait_agent` when needed.
    {% else %}
 1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately, then poll with `show_agent`.
    {% endif %}
@@ -672,6 +745,8 @@ If the session has a `plan` or `agentSessionId`, also display:
 1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
    {% elsif platform == "opencode" %}
 1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
+   {% elsif platform == "codex" %}
+1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`), so a later `spawn_agent` call against the same target resumes the same agent session.
    {% if platform == "claude" %}

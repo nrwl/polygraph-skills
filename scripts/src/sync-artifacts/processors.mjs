@@ -28,7 +28,10 @@ export function processAgents(platformKey, config) {
     if (!existsSync(srcPath)) continue;
 
     const raw = readFileSync(srcPath, 'utf-8');
-    const content = renderArtifact(raw, platformKey);
+    const content =
+      config.agentsFormat === 'toml'
+        ? renderCodexAgentToml(agentDir, raw, platformKey)
+        : renderArtifact(raw, platformKey);
     const destPath = join(destDir, `${agentDir}${config.agentsExt}`);
     writeArtifact(destPath, content);
     count++;
@@ -76,4 +79,43 @@ export function processSkills(platformKey, config) {
 function writeArtifact(destPath, content) {
   mkdirSync(dirname(destPath), { recursive: true });
   writeFileSync(destPath, content);
+}
+
+function renderCodexAgentToml(agentDir, raw, platformKey) {
+  const description = extractAgentDescription(raw);
+  const developerInstructions = stripLeadingFrontmatter(
+    renderArtifact(raw, platformKey)
+  ).trim();
+
+  return [
+    `name = ${tomlString(agentDir)}`,
+    `description = ${tomlString(description)}`,
+    `developer_instructions = ${tomlMultilineLiteral(developerInstructions)}`,
+    '',
+  ].join('\n');
+}
+
+function extractAgentDescription(raw) {
+  const match = raw.match(/^\s*description:\s*(.+)$/m);
+  if (!match) {
+    throw new Error('Expected source agent to define a description');
+  }
+
+  return match[1].trim();
+}
+
+function stripLeadingFrontmatter(content) {
+  return content.replace(/^---\n[\s\S]*?\n---\n?/, '');
+}
+
+function tomlString(value) {
+  return JSON.stringify(value);
+}
+
+function tomlMultilineLiteral(value) {
+  if (value.includes("'''")) {
+    return tomlString(value);
+  }
+
+  return `'''\n${value}\n'''`;
 }

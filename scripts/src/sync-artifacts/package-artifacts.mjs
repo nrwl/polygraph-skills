@@ -30,7 +30,7 @@ function buildClaudePluginManifest(pkgJson) {
   };
 }
 
-function buildCodexPluginManifest(pkgJson) {
+export function buildCodexPluginManifest(pkgJson) {
   return {
     name: 'polygraph',
     version: pkgJson.version,
@@ -127,6 +127,7 @@ export function finalizeCodexDist(pkgJson) {
     buildPublishPackageJson(pkgJson, 'polygraph-codex-plugin', [
       '.codex-plugin/',
       'skills/',
+      'agents/',
       '.mcp.json',
       'README.md',
       'bin/',

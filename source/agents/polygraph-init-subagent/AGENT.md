@@ -46,7 +46,7 @@ Additionally, the main agent may pass in repos via **MCP resource syntax** (e.g.
 
 ### If `sessionId` is provided — session already exists
 
-When the main agent passes a `sessionId`, the session was already created (e.g., via the CLI before Claude was spawned). Do NOT call `list_repos` or `start_session`. Skip directly to **Step 4** to fetch the session details and then **Step 5** to return the summary.
+When the main agent passes a `sessionId`, the session was already created (e.g., via the CLI before the main agent was started). Do NOT call `list_repos` or `start_session`. Skip directly to **Step 4** to fetch the session details and then **Step 5** to return the summary.
 
 ### Step 1: Discover Candidate Repos
 

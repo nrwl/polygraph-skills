@@ -26,6 +26,7 @@ test('installPlugin copies the package payload and preserves unrelated config', 
   const fixture = createFixturePackage(homeDir);
   const codexHome = join(homeDir, '.codex');
   const configPath = join(codexHome, 'config.toml');
+  const agentsPath = join(codexHome, 'agents');
   const marketplacePath = join(homeDir, '.agents', 'plugins', 'marketplace.json');
   const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
 
@@ -65,6 +66,11 @@ test('installPlugin copies the package payload and preserves unrelated config', 
   assert.equal(result.pluginPath, installedPluginPath);
   assert.equal(existsSync(join(result.pluginPath, '.codex-plugin', 'plugin.json')), true);
   assert.equal(existsSync(join(result.pluginPath, 'skills', 'polygraph', 'SKILL.md')), true);
+  assert.equal(existsSync(join(result.pluginPath, 'agents', 'polygraph-init-subagent.toml')), true);
+  assert.equal(existsSync(join(agentsPath, 'polygraph-init-subagent.toml')), true);
+  assert.equal(existsSync(join(agentsPath, 'polygraph-delegate-subagent.toml')), true);
+  assert.equal(result.agentsPath, agentsPath);
+  assert.equal(result.agentsChanged, true);
   assert.equal(result.marketplacePath, marketplacePath);
 
   const config = parse(readFileSync(configPath, 'utf8'));
@@ -120,6 +126,7 @@ test('installPlugin is idempotent and checkInstall succeeds after install', () =
 
   assert.equal(check.ok, true);
   assert.equal(check.pluginInstalled, true);
+  assert.equal(check.agentsInstalled, true);
   assert.equal(check.marketplaceConfigured, true);
 });
 
@@ -155,6 +162,7 @@ function createFixturePackage(baseDir = tmpdir()) {
 
   mkdirSync(join(packageRoot, '.codex-plugin'), { recursive: true });
   mkdirSync(join(packageRoot, 'skills', 'polygraph'), { recursive: true });
+  mkdirSync(join(packageRoot, 'agents'), { recursive: true });
   mkdirSync(join(packageRoot, 'bin'), { recursive: true });
   mkdirSync(join(packageRoot, 'lib'), { recursive: true });
 
@@ -164,7 +172,7 @@ function createFixturePackage(baseDir = tmpdir()) {
       {
         name: 'polygraph-codex-plugin',
         version,
-        files: ['.codex-plugin/', 'skills/', '.mcp.json', 'README.md', 'bin/', 'lib/'],
+        files: ['.codex-plugin/', 'skills/', 'agents/', '.mcp.json', 'README.md', 'bin/', 'lib/'],
         bin: {
           'polygraph-codex-plugin': './bin/polygraph-codex-plugin.mjs',
         },
@@ -182,6 +190,14 @@ function createFixturePackage(baseDir = tmpdir()) {
   writeFileSync(join(packageRoot, 'bin', 'polygraph-codex-plugin.mjs'), '#!/usr/bin/env node\n');
   writeFileSync(join(packageRoot, 'lib', 'installer.mjs'), 'export {};\n');
   writeFileSync(join(packageRoot, 'skills', 'polygraph', 'SKILL.md'), '# Polygraph\n');
+  writeFileSync(
+    join(packageRoot, 'agents', 'polygraph-init-subagent.toml'),
+    'name = "polygraph-init-subagent"\ndescription = "Init"\ndeveloper_instructions = "Init"\n'
+  );
+  writeFileSync(
+    join(packageRoot, 'agents', 'polygraph-delegate-subagent.toml'),
+    'name = "polygraph-delegate-subagent"\ndescription = "Delegate"\ndeveloper_instructions = "Delegate"\n'
+  );
 
   return { packageRoot, version };
 }

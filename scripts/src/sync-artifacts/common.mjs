@@ -63,9 +63,10 @@ export function createPlatformConfigs() {
     },
     codex: {
       outputDir: join(distDir, 'codex'),
-      supportsAgents: false,
-      agentsDir: null,
-      agentsExt: null,
+      supportsAgents: true,
+      agentsDir: 'agents',
+      agentsExt: '.toml',
+      agentsFormat: 'toml',
       skillsDir: 'skills',
       skillsFile: 'SKILL.md',
     },
