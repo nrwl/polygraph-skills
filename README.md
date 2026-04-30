@@ -56,6 +56,12 @@ That command copies the packaged Codex plugin into:
 ~/.agents/plugins/polygraph
 ```
 
+installs the packaged custom Codex subagents into:
+
+```text
+$CODEX_HOME/agents
+```
+
 updates the personal Codex marketplace at:
 
 ```text

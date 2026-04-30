@@ -57,6 +57,7 @@ async function main() {
     if (result.ok) {
       console.log(`Polygraph Codex plugin is enabled.`);
       console.log(`Plugin path: ${result.pluginPath}`);
+      console.log(`Agents: ${result.agentsPath}`);
       console.log(`Config: ${result.configPath}`);
       console.log(`Marketplace: ${result.marketplacePath}`);
     } else {
@@ -66,16 +67,20 @@ async function main() {
       const configState = result.configEnabled
         ? 'plugin enabled in config'
         : 'plugin not enabled in config';
+      const agentsState = result.agentsInstalled
+        ? 'agents installed'
+        : 'agents not installed';
       const marketplaceState = result.marketplaceConfigured
         ? 'plugin present in marketplace'
         : 'plugin not present in marketplace';
       console.error(
-        `Polygraph Codex plugin check failed: ${pluginState}; ${configState}; ${marketplaceState}.`
+        `Polygraph Codex plugin check failed: ${pluginState}; ${configState}; ${agentsState}; ${marketplaceState}.`
       );
     }
   } else {
     console.log(`Installed Polygraph Codex plugin ${result.version}.`);
     console.log(`Plugin path: ${result.pluginPath}`);
+    console.log(`Agents: ${result.agentsPath}`);
     console.log(`Config: ${result.configPath}`);
     console.log(`Marketplace: ${result.marketplacePath}`);
   }

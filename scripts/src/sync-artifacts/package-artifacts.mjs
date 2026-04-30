@@ -30,7 +30,7 @@ function buildClaudePluginManifest(pkgJson) {
   };
 }
 
-function buildCodexPluginManifest(pkgJson) {
+export function buildCodexPluginManifest(pkgJson) {
   return {
     name: 'polygraph',
     version: pkgJson.version,
@@ -41,6 +41,7 @@ function buildCodexPluginManifest(pkgJson) {
     license: pkgJson.license,
     keywords: pkgJson.keywords,
     skills: './skills/',
+    agents: './agents/',
     mcpServers: './.mcp.json',
     interface: {
       displayName: 'Polygraph',
@@ -127,6 +128,7 @@ export function finalizeCodexDist(pkgJson) {
     buildPublishPackageJson(pkgJson, 'polygraph-codex-plugin', [
       '.codex-plugin/',
       'skills/',
+      'agents/',
       '.mcp.json',
       'README.md',
       'bin/',

@@ -2,6 +2,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -32,6 +33,10 @@ export function resolveCodexHome(env = process.env) {
 
 export function getConfigPath(codexHome) {
   return join(codexHome, "config.toml");
+}
+
+export function getAgentsPath(codexHome) {
+  return join(codexHome, "agents");
 }
 
 export function getCacheRoot(codexHome) {
@@ -105,6 +110,7 @@ export function installPlugin({
   const codexHome = resolveCodexHome(env);
   const userHome = resolveUserHome(env);
   const configPath = getConfigPath(codexHome);
+  const agentsPath = getAgentsPath(codexHome);
   const marketplacePath = getMarketplacePath(userHome);
   const pluginPath = getPluginInstallPath(userHome);
   const installAlreadyPresent = existsSync(pluginPath);
@@ -136,6 +142,7 @@ export function installPlugin({
   }
 
   const configChanged = enablePluginInConfig(configPath);
+  const agentsChanged = installCodexAgents({ packageRoot, agentsPath });
   const marketplaceChanged = enablePluginInMarketplace({
     marketplacePath,
     pluginPath,
@@ -148,12 +155,14 @@ export function installPlugin({
     plugin: PLUGIN_ID,
     version,
     codexHome,
+    agentsPath,
     pluginPath,
     configPath,
     marketplacePath,
     copied,
     overwritten: installAlreadyPresent && force,
     configChanged,
+    agentsChanged,
     marketplaceChanged,
   };
 }
@@ -166,27 +175,34 @@ export function checkInstall({ packageRoot, env = process.env } = {}) {
   const codexHome = resolveCodexHome(env);
   const userHome = resolveUserHome(env);
   const configPath = getConfigPath(codexHome);
+  const agentsPath = getAgentsPath(codexHome);
   const marketplacePath = getMarketplacePath(userHome);
   const pluginPath = getPluginInstallPath(userHome);
   const pluginInstalled = isValidInstalledPluginDir(pluginPath);
   const configEnabled = isPluginEnabled(configPath);
+  const agentsInstalled = packageRoot
+    ? areCodexAgentsInstalled({ packageRoot, agentsPath })
+    : hasDefaultCodexAgents(agentsPath);
   const marketplaceConfigured = isPluginConfiguredInMarketplace({
     marketplacePath,
     userHome,
     pluginPath,
   });
-  const ok = pluginInstalled && configEnabled && marketplaceConfigured;
+  const ok =
+    pluginInstalled && configEnabled && agentsInstalled && marketplaceConfigured;
 
   return {
     ok,
     action: "check",
     plugin: PLUGIN_ID,
     codexHome,
+    agentsPath,
     pluginPath,
     configPath,
     marketplacePath,
     pluginInstalled,
     configEnabled,
+    agentsInstalled,
     marketplaceConfigured,
   };
 }
@@ -253,6 +269,66 @@ function copyRelativeEntry(sourceRoot, targetRoot, relativePath) {
   }
 
   cpSync(sourcePath, join(targetRoot, relativePath), { recursive: true });
+}
+
+export function installCodexAgents({ packageRoot, agentsPath }) {
+  const agentFiles = listPackageAgentFiles(packageRoot);
+  if (agentFiles.length === 0) {
+    return false;
+  }
+
+  mkdirSync(agentsPath, { recursive: true });
+
+  let changed = false;
+  for (const agentFile of agentFiles) {
+    const sourcePath = join(packageRoot, "agents", agentFile);
+    const targetPath = join(agentsPath, agentFile);
+    const sourceContent = readFileSync(sourcePath, "utf8");
+    const targetContent = existsSync(targetPath)
+      ? readFileSync(targetPath, "utf8")
+      : null;
+
+    if (targetContent !== sourceContent) {
+      writeFileSync(targetPath, sourceContent);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+export function areCodexAgentsInstalled({ packageRoot, agentsPath }) {
+  const agentFiles = listPackageAgentFiles(packageRoot);
+  if (agentFiles.length === 0) {
+    return false;
+  }
+
+  return agentFiles.every((agentFile) => {
+    const sourcePath = join(packageRoot, "agents", agentFile);
+    const targetPath = join(agentsPath, agentFile);
+
+    return (
+      existsSync(targetPath) &&
+      readFileSync(targetPath, "utf8") === readFileSync(sourcePath, "utf8")
+    );
+  });
+}
+
+function listPackageAgentFiles(packageRoot) {
+  const agentsDir = join(packageRoot, "agents");
+  if (!existsSync(agentsDir)) {
+    return [];
+  }
+
+  return readdirSync(agentsDir)
+    .filter((entry) => entry.endsWith(".toml"))
+    .sort();
+}
+
+function hasDefaultCodexAgents(agentsPath) {
+  return ["polygraph-delegate-subagent.toml", "polygraph-init-subagent.toml"].every(
+    (agentFile) => existsSync(join(agentsPath, agentFile)),
+  );
 }
 
 export function enablePluginInMarketplace({

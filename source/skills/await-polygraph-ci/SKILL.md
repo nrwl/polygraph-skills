@@ -113,6 +113,10 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 
 - **If `cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using `ci_information`.
 - **If `cipeUrl` is null but `externalCIRuns` exists** → external CI only. Examine failed jobs from `externalCIRuns` in the session data and use `get_ci_logs` for log retrieval.
+{% if platform == "codex" %}
+
+**Codex subagent wrapper:** Use `polygraph-delegate-subagent` to keep the Polygraph MCP `spawn_agent` / `show_agent` polling loop out of the main conversation. For each failed repo, launch a Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` and instructions to perform steps 2-4 below for that repo, then collect completed summaries with `wait_agent` when the main flow needs them. In the steps below, `spawn_agent` and `show_agent` refer to the Polygraph MCP tools that belong inside the Codex subagent.
+{% endif %}
 
 1. Display known info from the session data before delegating:
 
@@ -176,6 +180,9 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 - This skill does NOT push code directly. The only write action it may take is applying/rejecting a self-healing fix via `update_self_healing_fix`, which is an Nx Cloud operation (not a local code change).
 - Both `ci_information` and `update_self_healing_fix` responses include a `hints` array with contextual guidance (e.g., disclaimers about which CI Attempt was retrieved). Always check and surface non-empty hints.
 - All heavy CI data inspection happens in child agents via `spawn_agent` to keep this context window clean.
+{% if platform == "codex" %}
+- On Codex, the delegate-and-poll loop should run inside `polygraph-delegate-subagent`, and the main conversation should use `wait_agent` only when it needs to collect results.
+{% endif %}
 - Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY when no CIPE exists for the PR (`ciStatus[prId].cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via `ci_information`. Job IDs come from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
 - `spawn_agent` is **non-blocking** — it starts the child agent and returns immediately. Use `show_agent` to poll for results and `stop_agent` to terminate stuck agents.
 - The `show_session` response is compact and safe to poll from the main agent.
