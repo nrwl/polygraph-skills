@@ -7,6 +7,7 @@ tools:
   - mcp__plugin_polygraph_polygraph-mcp__spawn_agent
   - mcp__plugin_polygraph_polygraph-mcp__show_agent
   - mcp__plugin_polygraph_polygraph-mcp__stop_agent
+  - Bash
 {% elsif platform == "opencode" %}
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 mode: subagent
@@ -60,7 +61,11 @@ The call returns immediately — the child agent runs asynchronously.
 | 3rd          | 30 seconds       |
 | 4th+         | 60 seconds (cap) |
 
-Use `sleep` in Bash between polls. Always run sleep in the **foreground** (never background).
+Use `sleep` in Bash between polls — this is mandatory, not aspirational. Without it you will hammer `show_agent` every 2-3s, which both wastes calls and floods your own context with repeated polling output. Always run sleep in the **foreground** (never background).
+
+```
+sleep 60   # between 4th+ polls
+```
 
 ## Polling the children (multi-turn + input-required)
 
@@ -72,7 +77,9 @@ After calling `spawn_agent`, parse the structured JSON response:
 
 Store the returned `taskId`. You will pass it back to `spawn_agent` on any follow-up turn so the orchestrator resumes the same active task instead of starting a new run.
 
-Then poll `show_agent` on a backoff cadence. For each child in the response (field: `children[]`), inspect:
+Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+
+For each child in the response (field: `children[]`), inspect:
 
 - `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
