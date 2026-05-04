@@ -187,12 +187,9 @@ The subagent will:
 
 **Repositories in this session:**
 
-| Repo           | Local Path |
-| -------------- | ---------- |
-| REPO_FULL_NAME | LOCAL_PATH |
+- REPO_FULL_NAME
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName`
-- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `show_agent`.
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 
 ### Explore an Existing Session
@@ -710,12 +707,7 @@ If the session has a `plan` or `agentSessionId`, also display:
 
 (Omit the Plan line if `plan` is null. Omit the Resume line if `agentSessionId` is null.)
 
-**Local paths:**
-
-- REPO_FULL_NAME: LOCAL_PATH
-
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
-- LOCAL_PATH: the absolute path to the local clone of the repo. If you started the session from within a repo, that repo's path is the current working directory. All other repos' paths are available from `show_agent`.
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
 - CI_STATUS: from `ciStatus[prId].status`
 - SELF_HEALING_STATUS: from `ciStatus[prId].selfHealingStatus` (omit or show `-` if null)
