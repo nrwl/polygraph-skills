@@ -88,7 +88,7 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 
 {% if has_subagents %}
 
-0. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. Otherwise, launch the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and create a new session.
+0. **Initialize or join Polygraph session** - If you were spawned inside an existing session (the startup banner names a session ID), reuse it. Call `show_session` first; if it already has repos, you're done. If it has no repos, launch the `polygraph-init-subagent` with that `sessionId` so it discovers candidates and uses `add_repo` (NOT `start_session`). Only when there is no session ID at all should the init subagent create a new session.
 1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below based on whether the child may need clarification.
    {% else %}
 2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `list_repos` and `start_session`.
@@ -107,22 +107,31 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 
 ### 0. Initialize or Join Polygraph Session
 
-**If you already have a session ID** (e.g., passed by the user or provided when Claude was spawned inside an existing session), the session already exists — do NOT create a new one. Instead, call `show_session` to fetch the session details and skip straight to printing the session details below.
+There are three cases. Pick exactly one before calling any tool.
+
+**Hard rule: if a session ID is already in scope (e.g., the startup banner says "You're in Polygraph session …", or the user passed one), that session ID is authoritative for this entire conversation. NEVER call `start_session` — doing so creates a brand-new session and orphans the one the parent harness is pointed at. Reuse the existing session via `show_session` and, if needed, `add_repo`.**
+
+**Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Print the session details (format below) and proceed.
+
+**Case B — Existing session, no repos yet (or user wants to add more).** Launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant workspaces, and call `add_repo` against the existing session — it will NOT call `start_session`.
+
+**Case C — No session at all.** Launch the `polygraph-init-subagent` with only `userContext` (no `sessionId`). The subagent will discover candidates and call `start_session` to create a new session.
 
 {% if has_subagents %}
 
-**If you need to create a new session**, use the `polygraph-init-subagent` to discover candidate repos, select relevant workspaces, and initialize the Polygraph session. The subagent handles calling `list_repos` and `start_session` and returns a structured summary.
+In cases B and C the subagent handles the heavy lifting. In case A you call `show_session` yourself.
 {% else %}
 
-**If you need to create a new session**, discover candidate repos using `list_repos`, select relevant workspaces, and initialize the Polygraph session using `start_session`.
+In cases B and C, discover candidate repos using `list_repos`, select relevant workspaces, and either call `start_session` (case C) or `add_repo` (case B) — never both. In case A, just call `show_session`.
 {% endif %}
 
-**Session ID is auto-generated:**
+**Session ID handling:**
 
-The `start_session` tool automatically generates a unique session ID. You do NOT need to pass a session ID when creating a new session.
+- For a new session (case C), `start_session` auto-generates a unique session ID. You do NOT need to pass one.
+- For cases A and B, the session ID already exists; reuse it everywhere — never let `start_session` run in this conversation.
 {% if platform == "claude" %}
 
-**Launch the init subagent** (only when creating a new session):
+**Launch the init subagent** (cases B and C — skip in case A):
 
 {% raw %}
 
@@ -132,22 +141,25 @@ Task(
   description: "Init Polygraph session",
   prompt: """
     Parameters:
+    - sessionId: "<existing-session-id-or-omit-for-new-session>"
     - userContext: "<description of what the user wants to do>"
 
-    Discover candidates, select relevant repos based on the user context, initialize the session, and return a structured summary.
+    If sessionId is provided, reuse that session and use add_repo to attach the selected workspaces — do NOT call start_session. If sessionId is omitted, create a new session via start_session. Either way, discover candidates, select relevant repos, and return a structured summary.
   """
 )
 ```
 
 {% endraw %}
+
+Omit the `sessionId` line for case C. Include it (with the existing session ID) for case B.
 {% elsif platform == "opencode" %}
 
-**Launch the init subagent** using `@polygraph-init-subagent` (only when creating a new session):
+**Launch the init subagent** using `@polygraph-init-subagent` (cases B and C — skip in case A):
 
-Invoke the `polygraph-init-subagent` agent with the user context. The subagent handles calling `list_repos` and `start_session` and returns a structured summary.
+Invoke the `polygraph-init-subagent` agent. Always pass `userContext`. If you are in case B (existing session with no repos), also pass the existing `sessionId` and instruct the subagent to use `add_repo` rather than `start_session`. The subagent returns a structured summary.
 {% elsif platform == "codex" %}
 
-**Launch `polygraph-init-subagent`** (only when creating a new session):
+**Launch `polygraph-init-subagent`** (cases B and C — skip in case A):
 
 Use Codex's `spawn_agent` tool to start the custom Polygraph init subagent:
 
@@ -158,16 +170,17 @@ spawn_agent(
   agent_type: "polygraph-init-subagent",
   message: """
     Parameters:
+    - sessionId: "<existing-session-id-or-omit-for-new-session>"
     - userContext: "<description of what the user wants to do>"
 
-    Discover candidates, select relevant repos based on the user context, initialize the session, and return a structured summary.
+    If sessionId is provided, reuse that session and use add_repo to attach the selected workspaces — do NOT call start_session. If sessionId is omitted, create a new session via start_session. Either way, discover candidates, select relevant repos, and return a structured summary.
   """
 )
 ```
 
 {% endraw %}
 
-When the main flow needs the session before proceeding, collect the result with `wait_agent`.
+Omit the `sessionId` line for case C. Include it (with the existing session ID) for case B. When the main flow needs the session before proceeding, collect the result with `wait_agent`.
 {% else %}
 
 Call `list_repos` to discover available workspaces, select relevant repos based on user context, then call `start_session` with the selected workspace IDs.
@@ -177,7 +190,7 @@ The subagent will:
 
 1. Call `list_repos` to discover available workspaces
 2. Select relevant repos based on the user context (or include all if uncertain)
-3. Call `start_session` with the selected workspace IDs
+3. Either call `start_session` (case C, no `sessionId`) or call `add_repo` against the existing session (case B). It will never call `start_session` when a `sessionId` was provided.
 4. Call `show_session` to retrieve session details
 5. Return a summary with session URL, repos, and workspace info
 
