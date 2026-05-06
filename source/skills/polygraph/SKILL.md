@@ -409,7 +409,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `title` (required): PR title
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later. The agent CLI session ID is captured automatically by the polygraph MCP server — the agent does NOT need to provide it.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
 
 ```
 create_pr(
@@ -453,7 +453,7 @@ Check the details of a session using `show_session` or `polygraph session show -
 - `session.sessionId`: The session ID
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
 - `session.plan`: High-level plan describing what this session is doing (null if not set)
-- `session.agentSessionId`: The agent CLI session ID that can be used to resume the session (null if not yet captured). Captured automatically by the polygraph MCP server — agents do not provide it.
+- `session.agentSessionId`: The agent CLI session ID used by polygraph session resume (null if no agent has run yet).
 - `session.linkedSessions`: Array of sessions linked to this session
 - `session.workspaces[]`: Array of connected workspaces, each with:
   - `id`: Workspace ID
@@ -529,7 +529,7 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later. The agent CLI session ID is captured automatically by the polygraph MCP server — the agent does NOT need to provide it.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
 
 ```
 mark_pr_ready(
@@ -561,7 +561,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name to find 
 - `sessionId` (required): The Polygraph session ID
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later. The agent CLI session ID is captured automatically by the polygraph MCP server — the agent does NOT need to provide it.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
 
 ```
 associate_pr(
@@ -679,7 +679,6 @@ get_ci_logs(
 The `plan` parameter is **required** on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It saves session state that enables resuming the Polygraph session later.
 
 - **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). This helps anyone resuming the session understand the context.
-- **`agentSessionId`** (auto-captured): The agent CLI session ID for the parent agent — used by `polygraph session resume` to reattach to the original agent process. Captured automatically by the polygraph MCP server from the local environment / agent storage. Agents do NOT need to provide it.
 
 These fields are saved to the Polygraph session server-side and are available from `show_session`. The Polygraph UI also shows a "Resume Session" section with copy-able commands when these fields are present.
 
@@ -748,10 +747,10 @@ If the session has a `plan` or `agentSessionId`, also display:
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`), so a later `spawn_agent` call against the same target resumes the same agent session.
    {% if platform == "claude" %}
-1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`. The agent CLI session ID is captured automatically by the polygraph MCP server, so the agent does NOT need to pass it.
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% elsif platform == "opencode" %}
-1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`. The agent CLI session ID is captured automatically by the polygraph MCP server, so the agent does NOT need to pass it.
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% else %}
-1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`. The agent CLI session ID is captured automatically by the polygraph MCP server, so the agent does NOT need to pass it.
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% endif %}
 1. **Only complete sessions when asked** — Only call `complete_session` when the user explicitly requests it. Completing a session seals it from further modifications. Do not automatically complete sessions.
