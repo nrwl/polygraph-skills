@@ -178,6 +178,38 @@ test('installPlugin re-copies plugin payload when installed version differs', ()
   assert.equal(installedPkg.version, fixture.version);
 });
 
+test('installPlugin removes stale files when re-copying on version mismatch', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
+
+  installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  // A file present in the old install that does NOT exist in the source payload —
+  // simulates a renamed or removed file between versions.
+  const stalePath = join(installedPluginPath, 'skills', 'polygraph', 'OBSOLETE.md');
+  writeFileSync(stalePath, '# obsolete\n');
+
+  // Mark the install as stale so the version-mismatch path triggers.
+  writeFileSync(
+    join(installedPluginPath, 'package.json'),
+    JSON.stringify({ name: 'polygraph-codex-plugin', version: '1.0.0' }, null, 2)
+  );
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.copied, true);
+  assert.equal(result.pluginUpdated, true);
+  assert.equal(existsSync(stalePath), false);
+});
+
 test('installPlugin refuses to reuse an invalid target without --force when version matches', () => {
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
   const fixture = createFixturePackage(homeDir);
