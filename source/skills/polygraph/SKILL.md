@@ -97,7 +97,7 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
 5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later resumption.
 6. **Push branches** - Use `push_branch` after making commits.
-7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Both `plan` and `agentSessionId` are required.
+7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. `plan` is required.
 8. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
 9. **Query PR status** - Use `show_session` to check progress.
 10. **Mark PRs ready** - Use `mark_pr_ready` when work is complete.
@@ -409,14 +409,12 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `title` (required): PR title
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
-- `plan` (required): High-level plan describing the session's purpose. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
-- `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 create_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
-  agentSessionId: "<claude-session-id>",
   prs: [
     {
       owner: "org",
@@ -455,7 +453,7 @@ Check the details of a session using `show_session` or `polygraph session show -
 - `session.sessionId`: The session ID
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
 - `session.plan`: High-level plan describing what this session is doing (null if not set)
-- `session.agentSessionId`: The Claude CLI session ID that can be used to resume the session (null if not set)
+- `session.agentSessionId`: The agent CLI session ID (null if no agent has run yet).
 - `session.linkedSessions`: Array of sessions linked to this session
 - `session.workspaces[]`: Array of connected workspaces, each with:
   - `id`: Workspace ID
@@ -531,14 +529,12 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `plan` (required): High-level plan describing the session's purpose. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
-- `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 mark_pr_ready(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
-  agentSessionId: "<claude-session-id>",
   prUrls: [
     "https://github.com/org/frontend/pull/123",
     "https://github.com/org/backend/pull/456"
@@ -565,14 +561,12 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name to find 
 - `sessionId` (required): The Polygraph session ID
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
-- `plan` (required): High-level plan describing the session's purpose. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
-- `agentSessionId` (required): The Claude CLI session ID. Both `plan` and `agentSessionId` must always be provided together to enable session resuming.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 associate_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
-  agentSessionId: "<claude-session-id>",
   prUrl: "https://github.com/org/repo/pull/123"
 )
 ```
@@ -583,7 +577,6 @@ Or by branch:
 associate_pr(
   sessionId: "<session-id>",
   plan: "Add user preferences feature: UI in frontend, API in backend",
-  agentSessionId: "<claude-session-id>",
   branch: "feature/my-changes"
 )
 ```
@@ -681,26 +674,13 @@ get_ci_logs(
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
-### Session State for Resume (Required)
+### Session Plan (Required)
 
-The `plan` and `agentSessionId` parameters are **required** on `create_pr`, `mark_pr_ready`, and `associate_pr`. You must always provide both values together. They save session state that enables resuming the Polygraph session later.
+The `plan` parameter is **required** on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It records a high-level description of what this session is doing.
 
-- **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). This helps anyone resuming the session understand the context.
-- **`agentSessionId`**: The Claude CLI session ID for the parent agent. This is the session ID that can be passed to `claude --continue` to resume exactly where the agent left off.
+- **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos").
 
-These fields are saved to the Polygraph session server-side and are available from `show_session`. The Polygraph UI also shows a "Resume Session" section with copy-able commands when these fields are present.
-
-### Resuming a Polygraph Session
-
-If a session has a saved `agentSessionId`, it can be resumed using:
-
-```
-claude --continue <agentSessionId>
-```
-
-This resumes the Claude CLI session that was coordinating the Polygraph work, restoring the full conversation context including which repos were involved, what work was delegated, and what remains to be done.
-
-To check if a session is resumable, call `show_session` and look for the `agentSessionId` field in the response.
+This is saved to the Polygraph session server-side, is available from `show_session`, and is surfaced in the Polygraph UI for anyone inspecting the session.
 
 ### Print Polygraph Session Details
 
@@ -712,13 +692,9 @@ When asked to print polygraph session details, use `show_session` or `polygraph 
 | -------------- | ------------------ | --------- | --------- | ------------------- | ---------------- |
 | REPO_FULL_NAME | [PR_TITLE](PR_URL) | PR_STATUS | CI_STATUS | SELF_HEALING_STATUS | [View](CIPE_URL) |
 
-If the session has a `plan` or `agentSessionId`, also display:
+If the session has a `plan`, also display:
 
 **Plan:** SESSION_PLAN
-
-**Resume:** `claude --continue AGENT_SESSION_ID`
-
-(Omit the Plan line if `plan` is null. Omit the Resume line if `agentSessionId` is null.)
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
@@ -727,7 +703,6 @@ If the session has a `plan` or `agentSessionId`, also display:
 - CIPE_URL: from `ciStatus[prId].cipeUrl`
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 - SESSION_PLAN: from `plan`
-- AGENT_SESSION_ID: from `agentSessionId`
 
 ## Best Practices
 
@@ -755,10 +730,10 @@ If the session has a `plan` or `agentSessionId`, also display:
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`), so a later `spawn_agent` call against the same target resumes the same agent session.
    {% if platform == "claude" %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later with `claude --continue`
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% elsif platform == "opencode" %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later with `opencode --continue`
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% else %}
-1. **Always provide `plan` and `agentSessionId`** — These are required on `create_pr`, `mark_pr_ready`, and `associate_pr`. Always pass both values so the session can be resumed later.
+1. **Always provide `plan`** — Required on `create_pr`, `mark_pr_ready`, and `associate_pr`.
    {% endif %}
 1. **Only complete sessions when asked** — Only call `complete_session` when the user explicitly requests it. Completing a session seals it from further modifications. Do not automatically complete sessions.
