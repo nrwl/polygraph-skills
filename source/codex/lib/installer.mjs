@@ -115,9 +115,23 @@ export function installPlugin({
   const pluginPath = getPluginInstallPath(userHome);
   const installAlreadyPresent = existsSync(pluginPath);
 
+  let previousVersion = null;
+  if (installAlreadyPresent) {
+    try {
+      const installedPkg = JSON.parse(
+        readFileSync(join(pluginPath, "package.json"), "utf8"),
+      );
+      previousVersion = installedPkg.version ?? null;
+    } catch {
+      // unreadable - treat as missing
+    }
+  }
+  const versionMismatch = installAlreadyPresent && previousVersion !== version;
+
   if (
     installAlreadyPresent &&
     !force &&
+    !versionMismatch &&
     !isValidInstalledPluginDir(pluginPath)
   ) {
     throw new Error(
@@ -130,7 +144,7 @@ export function installPlugin({
   }
 
   let copied = false;
-  if (!installAlreadyPresent || force) {
+  if (!installAlreadyPresent || force || versionMismatch) {
     mkdirSync(pluginPath, { recursive: true });
     for (const relativePath of getPackagePayloadPaths(
       packageRoot,
@@ -161,6 +175,8 @@ export function installPlugin({
     marketplacePath,
     copied,
     overwritten: installAlreadyPresent && force,
+    pluginUpdated: installAlreadyPresent && versionMismatch && !force,
+    previousVersion,
     configChanged,
     agentsChanged,
     marketplaceChanged,

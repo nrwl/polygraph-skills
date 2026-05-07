@@ -109,6 +109,9 @@ test('installPlugin is idempotent and checkInstall succeeds after install', () =
     packageRoot: fixture.packageRoot,
     env: { HOME: homeDir, CODEX_HOME: codexHome },
   });
+  assert.equal(firstInstall.pluginUpdated, false);
+  assert.equal(firstInstall.previousVersion, null);
+
   const firstConfig = readFileSync(configPath, 'utf8');
 
   const secondInstall = installPlugin({
@@ -117,6 +120,8 @@ test('installPlugin is idempotent and checkInstall succeeds after install', () =
   });
 
   assert.equal(secondInstall.copied, false);
+  assert.equal(secondInstall.pluginUpdated, false);
+  assert.equal(secondInstall.previousVersion, fixture.version);
   assert.equal(readFileSync(configPath, 'utf8'), firstConfig);
 
   const check = checkInstall({
@@ -130,13 +135,61 @@ test('installPlugin is idempotent and checkInstall succeeds after install', () =
   assert.equal(check.marketplaceConfigured, true);
 });
 
-test('installPlugin refuses to reuse an invalid target without --force', () => {
+test('installPlugin re-copies plugin payload when installed version differs', () => {
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
   const fixture = createFixturePackage(homeDir);
   const codexHome = join(homeDir, '.codex');
   const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
 
+  installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  // Simulate a stale install: overwrite the installed package.json with an older version
+  const staleVersion = '1.2.2';
+  writeFileSync(
+    join(installedPluginPath, 'package.json'),
+    JSON.stringify({ name: 'polygraph-codex-plugin', version: staleVersion }, null, 2)
+  );
+  // Also corrupt a skill file to confirm it gets restored
+  writeFileSync(join(installedPluginPath, 'skills', 'polygraph', 'SKILL.md'), '# stale\n');
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.copied, true);
+  assert.equal(result.pluginUpdated, true);
+  assert.equal(result.previousVersion, staleVersion);
+
+  // Verify the skill file was restored to the source version
+  const restoredSkill = readFileSync(
+    join(installedPluginPath, 'skills', 'polygraph', 'SKILL.md'),
+    'utf8'
+  );
+  assert.equal(restoredSkill, '# Polygraph\n');
+
+  // Verify the installed package.json reflects the source version
+  const installedPkg = JSON.parse(
+    readFileSync(join(installedPluginPath, 'package.json'), 'utf8')
+  );
+  assert.equal(installedPkg.version, fixture.version);
+});
+
+test('installPlugin refuses to reuse an invalid target without --force when version matches', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
+
+  // Simulate a dir with the correct version but missing required plugin files
   mkdirSync(installedPluginPath, { recursive: true });
+  writeFileSync(
+    join(installedPluginPath, 'package.json'),
+    JSON.stringify({ name: 'polygraph-codex-plugin', version: fixture.version }, null, 2)
+  );
 
   assert.throws(
     () =>
@@ -154,6 +207,25 @@ test('installPlugin refuses to reuse an invalid target without --force', () => {
   });
 
   assert.equal(forced.overwritten, true);
+});
+
+test('installPlugin auto-updates when installed package.json is missing (no version readable)', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
+
+  // An empty dir has no package.json → previousVersion=null → version mismatch → auto-update
+  mkdirSync(installedPluginPath, { recursive: true });
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(result.copied, true);
+  assert.equal(result.pluginUpdated, true);
+  assert.equal(result.previousVersion, null);
 });
 
 function createFixturePackage(baseDir = tmpdir()) {
