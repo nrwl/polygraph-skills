@@ -139,7 +139,7 @@ export function installPlugin({
     );
   }
 
-  if (installAlreadyPresent && force) {
+  if (installAlreadyPresent && (force || versionMismatch)) {
     rmSync(pluginPath, { recursive: true, force: true });
   }
 
