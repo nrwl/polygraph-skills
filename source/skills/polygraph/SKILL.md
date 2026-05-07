@@ -409,7 +409,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `title` (required): PR title
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 create_pr(
@@ -453,7 +453,7 @@ Check the details of a session using `show_session` or `polygraph session show -
 - `session.sessionId`: The session ID
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
 - `session.plan`: High-level plan describing what this session is doing (null if not set)
-- `session.agentSessionId`: The agent CLI session ID used by polygraph session resume (null if no agent has run yet).
+- `session.agentSessionId`: The agent CLI session ID (null if no agent has run yet).
 - `session.linkedSessions`: Array of sessions linked to this session
 - `session.workspaces[]`: Array of connected workspaces, each with:
   - `id`: Workspace ID
@@ -529,7 +529,7 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 mark_pr_ready(
@@ -561,7 +561,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name to find 
 - `sessionId` (required): The Polygraph session ID
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
-- `plan` (required): High-level plan describing the session's purpose. Saved server-side so the Polygraph CLI can resume work later.
+- `plan` (required): High-level plan describing the session's purpose. Saved server-side and surfaced in the Polygraph UI.
 
 ```
 associate_pr(
@@ -674,25 +674,13 @@ get_ci_logs(
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
-### Session State for Resume (Required)
+### Session Plan (Required)
 
-The `plan` parameter is **required** on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It saves session state that enables resuming the Polygraph session later.
+The `plan` parameter is **required** on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It records a high-level description of what this session is doing.
 
-- **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). This helps anyone resuming the session understand the context.
+- **`plan`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos").
 
-These fields are saved to the Polygraph session server-side and are available from `show_session`. The Polygraph UI also shows a "Resume Session" section with copy-able commands when these fields are present.
-
-### Resuming a Polygraph Session
-
-If a session has a saved `agentSessionId`, run:
-
-```
-polygraph session resume <session-id>
-```
-
-This reattaches the original agent process so the conversation context is fully restored, including which repos were involved, what work was delegated, and what remains to be done. The `agentSessionId` field on `show_session` indicates whether resume is currently available.
-
-To check if a session is resumable, call `show_session` and look for the `agentSessionId` field in the response.
+This is saved to the Polygraph session server-side, is available from `show_session`, and is surfaced in the Polygraph UI for anyone inspecting the session.
 
 ### Print Polygraph Session Details
 
@@ -704,13 +692,9 @@ When asked to print polygraph session details, use `show_session` or `polygraph 
 | -------------- | ------------------ | --------- | --------- | ------------------- | ---------------- |
 | REPO_FULL_NAME | [PR_TITLE](PR_URL) | PR_STATUS | CI_STATUS | SELF_HEALING_STATUS | [View](CIPE_URL) |
 
-If the session has a `plan` or `agentSessionId`, also display:
+If the session has a `plan`, also display:
 
 **Plan:** SESSION_PLAN
-
-**Resume:** `polygraph session resume <session-id>`
-
-(Omit the Plan line if `plan` is null. Omit the Resume line if `agentSessionId` is null.)
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
@@ -719,7 +703,6 @@ If the session has a `plan` or `agentSessionId`, also display:
 - CIPE_URL: from `ciStatus[prId].cipeUrl`
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 - SESSION_PLAN: from `plan`
-- AGENT_SESSION_ID: from `agentSessionId`
 
 ## Best Practices
 
