@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { parse } from 'smol-toml';
 
 import {
   checkInstall,
+  getCacheRoot,
   installPlugin,
   resolveCodexHome,
 } from '../source/codex/lib/installer.mjs';
@@ -228,9 +229,172 @@ test('installPlugin auto-updates when installed package.json is missing (no vers
   assert.equal(result.previousVersion, null);
 });
 
-function createFixturePackage(baseDir = tmpdir()) {
+// ---------------------------------------------------------------------------
+// Codex cache mirror tests (workaround for openai/codex#21138)
+// ---------------------------------------------------------------------------
+
+test('installPlugin mirrors plugin payload into Codex cache when codexHome exists', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  const expectedCachePath = getCacheRoot(codexHome, fixture.version);
+  assert.equal(result.codexCachePath, expectedCachePath);
+  assert.equal(existsSync(expectedCachePath), true);
+
+  // Verify the versioned dir was written under the correct marketplace/plugin path.
+  // The parent should be <codexHome>/plugins/cache/polygraph-plugins/polygraph/.
+  const cacheRoot = getCacheRoot(codexHome);
+  assert.deepEqual(readdirSync(cacheRoot), [fixture.version]);
+});
+
+test('installPlugin cache files are byte-identical to live install files', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  // Walk the cache dir and compare every file to the live install.
+  function assertDirsMatch(liveDir, cacheDir) {
+    const liveEntries = readdirSync(liveDir, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    );
+    const cacheEntries = readdirSync(cacheDir, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    );
+    assert.equal(liveEntries.length, cacheEntries.length, `Entry count mismatch in ${liveDir}`);
+    for (let i = 0; i < liveEntries.length; i++) {
+      assert.equal(liveEntries[i].name, cacheEntries[i].name);
+      if (liveEntries[i].isDirectory()) {
+        assertDirsMatch(join(liveDir, liveEntries[i].name), join(cacheDir, cacheEntries[i].name));
+      } else {
+        const liveContent = readFileSync(join(liveDir, liveEntries[i].name));
+        const cacheContent = readFileSync(join(cacheDir, cacheEntries[i].name));
+        assert.equal(liveContent.equals(cacheContent), true, `Content mismatch: ${liveEntries[i].name}`);
+      }
+    }
+  }
+
+  assertDirsMatch(result.pluginPath, result.codexCachePath);
+});
+
+test('installPlugin removes stale version dirs before writing new cache', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+
+  // First install at version 1.2.3
+  installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+  const oldCachePath = getCacheRoot(codexHome, fixture.version);
+  assert.equal(existsSync(oldCachePath), true);
+
+  // Simulate a version bump by creating a second fixture at 2.0.0
+  const newFixture = createFixturePackage(homeDir, '2.0.0');
+
+  const result = installPlugin({
+    packageRoot: newFixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  // Old version dir must be gone; only new version dir should exist.
+  assert.equal(existsSync(oldCachePath), false, 'Stale 1.2.3 cache dir should be removed');
+  assert.equal(result.codexCachePath, getCacheRoot(codexHome, '2.0.0'));
+  assert.equal(existsSync(result.codexCachePath), true);
+  const cacheRoot = getCacheRoot(codexHome);
+  assert.deepEqual(readdirSync(cacheRoot), ['2.0.0']);
+});
+
+test('checkInstall reports codexCacheMirrored null when codexHome does not exist', () => {
+  // When codexHome is a path that has never been created, checkInstall must
+  // return codexCachePath: null and codexCacheMirrored: null (not an error).
+  // Note: installPlugin always creates codexHome as a side-effect of writing
+  // config.toml, so this scenario is only reachable via checkInstall directly.
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex-never-created');
+
+  const check = checkInstall({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  assert.equal(check.codexCachePath, null);
+  assert.equal(check.codexCacheMirrored, null);
+});
+
+test('checkInstall reports codexCacheMirrored true after install and false when cache is stale', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
+
+  installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+
+  const checkAfterInstall = checkInstall({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+  assert.equal(checkAfterInstall.codexCacheMirrored, true);
+  assert.equal(checkAfterInstall.codexCachePath, getCacheRoot(codexHome, fixture.version));
+
+  // Corrupt a file in the live install dir to make cache diverge from live.
+  writeFileSync(join(installedPluginPath, 'skills', 'polygraph', 'SKILL.md'), '# stale-live\n');
+
+  const checkAfterCorrupt = checkInstall({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+  assert.equal(checkAfterCorrupt.codexCacheMirrored, false);
+});
+
+test('installPlugin mirrors cache even when the main install is a no-op (idempotent version)', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-home-'));
+  const fixture = createFixturePackage(homeDir);
+  const codexHome = join(homeDir, '.codex');
+  const installedPluginPath = join(homeDir, '.agents', 'plugins', 'polygraph');
+
+  // First install
+  const first = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+  assert.equal(first.copied, true);
+  assert.notEqual(first.codexCachePath, null);
+
+  // Corrupt the cache directly to prove a second no-op install still refreshes it.
+  writeFileSync(join(first.codexCachePath, 'README.md'), '# stale-cache\n');
+
+  // Second install: main copy skipped (same version), but cache must be refreshed.
+  const second = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir, CODEX_HOME: codexHome },
+  });
+  assert.equal(second.copied, false, 'Main copy should be a no-op on second install');
+  assert.equal(second.codexCachePath, first.codexCachePath);
+
+  // Cache should be fresh again — content matches live install.
+  const liveContent = readFileSync(join(installedPluginPath, 'README.md'), 'utf8');
+  const cacheContent = readFileSync(join(second.codexCachePath, 'README.md'), 'utf8');
+  assert.equal(cacheContent, liveContent);
+});
+
+function createFixturePackage(baseDir = tmpdir(), version = '1.2.3') {
   const packageRoot = mkdtempSync(join(baseDir, 'polygraph-package-'));
-  const version = '1.2.3';
 
   mkdirSync(join(packageRoot, '.codex-plugin'), { recursive: true });
   mkdirSync(join(packageRoot, 'skills', 'polygraph'), { recursive: true });
