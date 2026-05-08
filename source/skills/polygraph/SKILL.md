@@ -452,7 +452,7 @@ Check the details of a session using `show_session` or `polygraph session show -
 
 - `session.sessionId`: The session ID
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
-- `session.description`: DescriptionItem[] timeline describing the session. `session.plan` is legacy read-only fallback only.
+- `session.description`: DescriptionItem[] timeline describing the session.
 - `session.agentSessionId`: The agent CLI session ID — captured automatically by the MCP server (null if no agent has run yet).
 - `session.linkedSessions`: Array of sessions linked to this session
 - `session.workspaces[]`: Array of connected workspaces, each with:
@@ -676,7 +676,7 @@ get_ci_logs(
 
 ### Session Description
 
-`description` is an optional parameter on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It records a timeline of high-level descriptions of what the session is doing. Never send `plan` — existing `plan` values are legacy read-only fallback only.
+`description` is an optional parameter on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It records a timeline of high-level descriptions of what the session is doing.
 
 - **`description`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). The CLI saves this text to the session description timeline.
 
@@ -698,7 +698,7 @@ If the session has a description timeline, also display:
 
 **Description:** SESSION_DESCRIPTION
 
-(Omit the Description line if `description` is empty and legacy `plan` is null.)
+(Omit the Description line if `description` is empty.)
 
 - REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
@@ -706,7 +706,7 @@ If the session has a description timeline, also display:
 - SELF_HEALING_STATUS: from `ciStatus[prId].selfHealingStatus` (omit or show `-` if null)
 - CIPE_URL: from `ciStatus[prId].cipeUrl`
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
-- SESSION_DESCRIPTION: from the latest/current item in `description`, falling back to legacy `plan` only for old sessions
+- SESSION_DESCRIPTION: from the latest/current item in `description`
 
 ## Best Practices
 
@@ -733,11 +733,4 @@ If the session has a description timeline, also display:
 1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`), so a later `spawn_agent` call against the same target resumes the same agent session.
-   {% if platform == "claude" %}
-1. **Never provide `plan`** — Use `description` on `create_pr`, `mark_pr_ready`, and `associate_pr` to update the session description timeline.
-   {% elsif platform == "opencode" %}
-1. **Never provide `plan`** — Use `description` on `create_pr`, `mark_pr_ready`, and `associate_pr` to update the session description timeline.
-   {% else %}
-1. **Never provide `plan`** — Use `description` on `create_pr`, `mark_pr_ready`, and `associate_pr` to update the session description timeline.
-   {% endif %}
 1. **Only complete sessions when asked** — Only call `complete_session` when the user explicitly requests it. Completing a session seals it from further modifications. Do not automatically complete sessions.
