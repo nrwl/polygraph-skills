@@ -39,8 +39,15 @@ export function getAgentsPath(codexHome) {
   return join(codexHome, "agents");
 }
 
-export function getCacheRoot(codexHome) {
-  return join(codexHome, "plugins", "cache", PLUGIN_NAME, PLUGIN_NAME);
+export function getCacheRoot(codexHome, version) {
+  const base = join(
+    codexHome,
+    "plugins",
+    "cache",
+    MARKETPLACE_NAME,
+    PLUGIN_NAME,
+  );
+  return version ? join(base, version) : base;
 }
 
 export function resolveUserHome(env = process.env) {
@@ -95,6 +102,42 @@ export function loadPackageMetadata(packageRoot) {
     pluginManifest,
     version: packageJson.version,
   };
+}
+
+/**
+ * Mirror the plugin payload into Codex's own plugin cache directory.
+ *
+ * Workaround for openai/codex#21138: Codex only refreshes its plugin cache
+ * when the Plugins UI RPC handler runs, which never happens during normal
+ * TUI/MCP/exec sessions. Without this mirror, users keep loading a stale
+ * cached copy after a polygraph install — including across version bumps.
+ * Remove this workaround once Codex refreshes the cache on plugin load/exec.
+ *
+ * Returns the versioned cache path that was written, or null if skipped
+ * (codexHome does not exist — user hasn't run Codex yet).
+ */
+function mirrorCodexPluginCache({ codexHome, packageRoot, packageJson, version }) {
+  if (!existsSync(codexHome)) {
+    return null;
+  }
+
+  const pluginCacheRoot = getCacheRoot(codexHome);
+
+  // Remove all existing version directories to prevent accumulation of stale versions.
+  if (existsSync(pluginCacheRoot)) {
+    for (const entry of readdirSync(pluginCacheRoot)) {
+      rmSync(join(pluginCacheRoot, entry), { recursive: true, force: true });
+    }
+  }
+
+  const versionedCachePath = getCacheRoot(codexHome, version);
+  mkdirSync(versionedCachePath, { recursive: true });
+
+  for (const relativePath of getPackagePayloadPaths(packageRoot, packageJson)) {
+    copyRelativeEntry(packageRoot, versionedCachePath, relativePath);
+  }
+
+  return versionedCachePath;
 }
 
 export function installPlugin({
@@ -163,6 +206,15 @@ export function installPlugin({
     userHome,
   });
 
+  // Always mirror into Codex's plugin cache, regardless of whether the main
+  // install was a no-op. The cache can be stale independently of pluginPath.
+  const codexCachePath = mirrorCodexPluginCache({
+    codexHome,
+    packageRoot,
+    packageJson,
+    version,
+  });
+
   return {
     ok: true,
     action: "install",
@@ -173,6 +225,7 @@ export function installPlugin({
     pluginPath,
     configPath,
     marketplacePath,
+    codexCachePath,
     copied,
     overwritten: installAlreadyPresent && force,
     pluginUpdated: installAlreadyPresent && versionMismatch && !force,
@@ -184,8 +237,9 @@ export function installPlugin({
 }
 
 export function checkInstall({ packageRoot, env = process.env } = {}) {
+  let version = null;
   if (packageRoot) {
-    loadPackageMetadata(packageRoot);
+    ({ version } = loadPackageMetadata(packageRoot));
   }
 
   const codexHome = resolveCodexHome(env);
@@ -207,6 +261,17 @@ export function checkInstall({ packageRoot, env = process.env } = {}) {
   const ok =
     pluginInstalled && configEnabled && agentsInstalled && marketplaceConfigured;
 
+  // Check whether Codex's plugin cache contains a current mirror of the install.
+  // codexCachePath is the expected path; codexCacheMirrored is whether its
+  // content matches pluginPath (null when codexHome doesn't exist or version unknown).
+  const codexHomeExists = existsSync(codexHome);
+  const codexCachePath =
+    codexHomeExists && version ? getCacheRoot(codexHome, version) : null;
+  const codexCacheMirrored =
+    codexCachePath !== null
+      ? isCodexCacheCurrent({ cachePath: codexCachePath, pluginPath })
+      : null;
+
   return {
     ok,
     action: "check",
@@ -216,10 +281,12 @@ export function checkInstall({ packageRoot, env = process.env } = {}) {
     pluginPath,
     configPath,
     marketplacePath,
+    codexCachePath,
     pluginInstalled,
     configEnabled,
     agentsInstalled,
     marketplaceConfigured,
+    codexCacheMirrored,
   };
 }
 
@@ -469,6 +536,59 @@ function readJsonFile(path, fallbackValue) {
 function writeJsonFile(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Returns true when cachePath exists and every file it contains has the same
+ * content as the corresponding file in pluginPath. Directories are traversed
+ * recursively. Returns false if any file is missing or differs.
+ */
+function isCodexCacheCurrent({ cachePath, pluginPath }) {
+  if (!existsSync(cachePath) || !existsSync(pluginPath)) {
+    return false;
+  }
+
+  return directoriesMatch(pluginPath, cachePath);
+}
+
+function directoriesMatch(aDir, bDir) {
+  if (!existsSync(aDir) || !existsSync(bDir)) {
+    return false;
+  }
+
+  const aEntries = readdirSync(aDir, { withFileTypes: true }).sort((x, y) =>
+    x.name < y.name ? -1 : x.name > y.name ? 1 : 0,
+  );
+  const bEntries = readdirSync(bDir, { withFileTypes: true }).sort((x, y) =>
+    x.name < y.name ? -1 : x.name > y.name ? 1 : 0,
+  );
+
+  if (aEntries.length !== bEntries.length) {
+    return false;
+  }
+
+  for (let i = 0; i < aEntries.length; i++) {
+    const a = aEntries[i];
+    const b = bEntries[i];
+
+    if (a.name !== b.name || a.isDirectory() !== b.isDirectory()) {
+      return false;
+    }
+
+    if (a.isDirectory()) {
+      if (!directoriesMatch(join(aDir, a.name), join(bDir, b.name))) {
+        return false;
+      }
+    } else {
+      const aContent = readFileSync(join(aDir, a.name));
+      const bContent = readFileSync(join(bDir, b.name));
+      if (!aContent.equals(bContent)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function isValidInstalledPluginDir(candidatePath) {
