@@ -64,13 +64,26 @@ The call returns immediately — the child agent runs asynchronously.
 Use `sleep` in Bash between polls — this is mandatory, not aspirational. Without it you will hammer `show_agent` every 2-3s, which both wastes calls and floods your own context with repeated polling output. Always run sleep in the **foreground** (never background).
 
 {% if platform == "claude" %}
-**Claude Code Bash tool blocks standalone `sleep N` commands.** A bare `sleep 60` will return `Blocked: standalone sleep 60`. Wrap it in a single-iteration `until` loop, which is allowed:
+### Sleeping between polls on Claude Code
+
+**There is exactly one correct pattern. Use it verbatim:**
 
 ```
-until false; do sleep 60; break; done   # between 4th+ polls
+until false; do sleep 60; break; done   # 4th+ polls — substitute 10 / 30 for earlier attempts
 ```
 
-Do **not** chain shorter sleeps (e.g. `sleep 10; sleep 10; sleep 10; ...`) to dodge the block — the harness detects this and it is explicitly prohibited. Do **not** run sleep with `run_in_background: true` either; that returns immediately and defeats the purpose. The `until ...; break; done` wrapper is the correct workaround for fixed delays between MCP polls.
+**Every other shape you might reach for is wrong on Claude Code. Specifically:**
+
+| Pattern                                                  | What happens                                                                                                                                                                                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sleep 60` (bare, foreground)                            | Blocked by the Bash tool with `Blocked: standalone sleep 60`. Wastes a tool call.                                                                                                                                                     |
+| `sleep 10; sleep 10; sleep 10` (chained)                 | Detected and blocked. Explicitly prohibited.                                                                                                                                                                                          |
+| `sleep 60 & wait`, `( sleep 60 )`, other shell tricks    | Treated as the same standalone-sleep antipattern. Do not use.                                                                                                                                                                         |
+| `sleep 60` with `run_in_background: true` ← **WORST**    | Returns immediately — *no actual delay*. The sleep keeps running as an orphaned background process. When it finally finishes, the harness wakes this subagent with a `<task-notification>`, forcing another turn after you've already returned. Every queued background sleep emits a duplicate `completed` notification to the parent. One mis-step here can produce 10+ duplicate parent notifications and burn the user's tokens. |
+
+**Why this matters:** you run as a background Task subagent. Any background Bash command you spawn outlives your turn. Each completion wakes you again and emits another `<status>completed</status>` task-notification to the parent for the *same* parent tool-use ID. The parent has no way to silence it. Use the `until ... break ... done` wrapper — only it produces a real foreground delay.
+
+If you ever see `Blocked: standalone sleep N`, the answer is **never** `run_in_background: true`. The answer is the `until` wrapper above.
 {% else %}
 ```
 sleep 60   # between 4th+ polls
