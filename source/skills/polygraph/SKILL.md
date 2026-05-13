@@ -52,7 +52,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `add_repo` | — | Add workspaces to a running Polygraph session |
 | `complete_session` | `polygraph session complete <id>` | Mark a session complete |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
-| — | `polygraph login [--token]` | Authenticate with Nx Cloud (use `--token` for headless/CI) |
+| — | `polygraph login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | — | `polygraph session list` | List all sessions |
 | — | `polygraph org list` / `org select` | Organization management |
 | — | `polygraph whoami` | Show current auth status and org |
