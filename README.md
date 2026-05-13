@@ -23,7 +23,7 @@
 
 ## What is Polygraph?
 
-Polygraph coordinates changes across multiple repositories using [Nx Cloud](https://nx.dev/nx-cloud). It lets AI agents delegate work to child agents in other repos, monitor CI across repos, and manage multi-repo sessions.
+Polygraph is a standalone product for coordinating changes across multiple repositories. It lets AI agents delegate work to child agents in other repos, monitor CI across repos, and manage multi-repo sessions.
 
 ## Skills
 
@@ -100,7 +100,7 @@ When that PR is merged, the `Publish` workflow automatically tags the release an
 
 ## Learn More
 
-- **[Nx Cloud Polygraph](https://nx.dev/features/polygraph)** — Multi-repo coordination with Nx Cloud
+- **[Polygraph](https://nx.dev/features/polygraph)** — Multi-repo coordination with Polygraph
 - **[polygraph-mcp](https://www.npmjs.com/package/polygraph-mcp)** — The MCP server that powers Polygraph tools
 - **[Nx AI Agent Skills](https://github.com/nrwl/nx-ai-agents-config)** — The main Nx AI agent skills repo
 
