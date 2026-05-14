@@ -45,7 +45,7 @@ Determine which packages are being changed in the publisher, and which consumer 
 **Otherwise**, inspect the session and the publisher's change:
 
 1. Call `show_session(sessionId)` to enumerate the repos in the session and their local paths.
-2. The **publisher** is usually the current repo (where the change is being made). Look at its `package.json` files to find the packages being shipped — the one being changed, or all packages in a monorepo workspace.
+2. The **publisher** is usually the current repo (where the change is being made). Look at its `package.json` files to find the packages being shipped — the one being changed, or all packages in a monorepo package tree.
 3. The **consumers** are the other repos in the session. Only repos that actually depend on one of the publisher's packages are relevant — the command will auto-skip the rest, but listing them up front keeps the user informed.
 
 Before proceeding, print a short table:
