@@ -34,11 +34,13 @@ The main agent provides these parameters in the prompt:
 | `target`      | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
-| `taskId`      | (Optional) Existing task to resume; omit on the first call for a new run     |
+| `taskId`      | (Optional) Existing active task to route a user-approved follow-up to; omit on the first call for a new run |
 
 ## Delegating work
 
-Call the `spawn_agent` tool to start (or resume) a child agent on the target repo. If the main agent supplied a `taskId` — meaning this is a follow-up turn against an already active task — forward it unchanged; otherwise omit `taskId` and a new child run is started.
+Call the `spawn_agent` tool to start a child agent on the target repo or to route an explicit follow-up to an active task. If the main agent supplied a `taskId` - meaning this is a user-approved follow-up turn against an already active task - forward it unchanged; otherwise omit `taskId` and a new child run is started.
+
+**Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
 ```
 spawn_agent(
@@ -46,7 +48,7 @@ spawn_agent(
   target: "<target>",
   instruction: "<instruction>",
   context: "<context>",
-  taskId: "<taskId>"  // optional — pass to resume an active task on the target
+  taskId: "<taskId>"  // optional - pass only for a user-approved follow-up to an active task
 )
 ```
 
@@ -98,7 +100,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Store the returned `taskId`. You will pass it back to `spawn_agent` on any follow-up turn so the orchestrator resumes the same active task instead of starting a new run.
+Store the returned `taskId`. You will pass it back to `spawn_agent` on any follow-up turn so the orchestrator routes the message to the same active task instead of starting a new run.
 
 Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
@@ -116,11 +118,11 @@ State machine:
    - Read `child.inputRequiredQuestion`.
    - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
    - Wait for the parent/user to supply an answer.
-   - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator resumes the same active task.
+   - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
    - Resume polling.
 3. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
-5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved; a new `spawn_agent` call against the same target will resume from the preserved session.
+5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
 
 ## Cancelling a running child
 
@@ -136,7 +138,7 @@ To cancel a running child mid-work, call `stop_agent` with the target repo. Resp
 }
 ```
 
-Because `sessionPreserved: true`, you can resume later by calling `spawn_agent` again on the same target.
+Because `sessionPreserved: true`, the session can be restored later for context. After resuming, do not call `spawn_agent` to continue prior work or make changes until the user explicitly asks for changes.
 
 ## Returning the summary
 

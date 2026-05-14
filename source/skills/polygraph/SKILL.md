@@ -41,9 +41,9 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
-| `spawn_agent` | — | Start (or resume) a task on a child agent in another repository. Input: `{ sessionId, target, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to target a follow-up message at a specific active task; omit to start a new child run. |
+| `spawn_agent` | — | Start a new child task or send an explicit follow-up to an active task in another repository. Input: `{ sessionId, target, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to target a follow-up message at a specific active task; omit to start a new child run. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
 | `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
-| `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, a later `spawn_agent` call against the same target resumes from the preserved agent session. |
+| `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
@@ -96,7 +96,7 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately). Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below.
    {% endif %}
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
-5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later resumption.
+5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits.
 7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Pass `description` to update the session description timeline.
 8. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
@@ -210,6 +210,8 @@ The subagent will:
 
 Use this workflow when the user gives a Polygraph session ID and asks to understand, resume, inspect, or investigate prior work.
 
+**Resume is not a work command.** If the user's intent is to resume, reconnect, or reconstruct a prior Polygraph session, fetch and summarize the restored context, then stop. Do not edit files, push branches, add repos, delegate new work, or continue previous changes until the user explicitly asks for changes. Treat "resume" as context restoration followed by waiting for user instructions.
+
 1. Fetch detailed session context:
    - Prefer `show_session` with `details: true` when the MCP tool exposes that option.
    - Otherwise run `polygraph session show <session-id> --details`.
@@ -227,11 +229,12 @@ Use this workflow when the user gives a Polygraph session ID and asks to underst
    - title
    - status
    - PR description
-5. Use the PR descriptions and session summary to decide whether more repo investigation is needed.
-6. If the repo to investigate is already part of the session, delegate directly to that repo.
-7. If the repo to investigate is not currently initialized in the session, and either the user provided an exact repo ref or the repo appears in `<repositories>`, call `add_repo` with that ref or repo `<id>` directly. Do not call `list_repos` just to resolve the repo.
-8. After `add_repo`, call `show_session` again to verify the repo was added, then delegate to that repo.
-9. Fall back to `list_repos` only when the desired repo is not an exact ref and is missing from `<repositories>`, or when the details output came from an older Polygraph version that did not include repo IDs.
+5. If the request was resume/reconnect/reconstruct only, report the restored session context and wait for the user's next instruction.
+6. If the user explicitly asked to inspect or investigate prior work, use the PR descriptions and session summary to decide whether more repo investigation is needed.
+7. If the repo to investigate is already part of the session, delegate directly to that repo.
+8. If the repo to investigate is not currently initialized in the session, and either the user provided an exact repo ref or the repo appears in `<repositories>`, call `add_repo` with that ref or repo `<id>` directly. Do not call `list_repos` just to resolve the repo.
+9. After `add_repo`, call `show_session` again to verify the repo was added, then delegate to that repo.
+10. Fall back to `list_repos` only when the desired repo is not an exact ref and is missing from `<repositories>`, or when the details output came from an older Polygraph version that did not include repo IDs.
 
 When delegating investigation from a PR, include the PR context in the child instruction:
 
@@ -346,7 +349,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    { "taskId": "…", "message": "…", "status": "delegated" }
    ```
 
-   Store the returned `taskId`. You will pass it back on any follow-up turn so the orchestrator resumes the same active task instead of starting a new run.
+   Store the returned `taskId`. You will pass it back on any follow-up turn so the orchestrator routes the message to the same active task instead of starting a new run.
 
 2. Poll `show_agent`. The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
 
@@ -375,7 +378,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    }
    ```
 
-   Because `sessionPreserved: true`, a later `spawn_agent` call against the same target resumes from the preserved agent session.
+   Because `sessionPreserved: true`, the preserved agent session can be restored later for context. After resuming, do not make changes or continue prior work until the user explicitly asks for changes.
 
 Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
 
@@ -735,5 +738,5 @@ If the session has a description timeline, also display:
    {% elsif platform == "codex" %}
 1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
-1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`), so a later `spawn_agent` call against the same target resumes the same agent session.
+1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
 1. **Only complete sessions when asked** — Only call `complete_session` when the user explicitly requests it. Completing a session seals it from further modifications. Do not automatically complete sessions.

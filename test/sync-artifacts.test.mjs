@@ -53,6 +53,8 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(rendered, /Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`/);
   assert.match(rendered, /`wait_agent`/);
+  assert.match(rendered, /Resume is not a work command/);
+  assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
   assertNoNonCodexDelegationText(rendered);
 });
 
@@ -100,6 +102,8 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.description, /Delegates work to a child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /Backoff schedule for polling/);
+  assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
+  assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });
 
 test('codex plugin manifest does not advertise agents (codex ignores the field)', () => {
