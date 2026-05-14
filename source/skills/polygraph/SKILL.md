@@ -23,8 +23,9 @@ Read this before the tool table below — it determines which tools are yours to
 
 - Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`. Codex `spawn_agent` launches the local custom subagents (`polygraph-init-subagent`, `polygraph-delegate-subagent`). The Polygraph MCP `spawn_agent` runs work inside another repository and must only be invoked from inside those subagents.
 - **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
+- **For explicit repo additions to an existing session:** if the user gives exact refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call Polygraph MCP `add_repo` directly with those refs. Do NOT call `list_repos` or launch candidate discovery first.
 - **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
-- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, and `show_session` for read-only inspection of an existing session.
+- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, and `add_repo` only for explicit repo additions to an existing session.
 - Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
 {% else %}
 **IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `spawn_agent` tool to perform work in other repositories.
@@ -38,8 +39,8 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate workspaces with descriptions and graph relationships |
-| `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected workspaces |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
+| `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
 | `spawn_agent` | — | Start (or resume) a task on a child agent in another repository. Input: `{ sessionId, target, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to target a follow-up message at a specific active task; omit to start a new child run. |
 | `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, a later `spawn_agent` call against the same target resumes from the preserved agent session. |
@@ -49,7 +50,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `link_session` | `polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID` | Link one session to another session |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
-| `add_repo` | — | Add workspaces to a running Polygraph session |
+| `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
 | `complete_session` | `polygraph session complete <id>` | Mark a session complete |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
 | — | `polygraph login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
@@ -59,7 +60,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 {% if platform == "claude" or platform == "opencode" %}
 
-**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in step 0. `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in the delegation sections below — NEVER call them directly in the main conversation.
+**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in step 0. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`) as described in the delegation sections below — NEVER call them directly in the main conversation.
 {% elsif platform == "codex" %}
 
 **Routing reminder:** Per the Critical Routing Rule above, the parent conversation must use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` for new sessions and `agent_type: "polygraph-delegate-subagent"` for repo work — not the Polygraph MCP tools shown in the table. `wait_agent` collects results when needed.
@@ -88,10 +89,10 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 
 {% if has_subagents %}
 
-0. **Initialize or join Polygraph session** - If you were spawned inside an existing session (the startup banner names a session ID), reuse it. Call `show_session` first; if it already has repos, you're done. If it has no repos, launch the `polygraph-init-subagent` with that `sessionId` so it discovers candidates and uses `add_repo` (NOT `start_session`). Only when there is no session ID at all should the init subagent create a new session.
+0. **Initialize or join Polygraph session** - If you were spawned inside an existing session (the startup banner names a session ID), reuse it. Call `show_session` first; if it already has repos and the user did not ask to add more, you're done. If the user asks to add exact repo refs, call `add_repo` directly with those refs and skip candidate discovery. If the session has no repos and no exact refs were provided, launch the `polygraph-init-subagent` with that `sessionId` so it discovers candidates and uses `add_repo` (NOT `start_session`). Only when there is no session ID at all should the init subagent create a new session.
 1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below based on whether the child may need clarification.
    {% else %}
-2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. Otherwise, discover candidate repos, select relevant workspaces, and create a new session via `list_repos` and `start_session`.
+2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. If the user asks to add exact repo refs, call `add_repo` directly with those refs and skip candidate discovery. Otherwise, discover candidate repos, select relevant repositories, and create a new session via `list_repos` and `start_session`.
 3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately). Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below.
    {% endif %}
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
@@ -113,16 +114,16 @@ There are three cases. Pick exactly one before calling any tool.
 
 **Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Print the session details (format below) and proceed.
 
-**Case B — Existing session, no repos yet (or user wants to add more).** Launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant workspaces, and call `add_repo` against the existing session — it will NOT call `start_session`.
+**Case B — Existing session, no repos yet (or user wants to add more).** If the user gives exact repo refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call `add_repo(sessionId, repoIds: [...])` directly with those refs. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT launch the init subagent just to resolve those refs. If the user wants discovery/filtering instead, launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant repositories, and call `add_repo` against the existing session — it will NOT call `start_session`.
 
 **Case C — No session at all.** Launch the `polygraph-init-subagent` with only `userContext` (no `sessionId`). The subagent will discover candidates and call `start_session` to create a new session.
 
 {% if has_subagents %}
 
-In cases B and C the subagent handles the heavy lifting. In case A you call `show_session` yourself.
+In case B, call `add_repo` yourself when exact repo refs were provided; otherwise the subagent handles discovery and attachment. In case C the subagent handles session creation. In case A you call `show_session` yourself.
 {% else %}
 
-In cases B and C, discover candidate repos using `list_repos`, select relevant workspaces, and either call `start_session` (case C) or `add_repo` (case B) — never both. In case A, just call `show_session`.
+In case B, direct exact repo refs go straight to `add_repo`; use `list_repos` only when discovery/filtering is needed. In case C, discover candidate repos using `list_repos`, select relevant repositories, and call `start_session`. In case A, just call `show_session`.
 {% endif %}
 
 **Session ID handling:**
@@ -144,7 +145,7 @@ Task(
     - sessionId: "<existing-session-id-or-omit-for-new-session>"
     - userContext: "<description of what the user wants to do>"
 
-    If sessionId is provided, reuse that session and use add_repo to attach the selected workspaces — do NOT call start_session. If sessionId is omitted, create a new session via start_session. Either way, discover candidates, select relevant repos, and return a structured summary.
+    If sessionId is provided, reuse that session and use add_repo to attach repositories — do NOT call start_session. If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos. If discovery is needed, discover candidates and select relevant repos. If sessionId is omitted, create a new session via start_session. Return a structured summary.
   """
 )
 ```
@@ -156,7 +157,7 @@ Omit the `sessionId` line for case C. Include it (with the existing session ID) 
 
 **Launch the init subagent** using `@polygraph-init-subagent` (cases B and C — skip in case A):
 
-Invoke the `polygraph-init-subagent` agent. Always pass `userContext`. If you are in case B (existing session with no repos), also pass the existing `sessionId` and instruct the subagent to use `add_repo` rather than `start_session`. The subagent returns a structured summary.
+Invoke the `polygraph-init-subagent` agent when discovery is needed. Always pass `userContext`. If you are in case B (existing session with no repos) and no exact repo refs were provided, also pass the existing `sessionId` and instruct the subagent to use `add_repo` rather than `start_session`. The subagent returns a structured summary.
 {% elsif platform == "codex" %}
 
 **Launch `polygraph-init-subagent`** (cases B and C — skip in case A):
@@ -173,7 +174,7 @@ spawn_agent(
     - sessionId: "<existing-session-id-or-omit-for-new-session>"
     - userContext: "<description of what the user wants to do>"
 
-    If sessionId is provided, reuse that session and use add_repo to attach the selected workspaces — do NOT call start_session. If sessionId is omitted, create a new session via start_session. Either way, discover candidates, select relevant repos, and return a structured summary.
+    If sessionId is provided, reuse that session and use add_repo to attach repositories — do NOT call start_session. If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos. If discovery is needed, discover candidates and select relevant repos. If sessionId is omitted, create a new session via start_session. Return a structured summary.
   """
 )
 ```
@@ -183,16 +184,16 @@ spawn_agent(
 Omit the `sessionId` line for case C. Include it (with the existing session ID) for case B. When the main flow needs the session before proceeding, collect the result with `wait_agent`.
 {% else %}
 
-Call `list_repos` to discover available workspaces, select relevant repos based on user context, then call `start_session` with the selected workspace IDs.
+If an existing `sessionId` is in scope and the user provided exact repo refs, call `add_repo` directly with those refs. Otherwise call `list_repos` to discover available repositories, select relevant repos based on user context, then call `start_session` with the selected repository IDs.
 {% endif %}
 
 The subagent will:
 
-1. Call `list_repos` to discover available workspaces
+1. Use exact repo refs directly when provided for an existing session; otherwise call `list_repos` to discover available repositories
 2. Select relevant repos based on the user context (or include all if uncertain)
 3. Either call `start_session` (case C, no `sessionId`) or call `add_repo` against the existing session (case B). It will never call `start_session` when a `sessionId` was provided.
 4. Call `show_session` to retrieve session details
-5. Return a summary with session URL, repos, and workspace info
+5. Return a summary with session URL and repo info
 
 **After receiving the subagent's summary (or after calling `show_session` for an existing session), print the session details:**
 
@@ -202,7 +203,7 @@ The subagent will:
 
 - REPO_FULL_NAME
 
-- REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName`
+- REPO_FULL_NAME: from the session repository entries
 - POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
 
 ### Explore an Existing Session
@@ -228,9 +229,9 @@ Use this workflow when the user gives a Polygraph session ID and asks to underst
    - PR description
 5. Use the PR descriptions and session summary to decide whether more repo investigation is needed.
 6. If the repo to investigate is already part of the session, delegate directly to that repo.
-7. If the repo to investigate is not currently initialized in the session but appears in `<repositories>`, call `add_repo` with that repo's `<id>` directly. Do not call `list_repos` just to resolve the repo.
+7. If the repo to investigate is not currently initialized in the session, and either the user provided an exact repo ref or the repo appears in `<repositories>`, call `add_repo` with that ref or repo `<id>` directly. Do not call `list_repos` just to resolve the repo.
 8. After `add_repo`, call `show_session` again to verify the repo was added, then delegate to that repo.
-9. Fall back to `list_repos` only when the desired repo is mentioned in prose but is missing from `<repositories>`, or when the details output came from an older Polygraph version that did not include repo IDs.
+9. Fall back to `list_repos` only when the desired repo is not an exact ref and is missing from `<repositories>`, or when the details output came from an older Polygraph version that did not include repo IDs.
 
 When delegating investigation from a PR, include the PR context in the child instruction:
 
@@ -385,7 +386,7 @@ Once work is complete in a repository, push the branch using `push_branch`. This
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
-- `target` (required): Repository name or workspace ID to push from
+- `target` (required): Repository name or repository ID to push from
 - `branch` (required): Branch name to push to remote
 
 ```
@@ -442,7 +443,7 @@ create_pr(
 
 ### 4. Get Current Polygraph Session
 
-Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including workspaces, PRs, CI status, and the Polygraph session URL.
+Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including repositories, PRs, CI status, and the Polygraph session URL.
 
 **Parameters:**
 
@@ -455,22 +456,22 @@ Check the details of a session using `show_session` or `polygraph session show -
 - `session.description`: DescriptionItem[] timeline describing the session.
 - `session.agentSessionId`: The agent CLI session ID — captured automatically by the MCP server (null if no agent has run yet).
 - `session.linkedSessions`: Array of sessions linked to this session
-- `session.workspaces[]`: Array of connected workspaces, each with:
-  - `id`: Workspace ID
-  - `name`: Workspace name
+- Session repository entries: Array of connected repositories, each with:
+  - `id`: Repository ID
+  - `name`: Repository name
   - `defaultBranch`: Default branch (e.g., `main`)
   - `vcsConfiguration.repositoryFullName`: Full repo name (e.g., `org/repo`)
   - `vcsConfiguration.provider`: VCS provider (e.g., `GITHUB`)
-  - `workspaceDescription`: AI-generated description of what this workspace does (may be null)
-  - `initiator`: Whether this workspace initiated the session
-- `session.dependencyGraph`: Graph of workspace dependency `edges`
+  - description field: AI-generated description of what this repository does (may be null)
+  - `initiator`: Whether this repository initiated the session
+- `session.dependencyGraph`: Graph of repository dependency `edges`
 - `session.pullRequests[]`: Array of PRs, each with:
   - `url`: PR URL
   - `branch`: Branch name
   - `baseBranch`: Target branch
   - `title`: PR title
   - `status`: One of `DRAFT`, `OPEN`, `MERGED`, `CLOSED`
-  - `workspaceId`: Associated workspace ID
+  - `repoId`: Associated repository ID
   - `relatedPRs`: Array of related PR URLs across repos
 - `session.ciStatus`: CI pipeline status keyed by PR ID, each containing:
   - `status`: One of `SUCCEEDED`, `FAILED`, `IN_PROGRESS`, `NOT_STARTED` (null if no CIPE and no external CI)
@@ -554,7 +555,7 @@ Where `POLYGRAPH_SESSION_URL` is from `polygraphSessionUrl` in the response.
 
 Use `associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
 
-Provide either a `prUrl` to associate a specific PR, or a `branch` name to find and associate PRs matching that branch across session workspaces.
+Provide either a `prUrl` to associate a specific PR, or a `branch` name to find and associate PRs matching that branch across session repositories.
 
 **Parameters:**
 
@@ -585,17 +586,19 @@ associate_pr(
 
 ### 7. Add Repositories to a Session
 
-Use `add_repo` to add workspaces to an existing Polygraph session after it has already started.
+Use `add_repo` to add repositories to an existing Polygraph session after it has already started.
+
+**Direct-add rule:** When the user provides exact repo refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, pass those refs directly to `add_repo` and do not call `list_repos` first. Candidate discovery remains account-repo-only and is only for cases where the user does not know the exact repo or asks to choose/filter candidates.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
-- `repoIds` (required): Workspace IDs or repository IDs to add. Use `list_repos` to discover available workspaces.
+- `repoIds` (required): Repository IDs or exact repository refs to add. Accepts IDs, short names, full names, GitHub `owner/repo` slugs, and URL-like slugs.
 
 ```
 add_repo(
   sessionId: "<session-id>",
-  repoIds: ["<workspace-id>"]
+  repoIds: ["nrwl/ocean"]
 )
 ```
 
@@ -644,7 +647,7 @@ Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. Thi
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
-- `workspaceId` (required): Nx Cloud workspace ID (MongoDB ObjectId hex string, from `session.workspaces[].id`)
+- `repoId` (required): Repository ID (MongoDB ObjectId hex string, from the session repository entry)
 - `jobId` (required): GitHub Actions job ID (from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response)
 
 **Returns:**
@@ -657,7 +660,7 @@ The tool saves the log to a local temp file and returns the path in `logFile`. U
 ```
 get_ci_logs(
   sessionId: "<session-id>",
-  workspaceId: "<workspace-id>",
+  repoId: "<repo-id>",
   jobId: 12345678
 )
 // Returns: { success: true, jobId: 12345678, logFile: "/tmp/ci-logs/job-12345678.log", sizeBytes: 152340 }
@@ -669,7 +672,7 @@ get_ci_logs(
 1. Use `show_session` to see PR CI status
 2. Check `ciStatus[prId].cipeUrl` — if a CIPE exists, use `ci_information` for logs and skip this tool
 3. If NO CIPE exists, check `ciStatus[prId].externalCIRuns` — examine runs and jobs directly from the session data
-4. For a failed job, call `get_ci_logs(sessionId, workspaceId, jobId)` to save the log to a file
+4. For a failed job, call `get_ci_logs(sessionId, repoId, jobId)` to save the log to a file
 5. Use `Read(logFile)` to examine the log content — use `offset`/`limit` for large files
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
@@ -700,7 +703,7 @@ If the session has a description timeline, also display:
 
 (Omit the Description line if `description` is empty.)
 
-- REPO_FULL_NAME: from `workspaces[].vcsConfiguration.repositoryFullName` (match workspace to PR via `workspaceId`)
+- REPO_FULL_NAME: from the session repository entries (match repository to PR via `repoId`)
 - PR_URL, PR_TITLE, PR_STATUS: from `pullRequests[]`
 - CI_STATUS: from `ciStatus[prId].status`
 - SELF_HEALING_STATUS: from `ciStatus[prId].selfHealingStatus` (omit or show `-` if null)
