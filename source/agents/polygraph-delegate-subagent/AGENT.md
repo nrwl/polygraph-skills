@@ -31,21 +31,21 @@ The main agent provides these parameters in the prompt:
 | Parameter     | Description                                                                  |
 | ------------- | ---------------------------------------------------------------------------- |
 | `sessionId`   | The Polygraph session ID                                                     |
-| `target`      | Repository to delegate to (e.g., `org/repo-name`)                            |
+| `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
 | `taskId`      | (Optional) Existing active task to route a user-approved follow-up to; omit on the first call for a new run |
 
 ## Delegating work
 
-Call the `spawn_agent` tool to start a child agent on the target repo or to route an explicit follow-up to an active task. If the main agent supplied a `taskId` - meaning this is a user-approved follow-up turn against an already active task - forward it unchanged; otherwise omit `taskId` and a new child run is started.
+Call the `spawn_agent` tool to start a child agent on the repo or to route an explicit follow-up to an active task. If the main agent supplied a `taskId` - meaning this is a user-approved follow-up turn against an already active task - forward it unchanged; otherwise omit `taskId` and a new child run is started.
 
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
 ```
 spawn_agent(
   sessionId: "<sessionId>",
-  target: "<target>",
+  repo: "<repo>",
   instruction: "<instruction>",
   context: "<context>",
   taskId: "<taskId>"  // optional - pass only for a user-approved follow-up to an active task
@@ -126,7 +126,7 @@ State machine:
 
 ## Cancelling a running child
 
-To cancel a running child mid-work, call `stop_agent` with the target repo. Response:
+To cancel a running child mid-work, call `stop_agent` with the repo. Response:
 
 ```json
 {
@@ -147,7 +147,7 @@ When the child agent reaches a terminal status, return a structured summary:
 ```
 ## Polygraph Delegation Result
 
-**Repo:** <target>
+**Repo:** <repo>
 **Status:** <success | failed | cancelled>
 **Session ID:** <sessionId>
 
@@ -162,7 +162,7 @@ If polling exceeds **30 minutes**, return with a timeout status:
 ```
 ## Polygraph Delegation Result
 
-**Repo:** <target>
+**Repo:** <repo>
 **Status:** timeout
 **Session ID:** <sessionId>
 **Elapsed:** <minutes>m

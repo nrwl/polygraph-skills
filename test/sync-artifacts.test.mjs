@@ -55,6 +55,10 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /`wait_agent`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
+  assert.match(rendered, /- repo: "<org\/repo-name>"/);
+  assert.match(rendered, /repo: "org\/repo-name"/);
+  assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
+  assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
   assertNoNonCodexDelegationText(rendered);
 });
 
@@ -69,6 +73,8 @@ test('codex CI skills include built-in subagent guidance', () => {
   assert.match(awaitPolygraphCi, /Codex subagent wrapper/);
   assert.match(awaitPolygraphCi, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(awaitPolygraphCi, /the delegate-and-poll loop should run inside `polygraph-delegate-subagent`/);
+  assert.match(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", repo: "frontend"\)/);
+  assert.doesNotMatch(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", target: "frontend"\)/);
   assert.match(awaitPolygraphCi, /`wait_agent`/);
 
   assertNoNonCodexDelegationText(getLatestCi);
