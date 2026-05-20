@@ -41,7 +41,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
-| `spawn_agent` | — | Start a new child task or send an explicit follow-up to an active task in another repository. Input: `{ sessionId, target, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to target a follow-up message at a specific active task; omit to start a new child run. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
+| `spawn_agent` | — | Start a new child task or send an explicit follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to route a follow-up message to a specific active task; omit to start a new child run. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
 | `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
 | `push_branch` | — | Push a local git branch to the remote repository |
@@ -259,7 +259,7 @@ Use this pattern when the task is well-defined and the child is not expected to 
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. Launch a background `Task` subagent per target repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
+1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
 
 {% raw %}
 
@@ -271,7 +271,7 @@ Task(
   prompt: """
     Parameters:
     - sessionId: "<session-id>"
-    - target: "<org/repo-name>"
+    - repo: "<org/repo-name>"
     - instruction: "<the task instruction>"
     - context: "<optional context>"
 
@@ -292,7 +292,7 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. For each target repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `target`, `instruction`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
+1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
 2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations.
 3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Once all subagents report a terminal status, continue to `push_branch` + `create_pr`.
@@ -301,7 +301,7 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 
 **CRITICAL:** Routine Polygraph MCP `spawn_agent` and `show_agent` calls MUST run inside the custom Codex `polygraph-delegate-subagent`, not directly in the main conversation. Codex `spawn_agent` launches a local subagent; the Polygraph MCP `spawn_agent` starts work in another repository. Keeping the MCP delegate-and-poll loop inside `polygraph-delegate-subagent` prevents polling noise from filling the user's context.
 
-1. For each target repo, launch `polygraph-delegate-subagent` via Codex's `spawn_agent`:
+1. For each repo, launch `polygraph-delegate-subagent` via Codex's `spawn_agent`:
 
 {% raw %}
 
@@ -311,11 +311,11 @@ spawn_agent(
   message: """
     Parameters:
     - sessionId: "<session-id>"
-    - target: "<org/repo-name>"
+    - repo: "<org/repo-name>"
     - instruction: "<the task instruction>"
     - context: "<optional context>"
 
-    Call the Polygraph MCP spawn_agent for the target repo, then poll show_agent on backoff until terminal. Return a structured summary with repo, status, session ID, and result text.
+    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent on backoff until terminal. Return a structured summary with repo, status, session ID, and result text.
   """
 )
 ```
@@ -330,7 +330,7 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 
 {% else %}
 
-1. Call `spawn_agent` with `sessionId`, `target`, and `instruction` for each target repo. The call returns immediately.
+1. Call `spawn_agent` with `sessionId`, `repo`, and `instruction` for each repo. The call returns immediately.
 2. Poll `show_agent` on backoff; for each child, watch `child.status` in the flat `children[]` response until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 3. Review `child.lastOutputLines` for the final log tail.
 4. Continue to `push_branch` + `create_pr`.
@@ -366,7 +366,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    - `child.status === 'failed'` — read `child.lastOutputLines`, surface the failure.
    - `child.status === 'cancelled'` — the child was stopped via `stop_agent`; see below.
 
-3. To abort mid-flight, call `stop_agent` with `{ sessionId, target }`. The response is:
+3. To abort mid-flight, call `stop_agent` with `{ sessionId, repo }`. The response is:
 
    ```json
    {
@@ -389,13 +389,13 @@ Once work is complete in a repository, push the branch using `push_branch`. This
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
-- `target` (required): Repository name or repository ID to push from
+- `repo` (required): Repository name or repository ID to push from
 - `branch` (required): Branch name to push to remote
 
 ```
 push_branch(
   sessionId: "<session-id>",
-  target: "org/repo-name",
+  repo: "org/repo-name",
   branch: "polygraph/ad5fa-add-user-preferences"
 )
 ```

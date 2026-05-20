@@ -131,7 +131,7 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 2. **Delegate investigation** (non-blocking) — call `spawn_agent` for each failed repo:
 
    - `sessionId`: the session ID
-   - `target`: the repository name
+   - `repo`: the repository name
    - `instruction` (when CIPE exists): Use the `ci_information` tool to investigate the CI failure on this branch. Return a structured summary with: (1) list of failed task IDs with a one-line error summary each, (2) failure category (Build / Test / Lint / E2E / Infra / Other).
    - `instruction` (when no CIPE, external CI only): The session data shows external CI failures with these failed jobs: [list jobId + name from `externalCIRuns[].jobs` where `conclusion` is `failure`]. Use `get_ci_logs(sessionId, repoId, jobId)` to save the log for each failed job to a local file, then use the `Read` tool to examine the log file contents. Return a structured summary with: (1) one-line error summary per failed job, (2) failure category (Build / Test / Lint / E2E / Infra / Other), (3) relevant log excerpts.
    - `context`: Polygraph session monitoring — investigating CI failure for unified summary. The repository ID for this repo is available from the session data.
@@ -141,7 +141,7 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 3. **Monitor investigation progress** — poll `show_agent` to wait for each child agent to complete:
 
    ```
-   show_agent(sessionId: "<session-id>", target: "frontend")
+   show_agent(sessionId: "<session-id>", repo: "frontend")
    ```
 
    Poll until the child agent's status indicates completion. Use the `tail` parameter to retrieve recent output lines containing the investigation results.
