@@ -23,7 +23,7 @@
 
 ## What is Polygraph?
 
-Polygraph is a standalone product for coordinating changes across multiple repositories. It lets AI agents delegate work to child agents in other repos, monitor CI across repos, and manage multi-repo sessions.
+Polygraph is a standalone product for coordinating changes across multiple repositories. It lets AI agents delegate work to child agents in other repos, monitor CI across repos, manage multi-repo sessions, and inspect public shared session URLs.
 
 ## Skills
 

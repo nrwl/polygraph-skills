@@ -46,6 +46,17 @@ test('rendered polygraph skill documents session linking', () => {
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 
+test('rendered polygraph skill documents public shared sessions', () => {
+  const rendered = renderSkill('polygraph');
+
+  assert.match(rendered, /public shared Polygraph session/);
+  assert.match(rendered, /share-<sessionObjectId>/);
+  assert.match(rendered, /\/s\/:sharedSessionId/);
+  assert.match(rendered, /Shared reads intentionally hide linked sessions and resume controls/);
+  assert.match(rendered, /do not call `link_session`/);
+  assert.match(rendered, /session-provided step\/log read URLs, streaming logs, and CI logs/);
+});
+
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
   const rendered = renderSkill('polygraph');
 
@@ -76,6 +87,8 @@ test('codex CI skills include built-in subagent guidance', () => {
   assert.match(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", repo: "frontend"\)/);
   assert.doesNotMatch(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", target: "frontend"\)/);
   assert.match(awaitPolygraphCi, /`wait_agent`/);
+  assert.match(awaitPolygraphCi, /public shared session URLs\/IDs/);
+  assert.match(awaitPolygraphCi, /step\/log read URLs, streaming logs, and external CI logs/);
 
   assertNoNonCodexDelegationText(getLatestCi);
   assertNoNonCodexDelegationText(awaitPolygraphCi);
@@ -112,14 +125,17 @@ test('codex agents render as valid custom agent TOML', () => {
 
   assert.equal(initAgent.name, 'polygraph-init-subagent');
   assert.match(initAgent.description, /initializes a Polygraph session/);
+  assert.match(initAgent.description, /public shared Polygraph session/);
   assert.match(initAgent.developer_instructions, /# Polygraph Init Subagent/);
   assert.match(initAgent.developer_instructions, /Do NOT call `spawn_agent`/);
+  assert.match(initAgent.developer_instructions, /Public shared sessions .* are read-only/);
 
   assert.equal(delegateAgent.name, 'polygraph-delegate-subagent');
   assert.match(delegateAgent.description, /Delegates work to a child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /Backoff schedule for polling/);
   assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
+  assert.match(delegateAgent.developer_instructions, /Public shared sessions are read-only/);
   assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });
 

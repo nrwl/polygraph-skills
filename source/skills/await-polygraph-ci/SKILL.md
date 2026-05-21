@@ -1,6 +1,6 @@
 ---
 name: await-polygraph-ci
-description: Wait for CI to settle across all repos in a Polygraph session, then report results and investigate failures. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
+description: Wait for CI to settle across all repos in a Polygraph session, including public shared session URLs/IDs, then report results and investigate failures. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
 {% if platform == "claude" %}
 user-invocable: true
 allowed-tools:
@@ -25,11 +25,13 @@ Fetch the Polygraph session using `show_session`.
 
 **Parameters:**
 
-- `sessionId` (required): The Polygraph session ID
+- `sessionId` (required): The Polygraph session ID. For read-only monitoring this may also be a public shared `share-...` ID from a `/s/:sharedSessionId` URL.
 
 ```
 show_session(sessionId: "<session-id>")
 ```
+
+Public shared sessions can be read without authentication for session details, CI status, step/log read URLs, streaming logs, and external CI logs. Keep shared-session monitoring read-only: do not delegate fixes, apply self-healing, or mutate session state unless the user provides a private authenticated session.
 
 1. Record `monitorStartedAt` = current timestamp (epoch millis).
 2. Build a tracking table of all repos with PRs. For each PR, record:
@@ -113,6 +115,7 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 
 - **If `cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using `ci_information`.
 - **If `cipeUrl` is null but `externalCIRuns` exists** → external CI only. Examine failed jobs from `externalCIRuns` in the session data and use `get_ci_logs` for log retrieval.
+- **If monitoring a public shared session** → keep investigation read-only. Use session-provided CI/step/log URLs, streaming logs, and `get_ci_logs` for external CI logs when available, then report findings without spawning child agents or applying fixes.
 {% if platform == "codex" %}
 
 **Codex subagent wrapper:** Use `polygraph-delegate-subagent` to keep the Polygraph MCP `spawn_agent` / `show_agent` polling loop out of the main conversation. For each failed repo, launch a Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` and instructions to perform steps 2-4 below for that repo, then collect completed summaries with `wait_agent` when the main flow needs them. In the steps below, `spawn_agent` and `show_agent` refer to the Polygraph MCP tools that belong inside the Codex subagent.
