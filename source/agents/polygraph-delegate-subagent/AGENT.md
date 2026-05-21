@@ -30,7 +30,7 @@ The main agent provides these parameters in the prompt:
 
 | Parameter     | Description                                                                  |
 | ------------- | ---------------------------------------------------------------------------- |
-| `sessionId`   | The private Polygraph session ID. Shared `share-...` IDs are read-only metadata and cannot be used for delegation. |
+| `sessionId`   | The private Polygraph session ID. Shared `sharedSessionId` values (`share-...`) are read-only metadata and cannot be used for delegation. |
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
@@ -183,7 +183,7 @@ If polling exceeds **30 minutes**, return with a timeout status:
 {% endif %}
 - Do NOT make decisions about the work — only delegate and monitor
 - Do NOT call `push_branch` or `create_pr` — those are the main agent's responsibility
-- Do NOT call `spawn_agent` for shared `share-...` sessions
+- Do NOT call `spawn_agent` for shared `sharedSessionId` values (`share-...`)
 - If `spawn_agent` fails, return the error immediately
 - If `show_agent` returns an error, wait and retry (count as failed poll)
 - After 5 consecutive poll failures, return with `status: error`

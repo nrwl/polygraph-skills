@@ -25,6 +25,9 @@ function assertNoNonCodexDelegationText(rendered) {
   assert.doesNotMatch(rendered, /@polygraph-delegate-subagent/);
 }
 
+const legacyStreamLogPattern = new RegExp(['streaming', 'logs'].join(' '));
+const legacyExternalCiLogPattern = new RegExp(['external CI', 'logs'].join(' '));
+
 test('renderArtifact preserves a valid frontmatter boundary for the codex polygraph skill', () => {
   const rendered = renderSkill('polygraph');
 
@@ -51,14 +54,16 @@ test('rendered polygraph skill documents same-installation shared session metada
 
   assert.match(rendered, /same-installation shared Polygraph session/);
   assert.match(rendered, /share-<sessionObjectId>/);
+  assert.match(rendered, /canonical identifier is `sharedSessionId`/);
+  assert.match(rendered, /\/s\/:sharedSessionId` URL is only a convenience route in the current configured Polygraph app/);
+  assert.match(rendered, /origin is not canonical/);
   assert.match(rendered, /current `polygraphSessionUrl`/);
   assert.match(rendered, /Shared reads intentionally hide linked sessions and resume controls/);
   assert.match(rendered, /do not call `link_session`/);
   assert.match(rendered, /external CI information and job logs are unavailable/);
-  assert.doesNotMatch(rendered, /\/s\/:sharedSessionId/);
   assert.doesNotMatch(rendered, /step\/log read URLs/);
-  assert.doesNotMatch(rendered, /streaming logs/);
-  assert.doesNotMatch(rendered, /external CI logs/);
+  assert.doesNotMatch(rendered, legacyStreamLogPattern);
+  assert.doesNotMatch(rendered, legacyExternalCiLogPattern);
 });
 
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
@@ -91,13 +96,13 @@ test('codex CI skills include built-in subagent guidance', () => {
   assert.match(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", repo: "frontend"\)/);
   assert.doesNotMatch(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", target: "frontend"\)/);
   assert.match(awaitPolygraphCi, /`wait_agent`/);
-  assert.match(awaitPolygraphCi, /same-installation shared session IDs/);
+  assert.match(awaitPolygraphCi, /same-installation `sharedSessionId` values/);
+  assert.match(awaitPolygraphCi, /\/s\/:sharedSessionId` is only a current-app convenience URL whose origin is not canonical/);
   assert.match(awaitPolygraphCi, /CI monitoring is unavailable for shared sessions/);
-  assert.match(awaitPolygraphCi, /Shared session IDs cannot retrieve external CI job logs/);
-  assert.doesNotMatch(awaitPolygraphCi, /\/s\/:sharedSessionId/);
+  assert.match(awaitPolygraphCi, /Shared `sharedSessionId` values cannot retrieve external CI job logs/);
   assert.doesNotMatch(awaitPolygraphCi, /step\/log read URLs/);
-  assert.doesNotMatch(awaitPolygraphCi, /streaming logs/);
-  assert.doesNotMatch(awaitPolygraphCi, /external CI logs/);
+  assert.doesNotMatch(awaitPolygraphCi, legacyStreamLogPattern);
+  assert.doesNotMatch(awaitPolygraphCi, legacyExternalCiLogPattern);
 
   assertNoNonCodexDelegationText(getLatestCi);
   assertNoNonCodexDelegationText(awaitPolygraphCi);
@@ -134,7 +139,7 @@ test('codex agents render as valid custom agent TOML', () => {
 
   assert.equal(initAgent.name, 'polygraph-init-subagent');
   assert.match(initAgent.description, /initializes a Polygraph session/);
-  assert.match(initAgent.description, /shared Polygraph session ID/);
+  assert.match(initAgent.description, /shared `sharedSessionId`/);
   assert.match(initAgent.developer_instructions, /# Polygraph Init Subagent/);
   assert.match(initAgent.developer_instructions, /Do NOT call `spawn_agent`/);
   assert.match(initAgent.developer_instructions, /Shared sessions .* are read-only metadata/);

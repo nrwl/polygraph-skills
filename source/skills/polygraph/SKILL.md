@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in other repos, discovering how code is consumed across repositories, starting a multi-repo coordination session, or inspecting same-installation shared Polygraph session IDs. TRIGGER when user mentions "polygraph", "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", "shared Polygraph session", "share-" IDs, or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for coordinating changes across multiple repositories using Polygraph. Use when working on a feature that affects another repository, coordinating changes/branches/PRs across repos, delegating tasks to child agents in other repos, discovering how code is consumed across repositories, starting a multi-repo coordination session, or inspecting same-installation shared Polygraph sessions by `sharedSessionId`. TRIGGER when user mentions "polygraph", "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", "shared Polygraph session", "sharedSessionId", "share-" IDs, or asks about what other repos are doing with shared code/APIs/endpoints.
 {% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
@@ -46,7 +46,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
-| `show_session` | `polygraph session show <id> [--details]` | Query status of a private session or same-installation shared session ID (`share-...`). Shared IDs expose read-only session details/metadata, not external CI information or job logs. |
+| `show_session` | `polygraph session show <id> [--details]` | Query status of a private session or same-installation shared session by canonical `sharedSessionId` (`share-...`). Shared sessions expose read-only session details/metadata, not external CI information or job logs. |
 | `link_session` | `polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID` | Link one private session to another private session |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
@@ -74,7 +74,7 @@ The Polygraph CLI (`polygraph`) is **stateful**. When you select an organization
 
 Before using Polygraph tools, ensure the CLI is authenticated and an organization is selected.
 
-Exception: read-only inspection of same-installation shared Polygraph session metadata does not require authentication. Shared session IDs are deterministic and look like `share-<sessionObjectId>`. Use them only with `show_session` in the current Polygraph installation, and print the current `polygraphSessionUrl` returned by that response when the user needs a URL. Shared reads intentionally hide linked sessions and resume controls, and external CI information and job logs are unavailable, so missing `linkedSessions`, `agentSessionId`, `externalCIRuns`, or log data is expected.
+Exception: read-only inspection of same-installation shared Polygraph session metadata does not require authentication. The canonical identifier is `sharedSessionId` (`share-<sessionObjectId>`). A `/s/:sharedSessionId` URL is only a convenience route in the current configured Polygraph app, and its origin is not canonical. Use `sharedSessionId` only with `show_session`, and print the current `polygraphSessionUrl` returned by that response when the user needs a URL. Shared reads intentionally hide linked sessions and resume controls, and external CI information and job logs are unavailable, so missing `linkedSessions`, `agentSessionId`, `externalCIRuns`, or log data is expected.
 
 ### Check Authentication
 
@@ -132,7 +132,7 @@ In case B, direct exact repo refs go straight to `add_repo`; use `list_repos` on
 
 - For a new session (case C), `start_session` auto-generates a unique session ID. You do NOT need to pass one.
 - For cases A and B, the session ID already exists; reuse it everywhere — never let `start_session` run in this conversation.
-- A shared session ID starts with `share-`. Treat it as read-only metadata: call `show_session`, but do not call CI-log, mutating, or delegation tools such as `get_ci_logs`, `add_repo`, `start_session`, `spawn_agent`, `link_session`, `create_pr`, or `complete_session` against it.
+- A shared session's canonical identifier is `sharedSessionId` and starts with `share-`. A `/s/:sharedSessionId` URL is a current-app convenience route; its origin is not canonical. Treat shared sessions as read-only metadata: call `show_session`, but do not call CI-log, mutating, or delegation tools such as `get_ci_logs`, `add_repo`, `start_session`, `spawn_agent`, `link_session`, `create_pr`, or `complete_session` against them.
 {% if platform == "claude" %}
 
 **Launch the init subagent** (cases B and C — skip in case A):
@@ -211,7 +211,7 @@ The subagent will:
 
 ### Explore an Existing Session
 
-Use this workflow when the user gives a Polygraph session ID or same-installation shared session ID and asks to understand, resume, inspect, or investigate prior work.
+Use this workflow when the user gives a Polygraph session ID or same-installation `sharedSessionId` and asks to understand, resume, inspect, or investigate prior work.
 
 **Resume is not a work command.** If the user's intent is to resume, reconnect, or reconstruct a prior Polygraph session, fetch and summarize the restored context, then stop. Do not edit files, push branches, add repos, delegate new work, or continue previous changes until the user explicitly asks for changes. Treat "resume" as context restoration followed by waiting for user instructions.
 
@@ -451,11 +451,11 @@ create_pr(
 
 ### 4. Get Current Polygraph Session
 
-Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Private sessions return the full session state including repositories, PRs, CI status, and the Polygraph session URL. Shared session IDs return read-only details/metadata from the current Polygraph installation; external CI information and job logs are not available.
+Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Private sessions return the full session state including repositories, PRs, CI status, and the Polygraph session URL. Shared sessions are addressed by canonical `sharedSessionId` (`share-...`) and return read-only details/metadata from the current configured Polygraph URL; external CI information and job logs are not available.
 
 **Parameters:**
 
-- `sessionId` (required): The Polygraph session ID. For read-only metadata inspection this may also be a same-installation shared session ID such as `share-<sessionObjectId>`.
+- `sessionId` (required): The Polygraph session ID. For read-only metadata inspection this may also be a same-installation `sharedSessionId` such as `share-<sessionObjectId>`. A `/s/:sharedSessionId` URL is only a current-app convenience URL whose origin is not canonical.
 
 **Returns:**
 
@@ -530,7 +530,7 @@ When working inside a current Polygraph session and the user asks to inspect or 
 
 Repeat the link step every time a session is inspected this way. The canonical MCP parameters are `{ targetSessionId, linkedSessionId }`. There is no unlink command.
 
-If the user provides a shared `share-...` ID, call `show_session` to inspect its metadata but do not call `link_session`. Shared session reads are read-only metadata views and intentionally hide linked-session and resume controls.
+If the user provides a shared `sharedSessionId` (`share-...`), call `show_session` to inspect its metadata but do not call `link_session`. Shared session reads are read-only metadata views and intentionally hide linked-session and resume controls.
 
 ### 5. Mark PRs Ready
 
@@ -656,7 +656,7 @@ Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. Thi
 
 **Parameters:**
 
-- `sessionId` (required): The private Polygraph session ID. Shared `share-...` IDs cannot be used to retrieve external CI job logs.
+- `sessionId` (required): The private Polygraph session ID. Shared `sharedSessionId` values (`share-...`) cannot be used to retrieve external CI job logs.
 - `repoId` (required): Repository ID (MongoDB ObjectId hex string, from the session repository entry)
 - `jobId` (required): GitHub Actions job ID (from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response)
 
@@ -699,7 +699,7 @@ Each description item should be 1-3 paragraphs long and should make sense as one
 
 ### Print Polygraph Session Details
 
-When asked to print polygraph session details, use `show_session` or `polygraph session show --details <session-id>` and display in the following format. If you are already working inside a current Polygraph session and the requested details are for another private session ID, first retrieve the requested session details, then link it with `targetSessionId` set to the current session ID and `linkedSessionId` set to the inspected session ID. If the requested details are for a shared `share-...` ID, retrieve and print the details without linking.
+When asked to print polygraph session details, use `show_session` or `polygraph session show --details <session-id>` and display in the following format. If you are already working inside a current Polygraph session and the requested details are for another private session ID, first retrieve the requested session details, then link it with `targetSessionId` set to the current session ID and `linkedSessionId` set to the inspected session ID. If the requested details are for a shared `sharedSessionId` (`share-...`), retrieve and print the details without linking.
 
 **Session:** POLYGRAPH_SESSION_URL
 
