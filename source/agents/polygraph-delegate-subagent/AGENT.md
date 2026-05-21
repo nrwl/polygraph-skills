@@ -30,7 +30,7 @@ The main agent provides these parameters in the prompt:
 
 | Parameter     | Description                                                                  |
 | ------------- | ---------------------------------------------------------------------------- |
-| `sessionId`   | The private Polygraph session ID. Public shared `share-...` IDs and `/s/:sharedSessionId` URLs are read-only and cannot be used for delegation. |
+| `sessionId`   | The private Polygraph session ID. Shared `share-...` IDs are read-only metadata and cannot be used for delegation. |
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
@@ -42,7 +42,7 @@ Call the `spawn_agent` tool to start a child agent on the repo or to route an ex
 
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
-**Public shared sessions are read-only.** If `sessionId` starts with `share-` or the parent provided a `/s/:sharedSessionId` URL, do not call `spawn_agent`. Return a concise summary that shared public sessions support read-only inspection/log access only and require a private session for delegation or changes.
+**Shared sessions are read-only.** If `sessionId` starts with `share-`, do not call `spawn_agent`. Return a concise summary that shared sessions support read-only metadata inspection only, external CI information and job logs are unavailable, and a private session is required for delegation or changes.
 
 ```
 spawn_agent(
@@ -183,7 +183,7 @@ If polling exceeds **30 minutes**, return with a timeout status:
 {% endif %}
 - Do NOT make decisions about the work — only delegate and monitor
 - Do NOT call `push_branch` or `create_pr` — those are the main agent's responsibility
-- Do NOT call `spawn_agent` for public shared `share-...` sessions or `/s/:sharedSessionId` URLs
+- Do NOT call `spawn_agent` for shared `share-...` sessions
 - If `spawn_agent` fails, return the error immediately
 - If `show_agent` returns an error, wait and retry (count as failed poll)
 - After 5 consecutive poll failures, return with `status: error`
