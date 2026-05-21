@@ -31,7 +31,7 @@ jobs:
       - name: Upgrade npm
         # there is currently an issue installing latest npm on node 22, so we need to install a specific version
         # https://github.com/npm/cli/issues/9151
-        run: npm install -g npm@11.11.0
+        run: npm install -g npm@11.15.0
 
       - name: Prepare release
         run: node scripts/release.mjs ${{ inputs.bump }}
@@ -54,5 +54,6 @@ jobs:
           body: |
             Automated release PR for `v${{ steps.version.outputs.value }}`.
 
-            Merge this PR into `main` to publish the release to npm automatically.
+            Merge this PR into `main` to stage the release on npm automatically.
+            A maintainer must approve each staged package with 2FA before it is published to the live registry.
           delete-branch: true

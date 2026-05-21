@@ -96,7 +96,11 @@ npm run sync-artifacts
 
 Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
 It opens a release PR against `main` instead of pushing directly.
-When that PR is merged, the `Publish` workflow automatically tags the release and publishes both `dist/claude` and `dist/codex` to npm.
+When that PR is merged, the `Stage Release` workflow automatically tags the release and stages both `dist/claude` and `dist/codex` on npm.
+A maintainer must then review and approve each staged package with 2FA before it is published to the live registry.
+
+Configure each npm package's trusted publisher to allow `npm stage publish` from `.github/workflows/publish.yml`.
+For the strictest release flow, do not allow direct `npm publish` for the trusted publisher and disallow token-based publishing after the staged workflow has been verified.
 
 ## Learn More
 

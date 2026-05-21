@@ -22,7 +22,7 @@ jobs:
       - name: Upgrade npm
         # there is currently an issue installing latest npm on node 22, so we need to install a specific version
         # https://github.com/npm/cli/issues/9151
-        run: npm install -g npm@11.11.0
+        run: npm install -g npm@11.15.0
 
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code

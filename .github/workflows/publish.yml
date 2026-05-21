@@ -1,4 +1,4 @@
-name: Publish
+name: Stage Release
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
           echo "version=$after_version" >> "$GITHUB_OUTPUT"
 
-  publish:
+  stage:
     needs: detect
     if: needs.detect.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
@@ -54,13 +54,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.14.0
           registry-url: "https://registry.npmjs.org"
 
       - name: Upgrade npm
-        # there is currently an issue installing latest npm on node 22, so we need to install a specific version
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version.
+        # npm staged publishing requires npm 11.15.0 or newer.
         # https://github.com/npm/cli/issues/9151
-        run: npm install -g npm@11.11.0
+        run: npm install -g npm@11.15.0
 
       - name: Install dependencies
         run: npm ci
@@ -77,12 +78,12 @@ jobs:
           fi
           git tag "v$version"
 
-      - name: Publish Claude plugin to npm
-        run: npm publish --provenance --access public
+      - name: Stage Claude plugin on npm
+        run: npm stage publish
         working-directory: dist/claude
 
-      - name: Publish Codex plugin to npm
-        run: npm publish --provenance --access public
+      - name: Stage Codex plugin on npm
+        run: npm stage publish
         working-directory: dist/codex
 
       - name: Push release tag
