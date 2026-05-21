@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.14.0
 
       - name: Upgrade npm
         # there is currently an issue installing latest npm on node 22, so we need to install a specific version
