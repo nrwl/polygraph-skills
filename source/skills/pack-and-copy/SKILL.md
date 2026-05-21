@@ -17,7 +17,7 @@ Validate a publisher package change against its consumer repos **before** the pu
 
 1. Build the publisher package(s) — repo-specific, not automatable.
 2. Run `polygraph _pack-and-copy` (or the `pack_and_copy` MCP tool) to pack them and install the tarballs into each consumer, rewriting `package.json` to a `file:` dependency.
-3. Commit the consumer changes to a branch, open a PR, and let consumer CI validate the change.
+3. Commit the consumer changes, including `.polygraph-packages/*.tgz`, to a branch, open a PR, and let consumer CI validate the change.
 
 This skill covers **steps 1 and 2**. PR creation / CI monitoring is left to the `polygraph` and `await-polygraph-ci` skills.
 
@@ -96,8 +96,8 @@ MCP tool form — call `pack_and_copy` with:
 - `<publisher-path>` / `publisherPath` is the directory containing the publisher package's `package.json` (not necessarily the repo root — for monorepos, this is `packages/<name>/`).
 - `<consumer-path>` / `consumerPath` is the consumer repo's root (where its `package.json` lives).
 - If a consumer doesn't declare a dependency on a publisher's package, that pair is silently skipped for that consumer — the tarball is still produced but not installed there.
-- The command is idempotent across reruns within a session: each run produces a new unique version (suffix includes a timestamp) so npm won't serve a cached tarball.
-- Consumers' `.polygraph-packages/` dirs are added to `.gitignore` automatically. The `package.json` edits **are** tracked and should be committed on the consumer's branch.
+- The command creates a new unique version on each run, but package managers can still keep stale `file:` dependency contents in `node_modules`. Use a forced install on reruns if the consumer still sees old package contents.
+- Consumers' `.polygraph-packages/*.tgz` files **must be tracked and committed** with the consumer branch. Fresh CI clones need those tarballs to install the `file:` dependencies.
 
 Parse the JSON output to get the `published` and `consumed` summaries. Print them back to the user:
 
@@ -115,8 +115,8 @@ Installed into:
 
 For each consumer that received a tarball:
 
-1. Run `npm install` (or the consumer's package manager equivalent) in the consumer's directory so the lockfile and `node_modules/` reflect the `file:` dep.
-2. Commit the `package.json` and lockfile changes on a dedicated branch.
+1. Run the consumer's package manager install command, e.g. `npm install`, `pnpm install`, or `yarn install`, so the lockfile and `node_modules/` reflect the new `file:` dep. On reruns in the same worktree, use `npm install --force`, `pnpm install --force`, or `yarn install --force` if the consumer still sees old package contents.
+2. Commit the `package.json`, lockfile, and `.polygraph-packages/*.tgz` changes on a dedicated branch.
 {% if platform == "claude" %}
 3. Push the branch and open a draft PR using the `polygraph` skill's `push_branch` + `create_pr` flow — **not** directly. The PR description should explain that this is validating an unmerged publisher change.
 {% else %}
@@ -127,8 +127,9 @@ For each consumer that received a tarball:
 ## Common Pitfalls
 
 - **Forgetting to build**: `npm pack` packs whatever the package's `files` field points at. If `dist/` is stale or missing, the tarball will be broken. Always rebuild before packing unless a `prepack` script does it.
+- **Stale `file:` installs**: package managers may keep old extracted contents for local tarball dependencies after reruns. Use `install --force` if a consumer still sees old package contents.
 - **Peer dependency mismatches**: if the publisher bumps a peer dep, consumers that don't satisfy it may fail to install. Surface this to the user.
-- **Lockfile churn**: `npm install` after a `file:` swap will change the lockfile. That's expected and should be committed alongside the `package.json` change.
+- **Lockfile churn**: installing after a `file:` swap will change the lockfile. That's expected and should be committed alongside the `package.json` and tarball changes.
 - **Multiple publishers in one repo**: pass one `--pair` per publisher package, using the same consumer path. They'll all be bundled into the same `.polygraph-packages/` dir.
 
 ## Related Skills

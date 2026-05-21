@@ -81,6 +81,17 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
+test('pack-and-copy skill keeps consumer CI installable', () => {
+  const rendered = renderSkill('pack-and-copy');
+
+  assert.match(rendered, /including `\.polygraph-packages\/\*\.tgz`/);
+  assert.match(rendered, /Fresh CI clones need those tarballs/);
+  assert.match(rendered, /`npm install`, `pnpm install`, or `yarn install`/);
+  assert.match(rendered, /On reruns in the same worktree/);
+  assert.match(rendered, /`npm install --force`, `pnpm install --force`, or `yarn install --force`/);
+  assert.doesNotMatch(rendered, /added to `\.gitignore` automatically/);
+});
+
 test('codex agents render as valid custom agent TOML', () => {
   const outputDir = mkdtempSync(join(tmpdir(), 'polygraph-codex-agents-'));
 
