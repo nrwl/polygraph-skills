@@ -1,6 +1,6 @@
 ---
 name: await-polygraph-ci
-description: Wait for CI to settle across all repos in a private Polygraph session; for same-installation `sharedSessionId` values, report read-only metadata and that CI/log details are unavailable. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
+description: Wait for CI to settle across all repos in a Polygraph session, then report results and investigate failures. USE WHEN user says "await polygraph", "wait for polygraph ci", "polygraph ci status", "check polygraph ci", "watch polygraph session", "monitor polygraph".
 {% if platform == "claude" %}
 user-invocable: true
 allowed-tools:
@@ -25,13 +25,11 @@ Fetch the Polygraph session using `show_session`.
 
 **Parameters:**
 
-- `sessionId` (required): The Polygraph session ID. For read-only metadata this may also be a same-installation `sharedSessionId` (`share-...`).
+- `sessionId` (required): The Polygraph session ID
 
 ```
 show_session(sessionId: "<session-id>")
 ```
-
-Shared sessions can be read without authentication for session details/metadata only on the current configured Polygraph URL. The canonical identifier is `sharedSessionId` (`share-...`); `/s/:sharedSessionId` is only a current-app convenience URL whose origin is not canonical. Use the current `polygraphSessionUrl` returned by `show_session` when displaying a URL. External CI information, CI step/log streams, and external CI job logs are unavailable for shared sessions. If `sessionId` starts with `share-`, report that CI monitoring is unavailable for shared sessions and exit after summarizing available metadata; do not poll, delegate fixes, apply self-healing, call `get_ci_logs`, or mutate session state unless the user provides a private authenticated session.
 
 1. Record `monitorStartedAt` = current timestamp (epoch millis).
 2. Build a tracking table of all repos with PRs. For each PR, record:
@@ -115,7 +113,6 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 
 - **If `cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using `ci_information`.
 - **If `cipeUrl` is null but `externalCIRuns` exists** → external CI only. Examine failed jobs from `externalCIRuns` in the session data and use `get_ci_logs` for log retrieval.
-- **If monitoring a shared session** → stop before failure investigation. Shared session IDs expose session metadata only; external CI information and CI job logs are unavailable.
 {% if platform == "codex" %}
 
 **Codex subagent wrapper:** Use `polygraph-delegate-subagent` to keep the Polygraph MCP `spawn_agent` / `show_agent` polling loop out of the main conversation. For each failed repo, launch a Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` and instructions to perform steps 2-4 below for that repo, then collect completed summaries with `wait_agent` when the main flow needs them. In the steps below, `spawn_agent` and `show_agent` refer to the Polygraph MCP tools that belong inside the Codex subagent.
@@ -186,6 +183,6 @@ For each repo with `ciStatus: FAILED`, first check the CI data source from `ciSt
 {% if platform == "codex" %}
 - On Codex, the delegate-and-poll loop should run inside `polygraph-delegate-subagent`, and the main conversation should use `wait_agent` only when it needs to collect results.
 {% endif %}
-- Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY for private sessions when no CIPE exists for the PR (`ciStatus[prId].cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via `ci_information`. Shared `sharedSessionId` values cannot retrieve external CI job logs. Job IDs come from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response for private sessions. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
+- Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY when no CIPE exists for the PR (`ciStatus[prId].cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via `ci_information`. Job IDs come from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
 - `spawn_agent` is **non-blocking** — it starts the child agent and returns immediately. Use `show_agent` to poll for results and `stop_agent` to terminate stuck agents.
 - The `show_session` response is compact and safe to poll from the main agent.
