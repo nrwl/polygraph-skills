@@ -78,12 +78,12 @@ jobs:
           fi
           git tag "v$version"
 
-      - name: Stage Claude plugin on npm
-        run: npm stage publish
+      - name: Publish Claude plugin on npm
+        run: npm publish --provenance --access public
         working-directory: dist/claude
 
-      - name: Stage Codex plugin on npm
-        run: npm stage publish
+      - name: Publish Codex plugin on npm
+        run: npm publish --provenance --access public
         working-directory: dist/codex
 
       - name: Push release tag
