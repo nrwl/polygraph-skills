@@ -517,10 +517,10 @@ link_session(
 )
 ```
 
-When working inside a current Polygraph session and the user asks to inspect or show details for another session by session ID, always:
+When working inside a current Polygraph session and the user asks to inspect or show details for another session by session ID, always link the inspected session unless it is a shared session:
 
 1. Call `show_session(sessionId: "<inspected-session-id>")` or `polygraph session show --details <inspected-session-id>` to retrieve the full details.
-2. Call `link_session(targetSessionId: "<current-session-id>", linkedSessionId: "<inspected-session-id>")` or `polygraph session link --targetSessionId=<current-session-id> --linkedSessionId=<inspected-session-id>`.
+2. Unless the inspected session is a shared session, call `link_session(targetSessionId: "<current-session-id>", linkedSessionId: "<inspected-session-id>")` or `polygraph session link --targetSessionId=<current-session-id> --linkedSessionId=<inspected-session-id>`.
 3. Print the inspected session details for the user.
 
 Repeat the link step every time a session is inspected this way. The canonical MCP parameters are `{ targetSessionId, linkedSessionId }`. There is no unlink command.
