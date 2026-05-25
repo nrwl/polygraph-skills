@@ -723,7 +723,7 @@ Set the description from either:
 - `sessionId` (required): The Polygraph session ID
 - `description` (required): The full current description body to store
 
-The Polygraph session is still selected explicitly by `sessionId`. Do not pass `agentSessionId` to this tool; the CLI/MCP layer captures or derives the agent session ID automatically from the running agent context when it records who authored the description update.
+The Polygraph session is still selected explicitly by `sessionId`. Do not pass `agentSessionId` to this tool.
 
 ```
 update_session_description(

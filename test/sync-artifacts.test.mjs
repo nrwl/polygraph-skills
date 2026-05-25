@@ -74,7 +74,7 @@ test('rendered polygraph skill documents standalone session description updates'
   assert.match(rendered, /- a synthesized progress summary/);
   assert.doesNotMatch(parametersSection, /agentSessionId/);
   assert.match(descriptionSection, /Do not pass `agentSessionId` to this tool/);
-  assert.match(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
+  assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
   assert.match(rendered, /updates the latest description item for the current author/);
   assert.match(rendered, /read-modify-write operation/);
   assert.match(rendered, /Append the requested text into one new complete description body/);
