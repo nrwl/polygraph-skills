@@ -64,7 +64,7 @@ test('rendered polygraph skill documents standalone session description updates'
   const parametersSection = sectionBetween(
     descriptionSection,
     '**Parameters:**',
-    '\n\nThe Polygraph session is still selected explicitly'
+    '\n\n```'
   );
 
   assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
@@ -73,7 +73,7 @@ test('rendered polygraph skill documents standalone session description updates'
   assert.match(descriptionSection, /set, update, refresh, or summarize the Polygraph session description/);
   assert.match(descriptionSection, /user-provided text or from a concise progress summary/);
   assert.doesNotMatch(parametersSection, /agentSessionId/);
-  assert.match(descriptionSection, /Do not pass `agentSessionId` to this tool/);
+  assert.doesNotMatch(descriptionSection, /Do not pass `agentSessionId` to this tool/);
   assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
   assert.match(descriptionSection, /For append-style requests, update the full description body/);
   assert.match(descriptionSection, /read the latest\/current description/);

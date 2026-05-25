@@ -720,8 +720,6 @@ Set the description from user-provided text or from a concise progress summary. 
 - `sessionId` (required): The Polygraph session ID
 - `description` (required): The full current description body to store
 
-The Polygraph session is still selected explicitly by `sessionId`. Do not pass `agentSessionId` to this tool.
-
 ```
 update_session_description(
   sessionId: "<session-id>",
