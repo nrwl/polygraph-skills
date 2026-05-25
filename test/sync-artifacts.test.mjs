@@ -67,18 +67,23 @@ test('rendered polygraph skill documents session description summary guidance', 
   assert.match(descriptionSection, /Use this when the user asks to summarize progress, update the session description, capture the current state\./);
   assert.match(descriptionSection, /Read the current session details\./);
   assert.match(descriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
-  assert.match(descriptionSection, /current\/latest description first and write the full replacement description/);
+  assert.match(descriptionSection, /appending a new item, read the current\/latest description first and write the full replacement description/);
+  assert.match(descriptionSection, /replacing the existing last item instead of appending a new one, write the resulting state directly/);
   assert.match(descriptionSection, /Goal: what the session is trying to accomplish/);
   assert.match(descriptionSection, /Current Progress: what has been done so far/);
   assert.match(descriptionSection, /What Worked: useful approaches or decisions/);
   assert.match(descriptionSection, /Next Steps: clear continuation points/);
+  assert.match(descriptionSection, /Each description item should be 1-3 paragraphs and make sense as one entry in a timeline/);
+  assert.match(descriptionSection, /previous item says `Introduce field a`/);
+  assert.match(descriptionSection, /new item should say `Rename field a to field b`/);
+  assert.match(descriptionSection, /resulting state directly, such as `Introduce field b`/);
   assert.match(descriptionSection, /Do not include implementation details, exhaustive command logs, or file-by-file changelogs/);
   assert.match(descriptionSection, /Then call `update_session_description` with the resulting summary\./);
   assert.doesNotMatch(descriptionSection, /\*\*Parameters:\*\*/);
   assert.doesNotMatch(descriptionSection, /Do not pass `agentSessionId` to this tool/);
   assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
   assert.doesNotMatch(descriptionSection, /\bbackend\b/i);
-  assert.doesNotMatch(descriptionSection, /timeline|current author/);
+  assert.doesNotMatch(descriptionSection, /current author/);
   assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
 });
 
