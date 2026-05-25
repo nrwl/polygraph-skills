@@ -56,12 +56,25 @@ test('rendered polygraph skill documents session linking', () => {
 
 test('rendered polygraph skill documents standalone session description updates', () => {
   const rendered = renderSkill('polygraph');
+  const descriptionSection = sectionBetween(
+    rendered,
+    '### Session Description',
+    '### Print Polygraph Session Details'
+  );
+  const parametersSection = sectionBetween(
+    descriptionSection,
+    '**Parameters:**',
+    '\n\nThe Polygraph session is still selected explicitly'
+  );
 
   assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
   assert.match(rendered, /`update_session_description` for session metadata updates/);
   assert.match(rendered, /set, refresh, summarize, or append the Polygraph session description/);
   assert.match(rendered, /from either:\n\n- user-provided text/);
   assert.match(rendered, /- a synthesized progress summary/);
+  assert.doesNotMatch(parametersSection, /agentSessionId/);
+  assert.match(descriptionSection, /Do not pass `agentSessionId` to this tool/);
+  assert.match(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
   assert.match(rendered, /updates the latest description item for the current author/);
   assert.match(rendered, /read-modify-write operation/);
   assert.match(rendered, /Append the requested text into one new complete description body/);
