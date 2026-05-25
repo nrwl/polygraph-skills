@@ -54,6 +54,21 @@ test('rendered polygraph skill documents session linking', () => {
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 
+test('rendered polygraph skill documents standalone session description updates', () => {
+  const rendered = renderSkill('polygraph');
+
+  assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
+  assert.match(rendered, /`update_session_description` for session metadata updates/);
+  assert.match(rendered, /set, refresh, summarize, or append the Polygraph session description/);
+  assert.match(rendered, /from either:\n\n- user-provided text/);
+  assert.match(rendered, /- a synthesized progress summary/);
+  assert.match(rendered, /updates the latest description item for the current author/);
+  assert.match(rendered, /read-modify-write operation/);
+  assert.match(rendered, /Append the requested text into one new complete description body/);
+  assert.match(rendered, /Do not call `create_pr`, `mark_pr_ready`, or `associate_pr` just to update the session description/);
+  assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
+});
+
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
   const rendered = renderSkill('polygraph');
 
