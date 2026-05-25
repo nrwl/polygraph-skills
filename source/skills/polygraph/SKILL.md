@@ -711,7 +711,7 @@ get_ci_logs(
 
 ### Session Description
 
-Use `update_session_description` when the user asks to set, refresh, summarize, or append the Polygraph session description without changing PR state. The tool updates session metadata only; it does not create PRs, associate PRs, mark PRs ready, or require any PR to exist.
+Use `update_session_description` when the user asks to set, refresh, summarize, or append the Polygraph session description without changing PR state.
 
 Set the description from either:
 
