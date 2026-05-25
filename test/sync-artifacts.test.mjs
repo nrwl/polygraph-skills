@@ -54,6 +54,37 @@ test('rendered polygraph skill documents session linking', () => {
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 
+test('rendered polygraph skill documents session description summary guidance', () => {
+  const rendered = renderSkill('polygraph');
+  const descriptionSection = sectionBetween(
+    rendered,
+    '### Session Description Summary',
+    '### Print Polygraph Session Details'
+  );
+
+  assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
+  assert.match(rendered, /`update_session_description` for session metadata updates/);
+  assert.match(descriptionSection, /Use this when the user asks to summarize progress, update the session description, capture the current state\./);
+  assert.match(descriptionSection, /Read the current session details\./);
+  assert.match(descriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
+  assert.match(descriptionSection, /appending a new item, read the current\/latest description first and write the full replacement description/);
+  assert.match(descriptionSection, /updating or replacing the existing last item, write the resulting state directly/);
+  assert.match(descriptionSection, /Goal: what the session is trying to accomplish/);
+  assert.match(descriptionSection, /Current Progress: what has been done so far/);
+  assert.match(descriptionSection, /What Worked: useful approaches or decisions/);
+  assert.match(descriptionSection, /Next Steps: clear continuation points/);
+  assert.match(descriptionSection, /Do not include implementation details, exhaustive command logs, or file-by-file changelogs/);
+  assert.match(descriptionSection, /Then call `update_session_description` with the resulting summary\./);
+  assert.doesNotMatch(descriptionSection, /\*\*Parameters:\*\*/);
+  assert.doesNotMatch(descriptionSection, /Do not pass `agentSessionId` to this tool/);
+  assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
+  assert.doesNotMatch(descriptionSection, /\bbackend\b/i);
+  assert.doesNotMatch(descriptionSection, /timeline/i);
+  assert.doesNotMatch(descriptionSection, /\bnew author\b|\bsame author\b/);
+  assert.doesNotMatch(descriptionSection, /Introduce field a|Rename field a to field b|Introduce field b/);
+  assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
+});
+
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
   const rendered = renderSkill('polygraph');
 

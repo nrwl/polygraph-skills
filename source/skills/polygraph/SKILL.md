@@ -25,7 +25,7 @@ Read this before the tool table below — it determines which tools are yours to
 - **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
 - **For explicit repo additions to an existing session:** if the user gives exact refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call Polygraph MCP `add_repo` directly with those refs. Do NOT call `list_repos` or launch candidate discovery first.
 - **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
-- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, and `add_repo` only for explicit repo additions to an existing session.
+- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, `update_session_description` for session metadata updates, and `add_repo` only for explicit repo additions to an existing session.
 - Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
 {% else %}
 **IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `spawn_agent` tool to perform work in other repositories.
@@ -47,6 +47,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `push_branch` | — | Push a local git branch to the remote repository |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
+| `update_session_description` | `polygraph session update-description` | Set the current session description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
 | `link_session` | `polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID` | Link one session to another session |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
@@ -98,11 +99,12 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
 5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits.
-7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Pass `description` to update the session description timeline.
-8. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
-9. **Query PR status** - Use `show_session` to check progress.
-10. **Mark PRs ready** - Use `mark_pr_ready` when work is complete.
-11. **Complete session** - Use `complete_session` to mark the session as completed when the user requests it.
+7. **Update session description** (optional) - Use `update_session_description` to set the current session description from a progress summary or user-provided text. This is independent of PR creation or mark-ready.
+8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Pass `description` only when you are already creating PRs and want to update session context at the same time.
+9. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
+10. **Query PR status** - Use `show_session` to check progress.
+11. **Mark PRs ready** - Use `mark_pr_ready` when work is complete.
+12. **Complete session** - Use `complete_session` to mark the session as completed when the user requests it.
 
 ## Step-by-Step Guide
 
@@ -414,7 +416,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
   - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
+- `description` (optional): User-facing session context text. Use when you are already creating PRs and want to update session context at the same time. For standalone description changes, use `update_session_description`.
 
 **PR title format (applies to parent and child agents):**
 
@@ -558,7 +560,7 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
+- `description` (optional): User-facing session context text. Use when you are already marking PRs ready and want to update session context at the same time. For standalone description changes, use `update_session_description`.
 
 ```
 mark_pr_ready(
@@ -591,7 +593,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `re
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
 - `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
+- `description` (optional): User-facing session context text. Use when you are already associating a PR and want to update session context at the same time. For standalone description changes, use `update_session_description`.
 
 ```
 associate_pr(
@@ -707,15 +709,25 @@ get_ci_logs(
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
-### Session Description
+### Session Description Summary
 
-`description` is an optional parameter on `cloud_polygraph_create_prs`, `cloud_polygraph_mark_ready`, and `cloud_polygraph_associate_pr`. It records a timeline of high-level descriptions of what the session is doing.
+Use this when the user asks to summarize progress, update the session description, capture the current state.
 
-- **`description`**: A high-level description of what this session is doing (e.g., "Add user preferences feature across frontend and backend repos"). The CLI saves this text to the session description timeline.
+Before writing:
+- Read the current session details.
+- Consider the current conversation, child-agent results, PRs, pushed branches, validation, and unresolved decisions.
+- If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
+- If updating or replacing the existing last item, write the resulting state directly.
 
-This is saved server-side through `POST /nx-cloud/polygraph/sessions/{sessionId}/description` using `{ description: DescriptionItem[] }`. `DescriptionItem` is `{ description: string, author: ObjectId, updatedAt: Date }`. It is available from `show_session` and surfaced in the Polygraph UI for anyone inspecting the session.
+Write a concise summary with:
+- Goal: what the session is trying to accomplish
+- Current Progress: what has been done so far
+- What Worked: useful approaches or decisions
+- Next Steps: clear continuation points
 
-Each description item should be 1-3 paragraphs long and should make sense as one entry in a timeline. When appending a new item, write it relative to the previous item so a reader can understand what changed. For example, if the previous item says "Introduce field a" and the next change renames it, the new item should say "Rename field a to field b". If you are replacing the existing last item instead of appending a new one, write the resulting state directly, such as "Introduce field b".
+Keep it high-level and durable for a future resumed agent. Do not include implementation details, exhaustive command logs, or file-by-file changelogs unless they are extremely essential.
+
+Then call `update_session_description` with the resulting summary.
 
 ### Print Polygraph Session Details
 
