@@ -415,6 +415,11 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `branch` (required): Branch name that was pushed
 - `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
 
+**PR title format (applies to parent and child agents):**
+
+- PR titles become squash-merge commit messages in most repos. They MUST follow the target repo's commit convention (e.g., Conventional Commits: `<type>(<scope>): <subject>`).
+- Do NOT add agent-identifier prefixes such as `[codex]`, `[claude]`, or `[opencode]` to PR titles. These prefixes violate commit-lint rules and pollute the git history.
+
 ```
 create_pr(
   sessionId: "<session-id>",
