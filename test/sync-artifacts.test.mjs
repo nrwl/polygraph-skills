@@ -69,15 +69,17 @@ test('rendered polygraph skill documents standalone session description updates'
 
   assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
   assert.match(rendered, /`update_session_description` for session metadata updates/);
-  assert.match(rendered, /set, refresh, summarize, or append the Polygraph session description/);
-  assert.match(rendered, /from either:\n\n- user-provided text/);
-  assert.match(rendered, /- a synthesized progress summary/);
+  assert.match(descriptionSection, /`update_session_description` or `polygraph session update-description`/);
+  assert.match(descriptionSection, /set, update, refresh, or summarize the Polygraph session description/);
+  assert.match(descriptionSection, /user-provided text or from a concise progress summary/);
   assert.doesNotMatch(parametersSection, /agentSessionId/);
   assert.match(descriptionSection, /Do not pass `agentSessionId` to this tool/);
   assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
-  assert.match(rendered, /updates the latest description item for the current author/);
-  assert.match(rendered, /read-modify-write operation/);
-  assert.match(rendered, /Append the requested text into one new complete description body/);
+  assert.match(descriptionSection, /For append-style requests, update the full description body/);
+  assert.match(descriptionSection, /read the latest\/current description/);
+  assert.match(descriptionSection, /Compose one complete updated description/);
+  assert.doesNotMatch(descriptionSection, /\bbackend\b/i);
+  assert.doesNotMatch(descriptionSection, /timeline|current author/);
   assert.match(rendered, /Do not call `create_pr`, `mark_pr_ready`, or `associate_pr` just to update the session description/);
   assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
 });
