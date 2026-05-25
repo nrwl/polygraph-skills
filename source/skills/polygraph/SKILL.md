@@ -716,8 +716,8 @@ Use this when the user asks to summarize progress, update the session descriptio
 Before writing:
 - Read the current session details.
 - Consider the current conversation, child-agent results, PRs, pushed branches, validation, and unresolved decisions.
-- If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
-- If replacing the existing last item instead of appending a new one, write the resulting state directly.
+- If a new author is appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
+- If updating or replacing the existing last item for the same author, write the resulting state directly.
 
 Write a concise summary with:
 - Goal: what the session is trying to accomplish
@@ -725,8 +725,8 @@ Write a concise summary with:
 - What Worked: useful approaches or decisions
 - Next Steps: clear continuation points
 
-Each description item should be 1-3 paragraphs and make sense as one entry in a timeline.
-When appending a new item, write it relative to the previous item so the reader understands what changed. For example, if the previous item says `Introduce field a` and the next change renames it, the new item should say `Rename field a to field b`. If replacing the existing last item, write the resulting state directly, such as `Introduce field b`.
+The session description acts as a timeline when authors change. Each description item should be 1-3 paragraphs and make sense as one author timeline entry.
+When a new author contributes a new item, write it relative to the previous item so the reader understands what changed. For example, if the previous item says `Introduce field a` and the next change renames it, the new item should say `Rename field a to field b`. When replacing or updating the existing last item for the same author, write the resulting state directly, such as `Introduce field b`.
 
 Keep it high-level and durable for a future resumed agent. Do not include implementation details, exhaustive command logs, or file-by-file changelogs unless they are extremely essential.
 
