@@ -402,7 +402,7 @@ push_branch(
 
 ### 3. Create Draft PRs
 
-Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first.
+Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first. For fork PR creation or registration, include `targetRepository` on the PR spec to identify the repository that should receive the PR.
 
 **Parameters:**
 
@@ -413,6 +413,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `title` (required): PR title
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
+  - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
 - `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
 
 **PR title format (applies to parent and child agents):**
@@ -436,6 +437,25 @@ create_pr(
       owner: "org",
       repo: "backend",
       title: "feat: Add user preferences API",
+      body: "Part of multi-repo user preferences feature",
+      branch: "polygraph/ad5fa-add-user-preferences"
+    }
+  ]
+)
+```
+
+For fork PR creation or registration, keep `owner` and `repo` set to the source repository that owns the pushed branch and set `targetRepository` to the target repository:
+
+```
+create_pr(
+  sessionId: "<session-id>",
+  description: "Register fork PR for user preferences UI",
+  prs: [
+    {
+      owner: "contributor",
+      repo: "frontend-fork",
+      targetRepository: "org/frontend",
+      title: "feat: Add user preferences UI",
       body: "Part of multi-repo user preferences feature",
       branch: "polygraph/ad5fa-add-user-preferences"
     }
@@ -563,13 +583,14 @@ Where `POLYGRAPH_SESSION_URL` is from `polygraphSessionUrl` in the response.
 
 Use `associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
 
-Provide either a `prUrl` to associate a specific PR, or a `branch` name to find and associate PRs matching that branch across session repositories.
+Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `repo` to find and associate PRs for a source repository.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
+- `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
 - `description` (optional): User-facing session context text. When provided, the CLI saves it to the session description timeline.
 
 ```
@@ -586,6 +607,7 @@ Or by branch:
 associate_pr(
   sessionId: "<session-id>",
   description: "Add user preferences feature: UI in frontend, API in backend",
+  repo: "org/repo",
   branch: "feature/my-changes"
 )
 ```
