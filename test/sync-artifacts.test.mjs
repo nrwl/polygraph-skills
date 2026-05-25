@@ -25,6 +25,14 @@ function assertNoNonCodexDelegationText(rendered) {
   assert.doesNotMatch(rendered, /@polygraph-delegate-subagent/);
 }
 
+function sectionBetween(content, start, end) {
+  const startIndex = content.indexOf(start);
+  assert.notEqual(startIndex, -1);
+  const endIndex = content.indexOf(end, startIndex + start.length);
+  assert.notEqual(endIndex, -1);
+  return content.slice(startIndex, endIndex);
+}
+
 test('renderArtifact preserves a valid frontmatter boundary for the codex polygraph skill', () => {
   const rendered = renderSkill('polygraph');
 
@@ -60,6 +68,30 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
   assertNoNonCodexDelegationText(rendered);
+});
+
+test('rendered polygraph skill documents PR repository semantics', () => {
+  const rendered = renderSkill('polygraph');
+  const createPrSection = sectionBetween(
+    rendered,
+    '### 3. Create Draft PRs',
+    '### 4. Get Current Polygraph Session'
+  );
+  const associatePrSection = sectionBetween(
+    rendered,
+    '### 6. Associate Existing PRs',
+    '### 7. Add Repositories to a Session'
+  );
+
+  assert.match(createPrSection, /`targetRepository` \(optional\): Target GitHub repository for fork PR creation or registration/);
+  assert.match(createPrSection, /keep `owner` and `repo` set to the source repository/);
+  assert.match(createPrSection, /targetRepository: "org\/frontend"/);
+
+  assert.match(associatePrSection, /Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `repo` to find and associate PRs for a source repository\./);
+  assert.match(associatePrSection, /- `repo` \(optional\): Source repository for branch-based association/);
+  assert.match(associatePrSection, /repo: "org\/repo"/);
+  assert.doesNotMatch(associatePrSection, /URL-based association infers|Branch-based association uses/);
+  assert.doesNotMatch(associatePrSection, /targetRepo|targetRepository/);
 });
 
 test('codex CI skills include built-in subagent guidance', () => {
