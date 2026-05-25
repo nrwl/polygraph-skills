@@ -54,33 +54,31 @@ test('rendered polygraph skill documents session linking', () => {
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 
-test('rendered polygraph skill documents standalone session description updates', () => {
+test('rendered polygraph skill documents session description summary guidance', () => {
   const rendered = renderSkill('polygraph');
   const descriptionSection = sectionBetween(
     rendered,
-    '### Session Description',
+    '### Session Description Summary',
     '### Print Polygraph Session Details'
-  );
-  const parametersSection = sectionBetween(
-    descriptionSection,
-    '**Parameters:**',
-    '\n\n```'
   );
 
   assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
   assert.match(rendered, /`update_session_description` for session metadata updates/);
-  assert.match(descriptionSection, /`update_session_description` or `polygraph session update-description`/);
-  assert.match(descriptionSection, /set, update, refresh, or summarize the Polygraph session description/);
-  assert.match(descriptionSection, /user-provided text or from a concise progress summary/);
-  assert.doesNotMatch(parametersSection, /agentSessionId/);
+  assert.match(descriptionSection, /Use this when the user asks to summarize progress, update the session description, capture the current state\./);
+  assert.match(descriptionSection, /Read the current session details\./);
+  assert.match(descriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
+  assert.match(descriptionSection, /current\/latest description first and write the full replacement description/);
+  assert.match(descriptionSection, /Goal: what the session is trying to accomplish/);
+  assert.match(descriptionSection, /Current Progress: what has been done so far/);
+  assert.match(descriptionSection, /What Worked: useful approaches or decisions/);
+  assert.match(descriptionSection, /Next Steps: clear continuation points/);
+  assert.match(descriptionSection, /Do not include implementation details, exhaustive command logs, or file-by-file changelogs/);
+  assert.match(descriptionSection, /Then call `update_session_description` with the resulting summary\./);
+  assert.doesNotMatch(descriptionSection, /\*\*Parameters:\*\*/);
   assert.doesNotMatch(descriptionSection, /Do not pass `agentSessionId` to this tool/);
   assert.doesNotMatch(descriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
-  assert.match(descriptionSection, /For append-style requests, update the full description body/);
-  assert.match(descriptionSection, /read the latest\/current description/);
-  assert.match(descriptionSection, /Compose one complete updated description/);
   assert.doesNotMatch(descriptionSection, /\bbackend\b/i);
   assert.doesNotMatch(descriptionSection, /timeline|current author/);
-  assert.match(rendered, /Do not call `create_pr`, `mark_pr_ready`, or `associate_pr` just to update the session description/);
   assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
 });
 

@@ -709,31 +709,24 @@ get_ci_logs(
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
-### Session Description
+### Session Description Summary
 
-Use `update_session_description` or `polygraph session update-description` when the user asks to set, update, refresh, or summarize the Polygraph session description.
+Use this when the user asks to summarize progress, update the session description, capture the current state.
 
-Set the description from user-provided text or from a concise progress summary. For progress summaries, include what changed, which repos or PRs are involved, and the current validation or blocker state.
+Before writing:
+- Read the current session details.
+- Consider the current conversation, child-agent results, PRs, pushed branches, validation, and unresolved decisions.
+- If the user asks to append, read the current/latest description first and write the full replacement description.
 
-**Parameters:**
+Write a concise summary with:
+- Goal: what the session is trying to accomplish
+- Current Progress: what has been done so far
+- What Worked: useful approaches or decisions
+- Next Steps: clear continuation points
 
-- `sessionId` (required): The Polygraph session ID
-- `description` (required): The full current description body to store
+Keep it high-level and durable for a future resumed agent. Do not include implementation details, exhaustive command logs, or file-by-file changelogs unless they are extremely essential.
 
-```
-update_session_description(
-  sessionId: "<session-id>",
-  description: "Add user preferences feature across web and API repos. UI and API changes are implemented; integration tests are still pending."
-)
-```
-
-For append-style requests, update the full description body:
-
-1. Call `show_session` to read the latest/current description.
-2. Compose one complete updated description that includes the existing text plus the requested addition.
-3. Call `update_session_description` or `polygraph session update-description` with the full updated description.
-
-Do not call `create_pr`, `mark_pr_ready`, or `associate_pr` just to update the session description. Those tools still accept optional `description` text; use that only when you are already performing the PR operation and want to update session context at the same time.
+Then call `update_session_description` with the resulting summary.
 
 ### Print Polygraph Session Details
 
