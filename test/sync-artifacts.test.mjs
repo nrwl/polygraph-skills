@@ -41,16 +41,45 @@ test('renderArtifact preserves a valid frontmatter boundary for the codex polygr
   assert.match(rendered, /\n# Multi-Repo Coordination with Polygraph\b/);
 });
 
-test('rendered polygraph skill documents session linking', () => {
+test('rendered polygraph skill documents linked references', () => {
   const raw = readFileSync(join(rootDir, 'source', 'skills', 'polygraph', 'SKILL.md'), 'utf8');
   const rendered = renderArtifact(raw, 'codex');
 
-  assert.match(rendered, /link_session/);
-  assert.match(rendered, /polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID/);
+  assert.match(rendered, /`link_reference` for linking external references to sessions/);
+  assert.match(rendered, /`link_reference` \| — \| Link an external reference to a session\./);
+  assert.match(rendered, /session\.linkedReferences/);
+  assert.match(rendered, /### Linked References/);
+  assert.match(rendered, /When an external resource is mentioned during a Polygraph session and appears relevant to the current work/);
+  assert.match(rendered, /record it with `link_reference\(\{ sessionId, reference \}\)`/);
+  assert.match(rendered, /pull requests, GitHub issues, other Polygraph sessions, and Linear issues/);
+  assert.match(rendered, /Invoke the MCP tool with a single object containing `\{ sessionId, reference \}`/);
+  assert.match(rendered, /For example, to record a relevant pull request/);
+  assert.match(rendered, /link_reference\(\{/);
+  assert.match(rendered, /sessionId: "<current-session-id>"/);
+  assert.match(rendered, /reference: \{/);
+  assert.match(rendered, /type: "github_pr"/);
+  assert.match(rendered, /url: "https:\/\/github\.com\/nrwl\/polygraph-skills\/pull\/123"/);
+  assert.match(rendered, /label: "Implementation PR"/);
+  assert.match(rendered, /To record a relevant Polygraph session, use the same invocation shape and include `reference\.sessionId`/);
+  assert.match(rendered, /type: "session"/);
+  assert.match(rendered, /label: "Inspected Polygraph session"/);
+  assert.match(rendered, /sessionId: "<inspected-session-id>"/);
+  assert.match(rendered, /The canonical MCP parameters are `\{ sessionId, reference \}`/);
   assert.match(rendered, /polygraph session show --details <session-id>/);
-  assert.match(rendered, /session\.linkedSessions/);
-  assert.match(rendered, /targetSessionId: "<current-session-id>"/);
-  assert.match(rendered, /linkedSessionId: "<inspected-session-id>"/);
+
+  const printSection = sectionBetween(rendered, '### Print Polygraph Session Details', '## Best Practices');
+  assert.doesNotMatch(printSection, /link_reference/);
+  assert.doesNotMatch(printSection, /linked reference/);
+
+  assert.doesNotMatch(rendered, /link_session/);
+  assert.doesNotMatch(rendered, /polygraph session link/);
+  assert.doesNotMatch(rendered, /linkedSessions/);
+  assert.doesNotMatch(rendered, /targetSessionId/);
+  assert.doesNotMatch(rendered, /linkedSessionId/);
+  assert.doesNotMatch(rendered, /Record a linked reference on a session/);
+  assert.doesNotMatch(rendered, /Repeat the link step every time a session is inspected this way/);
+  assert.doesNotMatch(rendered, /always link the inspected session/);
+  assert.doesNotMatch(rendered, /Print the inspected session details for the user/);
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 

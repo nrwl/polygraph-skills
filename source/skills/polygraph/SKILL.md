@@ -25,7 +25,7 @@ Read this before the tool table below — it determines which tools are yours to
 - **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
 - **For explicit repo additions to an existing session:** if the user gives exact refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call Polygraph MCP `add_repo` directly with those refs. Do NOT call `list_repos` or launch candidate discovery first.
 - **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
-- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, `update_session_description` for session metadata updates, and `add_repo` only for explicit repo additions to an existing session.
+- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, `update_session_description` for session metadata updates, `link_reference` for linking external references to sessions, and `add_repo` only for explicit repo additions to an existing session.
 - Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
 {% else %}
 **IMPORTANT:** NEVER `cd` into cloned repositories or access their files directly. ALWAYS use the `spawn_agent` tool to perform work in other repositories.
@@ -48,7 +48,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
 | `update_session_description` | `polygraph session update-description` | Set the current session description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
-| `link_session` | `polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID` | Link one session to another session |
+| `link_reference` | — | Link an external reference to a session. |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
@@ -507,7 +507,7 @@ Check the details of a session using `show_session` or `polygraph session show -
 - `session.polygraphSessionUrl`: URL to the Polygraph session UI
 - `session.description`: DescriptionItem[] timeline describing the session.
 - `session.agentSessionId`: The agent CLI session ID — captured automatically by the MCP server (null if no agent has run yet).
-- `session.linkedSessions`: Array of sessions linked to this session
+- `session.linkedReferences`: Array of references linked to this session
 - Session repository entries: Array of connected repositories, each with:
   - `id`: Repository ID
   - `name`: Repository name
@@ -546,33 +546,46 @@ Check the details of a session using `show_session` or `polygraph session show -
 show_session(sessionId: "<session-id>")
 ```
 
-### Session Linking
+### Linked References
 
-Use `link_session` to record that one Polygraph session is linked to another. The CLI equivalent is:
-
-```
-polygraph session link --targetSessionId=SESSION_ID --linkedSessionId=SESSION_ID
-```
+Use `link_reference` to link an external reference to the current Polygraph session.
 
 **Parameters:**
 
-- `targetSessionId` (required): The current Polygraph session ID
-- `linkedSessionId` (required): The inspected session ID that should be linked to the current session
+- `sessionId` (required): The Polygraph session receiving the linked reference
+- `reference` (required): Reference metadata with `type`, `url`, and `label`
+- `reference.sessionId` (session references only): The referenced Polygraph session ID when `reference.type` is `session`
+
+When an external resource is mentioned during a Polygraph session and appears relevant to the current work, the parent agent should record it with `link_reference({ sessionId, reference })`. This applies to relevant external resources such as pull requests, GitHub issues, other Polygraph sessions, and Linear issues.
+
+Invoke the MCP tool with a single object containing `{ sessionId, reference }`. For example, to record a relevant pull request:
 
 ```
-link_session(
-  targetSessionId: "<current-session-id>",
-  linkedSessionId: "<inspected-session-id>"
-)
+link_reference({
+  sessionId: "<current-session-id>",
+  reference: {
+    type: "github_pr",
+    url: "https://github.com/nrwl/polygraph-skills/pull/123",
+    label: "Implementation PR"
+  }
+})
 ```
 
-When working inside a current Polygraph session and the user asks to inspect or show details for another session by session ID, always link the inspected session unless it is a shared session:
+To record a relevant Polygraph session, use the same invocation shape and include `reference.sessionId`:
 
-1. Call `show_session(sessionId: "<inspected-session-id>")` or `polygraph session show --details <inspected-session-id>` to retrieve the full details.
-2. Unless the inspected session is a shared session, call `link_session(targetSessionId: "<current-session-id>", linkedSessionId: "<inspected-session-id>")` or `polygraph session link --targetSessionId=<current-session-id> --linkedSessionId=<inspected-session-id>`.
-3. Print the inspected session details for the user.
+```
+link_reference({
+  sessionId: "<current-session-id>",
+  reference: {
+    type: "session",
+    url: "https://polygraph.example/s/<inspected-session-id>",
+    label: "Inspected Polygraph session",
+    sessionId: "<inspected-session-id>"
+  }
+})
+```
 
-Repeat the link step every time a session is inspected this way. The canonical MCP parameters are `{ targetSessionId, linkedSessionId }`. There is no unlink command.
+The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command.
 
 ### 5. Mark PRs Ready
 
@@ -742,7 +755,7 @@ Write the description using the canonical structured format in the Session Descr
 
 ### Print Polygraph Session Details
 
-When asked to print polygraph session details, use `show_session` or `polygraph session show --details <session-id>` and display in the following format. If you are already working inside a current Polygraph session and the requested details are for another session ID, first retrieve the requested session details, then link it with `targetSessionId` set to the current session ID and `linkedSessionId` set to the inspected session ID.
+When asked to print polygraph session details, use `show_session` or `polygraph session show --details <session-id>` and display in the following format.
 
 **Session:** POLYGRAPH_SESSION_URL
 
