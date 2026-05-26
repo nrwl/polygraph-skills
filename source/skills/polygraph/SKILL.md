@@ -99,8 +99,8 @@ After logging in (or if logged in but no org is selected), use `polygraph org se
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
 5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits.
-7. **Update session description** (optional) - Use `update_session_description` to set the current session description from a progress summary or user-provided text. This is independent of PR creation or mark-ready.
-8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Pass `description` only when you are already creating PRs and want to update session context at the same time.
+7. **Update session description** (optional) - Use `update_session_description` to set the current session description from a progress summary or user-provided text that follows the Session Description Policy. This is independent of PR creation or mark-ready.
+8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Pass `description` only when you are already creating PRs and can provide session context that follows the Session Description Policy.
 9. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
 10. **Query PR status** - Use `show_session` to check progress.
 11. **Mark PRs ready** - Use `mark_pr_ready` when work is complete.
@@ -402,6 +402,30 @@ push_branch(
 )
 ```
 
+### Session Description Policy
+
+`description` is user-facing Polygraph session context.
+
+The same policy applies anywhere a Polygraph tool accepts `description`, including `create_pr`, `mark_pr_ready`, `associate_pr`, and `update_session_description`.
+
+If you pass `description`, use the canonical structured format:
+
+```text
+Goal: <what the session is trying to accomplish>
+
+Current Progress: <what has been completed so far, including PR/session state when relevant>
+
+What Worked: <important decisions, approaches, or constraints that future agents should preserve>
+
+Next Steps: <clear next implementation steps>
+```
+
+- Do not use a one-line feature summary for final handoff or PR creation in a multi-repo session.
+- Keep it concise but durable for a future resumed agent.
+- Prefer high-level state over file-by-file changelogs.
+- Mention unresolved decisions or risks when they matter.
+- In `Next Steps`, include only next implementation steps. Do not list routine operational steps such as pushing branches, watching CI, or marking PRs ready.
+
 ### 3. Create Draft PRs
 
 Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first. For fork PR creation or registration, include `targetRepository` on the PR spec to identify the repository that should receive the PR.
@@ -416,7 +440,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
   - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (optional): User-facing session context text. Use when you are already creating PRs and want to update session context at the same time. For standalone description changes, use `update_session_description`.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
 
 **PR title format (applies to parent and child agents):**
 
@@ -426,7 +450,6 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
 ```
 create_pr(
   sessionId: "<session-id>",
-  description: "Add user preferences feature: UI in frontend, API in backend",
   prs: [
     {
       owner: "org",
@@ -451,7 +474,6 @@ For fork PR creation or registration, keep `owner` and `repo` set to the source 
 ```
 create_pr(
   sessionId: "<session-id>",
-  description: "Register fork PR for user preferences UI",
   prs: [
     {
       owner: "contributor",
@@ -560,12 +582,11 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `description` (optional): User-facing session context text. Use when you are already marking PRs ready and want to update session context at the same time. For standalone description changes, use `update_session_description`.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
 
 ```
 mark_pr_ready(
   sessionId: "<session-id>",
-  description: "Add user preferences feature: UI in frontend, API in backend",
   prUrls: [
     "https://github.com/org/frontend/pull/123",
     "https://github.com/org/backend/pull/456"
@@ -593,12 +614,11 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `re
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
 - `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (optional): User-facing session context text. Use when you are already associating a PR and want to update session context at the same time. For standalone description changes, use `update_session_description`.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
 
 ```
 associate_pr(
   sessionId: "<session-id>",
-  description: "Add user preferences feature: UI in frontend, API in backend",
   prUrl: "https://github.com/org/repo/pull/123"
 )
 ```
@@ -608,7 +628,6 @@ Or by branch:
 ```
 associate_pr(
   sessionId: "<session-id>",
-  description: "Add user preferences feature: UI in frontend, API in backend",
   repo: "org/repo",
   branch: "feature/my-changes"
 )
@@ -709,7 +728,7 @@ get_ci_logs(
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
 
-### Session Description Summary
+### Update Session Description
 
 Use this when the user asks to summarize progress, update the session description, capture the current state.
 
@@ -719,15 +738,7 @@ Before writing:
 - If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
 - If updating or replacing the existing last item, write the resulting state directly.
 
-Write a concise summary with:
-- Goal: what the session is trying to accomplish
-- Current Progress: what has been done so far
-- What Worked: useful approaches or decisions
-- Next Steps: clear continuation points
-
-Keep it high-level and durable for a future resumed agent. Do not include implementation details, exhaustive command logs, or file-by-file changelogs unless they are extremely essential.
-
-Then call `update_session_description` with the resulting summary.
+Write the description using the canonical structured format in the Session Description Policy. Then call `update_session_description` with the resulting summary.
 
 ### Print Polygraph Session Details
 
