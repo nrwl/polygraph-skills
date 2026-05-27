@@ -395,32 +395,36 @@ Child agents running in other repositories may pause and ask the parent agent wh
 
 **Native path (MCP permission dialog):** If your MCP client supports the permission dialog UI, the user picks directly in that dialog — you (the agent) won't see `permission-required` tasks in that flow.
 
-**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `respond_to_permission` with `{sessionId, repo, taskId, permissionDecision}`.
+**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `allow_agent` (to grant the requested action) or `deny_agent` (to refuse it) with the `{sessionId, repo}` of the child agent.
 
 ### Answering a permission request
 
-Call `respond_to_permission` with `{sessionId, repo, taskId, permissionDecision}`:
-
-```json
+```jsonc
+// To grant the requested action:
 {
   "sessionId": "...",
   "repo": "nrwl/example-repo",
-  "taskId": "...",
-  "permissionDecision": {
-    "decision": "allow",
-    "scope": "session",
-    "reason": "Trusted local repo"
-  }
+  "scope": "session",              // or "one-time"
+  "reason": "Trusted local repo"   // optional
 }
+// — call `allow_agent` with this payload.
+
+// To refuse the requested action:
+{
+  "sessionId": "...",
+  "repo": "nrwl/example-repo",
+  "reason": "Action looks risky"   // optional
+}
+// — call `deny_agent` with this payload.
 ```
 
-The three `permissionDecision` values:
+The three decisions:
 
-- `allow` + `scope: 'one-time'` — permits the single action only; the child must ask again for the next action of the same type.
-- `allow` + `scope: 'session'` — permits the action and remembers that grant for the rest of the session; the child will not ask again.
-- `deny` — rejects the request; child continues without performing the action.
+- `allow_agent` with `scope: 'one-time'` — permits the single action only; the child must ask again for the next action of the same type.
+- `allow_agent` with `scope: 'session'` — permits the action and remembers that grant for the rest of the child's session; the child will not ask again.
+- `deny_agent` — rejects the request; child continues without performing the action.
 
-**Fail-closed default:** Omitting the call to `respond_to_permission` (or failing to include `permissionDecision` in its arguments) leaves the held permission gate unresolved until the sidecar idle timer fires — always call `respond_to_permission` explicitly when you see a task in `permission-required` state.
+**Fail-closed default:** When you see a task in `permission-required` state, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
 
 > **OpenCode caveat (D-07):** *OpenCode children sometimes request permissions without specific command/path (target is empty). Dialog says 'session' grant covers ALL `${action}` calls this session — read carefully before granting session scope.*
 
@@ -431,12 +435,12 @@ When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission
 1. Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, and `scope`.
 2. Surface the request to the user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
 3. Obtain the user's decision.
-4. Call `respond_to_permission` with `{ sessionId, repo, taskId, permissionDecision: { decision, scope?, reason? } }`.
+4. Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }`.
 5. Resume polling.
 
 ---
 
-*GRNT-01: allow one-time. GRNT-02: allow session (remembered). GRNT-03: deny (child continues). GRNT-04: pendingPermission carries harness/action/target/repo.*
+*GRNT-01: `allow_agent` with `scope: 'one-time'`. GRNT-02: `allow_agent` with `scope: 'session'` (remembered until resetContext or sidecar exit). GRNT-03: `deny_agent` (child continues without the action). GRNT-04: `pendingPermission` on `cloud_polygraph_child_status` carries harness/action/target/repo.*
 {% endif %}
 
 ### 2. Push Branches

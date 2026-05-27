@@ -129,8 +129,8 @@ State machine:
    - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
    - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
    - Wait for the parent/user to decide.
-   - Call `respond_to_permission` with `{ sessionId, repo, taskId, permissionDecision: { decision, scope?, reason? } }` — where `decision` is `allow` or `deny`, `scope` is `'one-time'` or `'session'` (required when allowing), and `reason` is optional.
-   - **Fail-closed:** Omitting the call to `respond_to_permission` (or failing to include `permissionDecision` in its arguments) leaves the held permission gate unresolved until the sidecar idle timer fires — always call `respond_to_permission` explicitly when you see `permission-required`.
+   - Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }` — `allow_agent` also takes `scope` (`'one-time'` or `'session'`) and an optional `reason`; `deny_agent` takes only `{ sessionId, repo }` plus an optional `reason`.
+   - **Fail-closed:** When you see `permission-required`, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
    - Resume polling.
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
