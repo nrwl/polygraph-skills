@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'smol-toml';
@@ -10,6 +10,7 @@ import { processAgents } from '../scripts/src/sync-artifacts/processors.mjs';
 import {
   buildCodexPluginManifest,
   buildMcpConfig,
+  buildOpenCodePackageJson,
   readRootPackageJson,
 } from '../scripts/src/sync-artifacts/package-artifacts.mjs';
 
@@ -244,10 +245,59 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });
 
+test('opencode agents render as markdown subagents for plugin registration', () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'polygraph-opencode-agents-'));
+
+  processAgents('opencode', {
+    outputDir,
+    supportsAgents: true,
+    agentsDir: 'agents',
+    agentsExt: '.md',
+  });
+
+  const initAgent = readFileSync(join(outputDir, 'agents', 'polygraph-init-subagent.md'), 'utf8');
+  const delegateAgent = readFileSync(join(outputDir, 'agents', 'polygraph-delegate-subagent.md'), 'utf8');
+
+  assert.match(initAgent, /^---\n\s*description: Discovers candidate repositories/);
+  assert.match(initAgent, /\nmode: subagent\n\s*---\n/);
+  assert.match(initAgent, /# Polygraph Init Subagent/);
+  assert.doesNotMatch(initAgent, /^name = /m);
+
+  assert.match(delegateAgent, /^---\n\s*description: Delegates work to a child agent/);
+  assert.match(delegateAgent, /\nmode: subagent\n\s*---\n/);
+  assert.match(delegateAgent, /# Polygraph Delegate Subagent/);
+  assert.doesNotMatch(delegateAgent, /^developer_instructions = /m);
+});
+
+test('opencode skill names are native-compatible and match their directories', () => {
+  const skillsDir = join(rootDir, 'source', 'skills');
+
+  for (const entry of readdirSync(skillsDir)) {
+    if (!statSync(join(skillsDir, entry)).isDirectory()) continue;
+
+    const rendered = renderSkill(entry, 'opencode');
+    const name = rendered.match(/^name:\s*(.+)$/m)?.[1].trim();
+
+    assert.equal(name, entry);
+    assert.match(name, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+    assert.ok(name.length <= 64);
+  }
+});
+
 test('codex plugin manifest does not advertise agents (codex ignores the field)', () => {
   const manifest = buildCodexPluginManifest(readRootPackageJson());
 
   assert.equal(manifest.agents, undefined);
+});
+
+test('opencode package is published as a native plugin package', () => {
+  const pkg = buildOpenCodePackageJson(readRootPackageJson());
+
+  assert.equal(pkg.name, 'polygraph-opencode-plugin');
+  assert.equal(pkg.private, false);
+  assert.equal(pkg.type, 'module');
+  assert.equal(pkg.main, './.opencode/plugins/polygraph.js');
+  assert.deepEqual(pkg.files, ['.opencode/', 'skills/', 'agents/', 'README.md']);
 });
 
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {

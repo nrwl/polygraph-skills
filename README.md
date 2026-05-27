@@ -40,7 +40,7 @@ Polygraph is a standalone product for coordinating changes across multiple repos
 
 - `dist/claude` — publishable Claude plugin npm package (`polygraph-claude-plugin`)
 - `dist/codex` — publishable Codex plugin npm package (`polygraph-codex-plugin`)
-- `dist/opencode` — generated OpenCode artifacts
+- `dist/opencode` — publishable OpenCode plugin npm package (`polygraph-opencode-plugin`)
 
 ## Codex Installer
 
@@ -82,6 +82,26 @@ To verify an install, run:
 npx polygraph-codex-plugin check
 ```
 
+## OpenCode Plugin
+
+The publishable OpenCode package exposes the skills and subagents through OpenCode's native plugin system. Add it to `opencode.json`:
+
+```json
+{
+  "plugin": ["polygraph-opencode-plugin"]
+}
+```
+
+For repeatable installs, pin the npm version:
+
+```json
+{
+  "plugin": ["polygraph-opencode-plugin@0.4.18"]
+}
+```
+
+The plugin adds its packaged `skills/` directory to OpenCode's skill paths and registers the packaged Markdown agents as `subagent` entries in OpenCode config during startup.
+
 ## Development
 
 ```sh
@@ -96,7 +116,7 @@ npm run sync-artifacts
 
 Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
 It opens a release PR against `main` instead of pushing directly.
-When that PR is merged, the `Stage Release` workflow automatically tags the release and stages both `dist/claude` and `dist/codex` on npm.
+When that PR is merged, the `Stage Release` workflow automatically tags the release and publishes `dist/claude`, `dist/codex`, and `dist/opencode` on npm.
 A maintainer must then review and approve each staged package with 2FA before it is published to the live registry.
 
 Configure each npm package's trusted publisher to allow `npm stage publish` from `.github/workflows/publish.yml`.
