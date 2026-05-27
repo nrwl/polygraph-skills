@@ -390,15 +390,16 @@ Child agents running in other repositories may pause and ask the parent agent wh
 
 **Native path (MCP permission dialog):** If your MCP client supports the permission dialog UI, the user picks directly in that dialog — you (the agent) won't see `permission-required` tasks in that flow.
 
-**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `cloud_polygraph_delegate` with `permissionDecision: {decision, scope?, reason?}`.
+**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `respond_to_permission` with `{sessionId, repo, taskId, permissionDecision}`.
 
 ### Answering a permission request
 
-Call `cloud_polygraph_delegate` with the `taskId` and `permissionDecision`:
+Call `respond_to_permission` with `{sessionId, repo, taskId, permissionDecision}`:
 
 ```json
 {
   "sessionId": "...",
+  "repo": "nrwl/example-repo",
   "taskId": "...",
   "permissionDecision": {
     "decision": "allow",
@@ -414,7 +415,7 @@ The three `permissionDecision` values:
 - `allow` + `scope: 'session'` — permits the action and remembers that grant for the rest of the session; the child will not ask again.
 - `deny` — rejects the request; child continues without performing the action.
 
-**Fail-closed default:** Omitting `permissionDecision` when answering permission-required follow-up is treated as deny by sidecar — always include the field.
+**Fail-closed default:** Omitting the call to `respond_to_permission` (or failing to include `permissionDecision` in its arguments) leaves the held permission gate unresolved until the sidecar idle timer fires — always call `respond_to_permission` explicitly when you see a task in `permission-required` state.
 
 > **OpenCode caveat (D-07):** *OpenCode children sometimes request permissions without specific command/path (target is empty). Dialog says 'session' grant covers ALL `${action}` calls this session — read carefully before granting session scope.*
 
@@ -425,7 +426,7 @@ When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission
 1. Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, and `scope`.
 2. Surface the request to the user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
 3. Obtain the user's decision.
-4. Call `cloud_polygraph_delegate` with `taskId` and `permissionDecision: { decision, scope?, reason? }`.
+4. Call `respond_to_permission` with `{ sessionId, repo, taskId, permissionDecision: { decision, scope?, reason? } }`.
 5. Resume polling.
 
 ---

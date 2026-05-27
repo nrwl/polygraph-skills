@@ -124,8 +124,8 @@ State machine:
    - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
    - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
    - Wait for the parent/user to decide.
-   - Call `cloud_polygraph_delegate` with `taskId` and `permissionDecision: { decision, scope?, reason? }` — where `decision` is `allow` or `deny`, `scope` is `'one-time'` or `'session'` (required when allowing), and `reason` is optional.
-   - **Fail-closed:** if you omit `permissionDecision`, the sidecar treats it as deny — always include the field.
+   - Call `respond_to_permission` with `{ sessionId, repo, taskId, permissionDecision: { decision, scope?, reason? } }` — where `decision` is `allow` or `deny`, `scope` is `'one-time'` or `'session'` (required when allowing), and `reason` is optional.
+   - **Fail-closed:** Omitting the call to `respond_to_permission` (or failing to include `permissionDecision` in its arguments) leaves the held permission gate unresolved until the sidecar idle timer fires — always call `respond_to_permission` explicitly when you see `permission-required`.
    - Resume polling.
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
