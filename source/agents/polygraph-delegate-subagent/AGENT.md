@@ -120,6 +120,11 @@ State machine:
    - Wait for the parent/user to supply an answer.
    - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
    - Resume polling.
+{% if platform == "opencode" %}
+<!-- phase-39 D-10: opencode-only gate. Claude and Codex parents handle permission gates
+     via the native MCP elicitation dialog and never see permission-required tasks — this
+     state-machine branch is unreachable for them. FUT-05 may close the opencode MCP-client
+     elicitation gap upstream, at which point this gate can be removed. -->
 3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
    - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
    - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
@@ -127,6 +132,7 @@ State machine:
    - Call `respond_to_permission` with `{ sessionId, repo, taskId, permissionDecision: { decision, scope?, reason? } }` — where `decision` is `allow` or `deny`, `scope` is `'one-time'` or `'session'` (required when allowing), and `reason` is optional.
    - **Fail-closed:** Omitting the call to `respond_to_permission` (or failing to include `permissionDecision` in its arguments) leaves the held permission gate unresolved until the sidecar idle timer fires — always call `respond_to_permission` explicitly when you see `permission-required`.
    - Resume polling.
+{% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
 5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.

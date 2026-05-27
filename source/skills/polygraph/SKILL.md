@@ -384,6 +384,11 @@ Use this pattern when the child may need clarification, the task is exploratory,
 
 Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
 
+{% if platform == "opencode" %}
+<!-- phase-39 D-10: opencode-only gate. Claude and Codex parents handle permission gates
+     via the native MCP elicitation dialog and never see permission-required tasks in the
+     polling loop — these instructions are noise for them. FUT-05 may close the opencode
+     MCP-client elicitation gap upstream, at which point this gate can be removed. -->
 ## Handling permission requests
 
 Child agents running in other repositories may pause and ask the parent agent whether a specific action is permitted. Polygraph exposes this via two wire paths.
@@ -432,6 +437,7 @@ When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission
 ---
 
 *GRNT-01: allow one-time. GRNT-02: allow session (remembered). GRNT-03: deny (child continues). GRNT-04: pendingPermission carries harness/action/target/repo.*
+{% endif %}
 
 ### 2. Push Branches
 
