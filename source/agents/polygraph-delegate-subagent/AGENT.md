@@ -120,7 +120,14 @@ State machine:
    - Wait for the parent/user to supply an answer.
    - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
    - Resume polling.
-3. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
+3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
+   - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
+   - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
+   - Wait for the parent/user to decide.
+   - Call `cloud_polygraph_delegate` with `taskId` and `permissionDecision: { decision, scope?, reason? }` — where `decision` is `allow` or `deny`, `scope` is `'one-time'` or `'session'` (required when allowing), and `reason` is optional.
+   - **Fail-closed:** if you omit `permissionDecision`, the sidecar treats it as deny — always include the field.
+   - Resume polling.
+4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
 5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
 

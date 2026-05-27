@@ -384,6 +384,54 @@ Use this pattern when the child may need clarification, the task is exploratory,
 
 Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
 
+## Handling permission requests
+
+Child agents running in other repositories may pause and ask the parent agent whether a specific action is permitted. Polygraph exposes this via two wire paths.
+
+**Native path (MCP permission dialog):** If your MCP client supports the permission dialog UI, the user picks directly in that dialog — you (the agent) won't see `permission-required` tasks in that flow.
+
+**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `cloud_polygraph_delegate` with `permissionDecision: {decision, scope?, reason?}`.
+
+### Answering a permission request
+
+Call `cloud_polygraph_delegate` with the `taskId` and `permissionDecision`:
+
+```json
+{
+  "sessionId": "...",
+  "taskId": "...",
+  "permissionDecision": {
+    "decision": "allow",
+    "scope": "session",
+    "reason": "Trusted local repo"
+  }
+}
+```
+
+The three `permissionDecision` values:
+
+- `allow` + `scope: 'one-time'` — permits the single action only; the child must ask again for the next action of the same type.
+- `allow` + `scope: 'session'` — permits the action and remembers that grant for the rest of the session; the child will not ask again.
+- `deny` — rejects the request; child continues without performing the action.
+
+**Fail-closed default:** Omitting `permissionDecision` when answering permission-required follow-up is treated as deny by sidecar — always include the field.
+
+> **OpenCode caveat (D-07):** *OpenCode children sometimes request permissions without specific command/path (target is empty). Dialog says 'session' grant covers ALL `${action}` calls this session — read carefully before granting session scope.*
+
+### Polling for permission-required in the fallback path
+
+When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission-required` like `input-required`:
+
+1. Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, and `scope`.
+2. Surface the request to the user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
+3. Obtain the user's decision.
+4. Call `cloud_polygraph_delegate` with `taskId` and `permissionDecision: { decision, scope?, reason? }`.
+5. Resume polling.
+
+---
+
+*GRNT-01: allow one-time. GRNT-02: allow session (remembered). GRNT-03: deny (child continues). GRNT-04: pendingPermission carries harness/action/target/repo.*
+
 ### 2. Push Branches
 
 Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
