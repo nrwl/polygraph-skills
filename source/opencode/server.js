@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(__dirname, '..', '..');
+const packageRoot = __dirname;
 const skillsDir = path.join(packageRoot, 'skills');
 const agentsDir = path.join(packageRoot, 'agents');
 

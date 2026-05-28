@@ -296,8 +296,9 @@ test('opencode package is published as a native plugin package', () => {
   assert.equal(pkg.name, 'polygraph-opencode-plugin');
   assert.equal(pkg.private, false);
   assert.equal(pkg.type, 'module');
-  assert.equal(pkg.main, './.opencode/plugins/polygraph.js');
-  assert.deepEqual(pkg.files, ['.opencode/', 'skills/', 'agents/', 'README.md']);
+  assert.deepEqual(pkg.exports, { './server': './server.js' });
+  assert.equal(pkg.main, './server.js');
+  assert.deepEqual(pkg.files, ['server.js', 'skills/', 'agents/', 'README.md']);
 });
 
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {

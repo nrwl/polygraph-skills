@@ -82,13 +82,16 @@ function buildPublishPackageJson(pkgJson, packageName, files, extraFields = {}) 
 
 export function buildOpenCodePackageJson(pkgJson) {
   return buildPublishPackageJson(pkgJson, 'polygraph-opencode-plugin', [
-    '.opencode/',
+    'server.js',
     'skills/',
     'agents/',
     'README.md',
   ], {
     type: 'module',
-    main: './.opencode/plugins/polygraph.js',
+    exports: {
+      './server': './server.js',
+    },
+    main: './server.js',
   });
 }
 
@@ -156,8 +159,7 @@ export function finalizeCodexDist(pkgJson) {
 
 export function finalizeOpenCodeDist(pkgJson) {
   const opencodeDir = join(distDir, 'opencode');
-  const pluginDir = join(opencodeDir, '.opencode', 'plugins');
-  mkdirSync(pluginDir, { recursive: true });
+  mkdirSync(opencodeDir, { recursive: true });
 
   writeJson(
     join(opencodeDir, 'package.json'),
@@ -165,8 +167,8 @@ export function finalizeOpenCodeDist(pkgJson) {
   );
 
   cpSync(
-    join(sourceDir, 'opencode', 'plugins', 'polygraph.js'),
-    join(pluginDir, 'polygraph.js')
+    join(sourceDir, 'opencode', 'server.js'),
+    join(opencodeDir, 'server.js')
   );
   copySharedDocs(opencodeDir);
 }
