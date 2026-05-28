@@ -121,11 +121,8 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(policySection, /What Worked: <important decisions, approaches, or constraints that future agents should preserve>/);
   assert.match(policySection, /Next Steps: <clear next implementation steps>/);
   assert.match(policySection, /Do not use a one-line feature summary/);
-  assert.match(policySection, /omit `description` rather than writing a weak one-liner/);
   assert.match(policySection, /Keep it concise but durable for a future resumed agent/);
   assert.match(policySection, /Prefer high-level state over file-by-file changelogs/);
-  assert.match(policySection, /Include verification state only when it affects continuation/);
-  assert.match(policySection, /Avoid exhaustive command logs/);
   assert.match(policySection, /Mention unresolved decisions or risks when they matter/);
   assert.match(policySection, /include only next implementation steps/);
   assert.match(createPrSection, /must follow the Session Description Policy/);

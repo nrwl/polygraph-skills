@@ -421,11 +421,8 @@ Next Steps: <clear next implementation steps>
 ```
 
 - Do not use a one-line feature summary for final handoff or PR creation in a multi-repo session.
-- If you cannot provide durable continuation context, omit `description` rather than writing a weak one-liner.
 - Keep it concise but durable for a future resumed agent.
 - Prefer high-level state over file-by-file changelogs.
-- Include verification state only when it affects continuation.
-- Avoid exhaustive command logs.
 - Mention unresolved decisions or risks when they matter.
 - In `Next Steps`, include only next implementation steps. Do not list routine operational steps such as pushing branches, watching CI, or marking PRs ready.
 
