@@ -92,6 +92,9 @@ export function buildOpenCodePackageJson(pkgJson) {
       './server': './server.js',
     },
     main: './server.js',
+    dependencies: {
+      'js-yaml': pkgJson.devDependencies['js-yaml'],
+    },
   });
 }
 

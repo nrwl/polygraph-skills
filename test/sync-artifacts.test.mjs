@@ -295,6 +295,7 @@ test('opencode package is published as a native plugin package', () => {
   assert.equal(pkg.type, 'module');
   assert.deepEqual(pkg.exports, { './server': './server.js' });
   assert.equal(pkg.main, './server.js');
+  assert.deepEqual(pkg.dependencies, { 'js-yaml': '^4.1.1' });
   assert.deepEqual(pkg.files, ['server.js', 'skills/', 'agents/', 'README.md']);
 });
 

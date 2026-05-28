@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import yaml from 'js-yaml';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = __dirname;
@@ -66,50 +67,9 @@ function parseFrontmatter(raw) {
   }
 
   return {
-    data: parseSimpleYaml(match[1]),
+    data: recordValue(yaml.load(match[1])) ?? {},
     content: match[2],
   };
-}
-
-function parseSimpleYaml(raw) {
-  const root = {};
-  const stack = [{ indent: -1, value: root }];
-
-  for (const line of raw.split('\n')) {
-    if (!line.trim() || line.trimStart().startsWith('#')) continue;
-
-    const indent = line.match(/^\s*/)[0].length;
-    const trimmed = line.trim();
-    const separatorIndex = trimmed.indexOf(':');
-    if (separatorIndex === -1) continue;
-
-    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
-      stack.pop();
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const valueText = trimmed.slice(separatorIndex + 1).trim();
-    const parent = stack[stack.length - 1].value;
-
-    if (!valueText) {
-      const child = {};
-      parent[key] = child;
-      stack.push({ indent, value: child });
-      continue;
-    }
-
-    parent[key] = parseScalar(valueText);
-  }
-
-  return root;
-}
-
-function parseScalar(value) {
-  const unquoted = value.replace(/^['"]|['"]$/g, '');
-  if (unquoted === 'true') return true;
-  if (unquoted === 'false') return false;
-  if (/^-?\d+$/.test(unquoted)) return Number(unquoted);
-  return unquoted;
 }
 
 function stringValue(value) {
