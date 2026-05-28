@@ -80,6 +80,24 @@ function buildPublishPackageJson(pkgJson, packageName, files, extraFields = {}) 
   };
 }
 
+export function buildOpenCodePackageJson(pkgJson) {
+  return buildPublishPackageJson(pkgJson, 'polygraph-opencode-plugin', [
+    'server.js',
+    'skills/',
+    'agents/',
+    'README.md',
+  ], {
+    type: 'module',
+    exports: {
+      './server': './server.js',
+    },
+    main: './server.js',
+    dependencies: {
+      'js-yaml': pkgJson.devDependencies['js-yaml'],
+    },
+  });
+}
+
 function copySharedDocs(targetDir) {
   for (const file of ['README.md', 'LICENSE']) {
     const srcPath = join(rootDir, file);
@@ -140,6 +158,22 @@ export function finalizeCodexDist(pkgJson) {
   writeJson(join(codexDir, '.mcp.json'), buildMcpConfig());
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
   copySharedDocs(codexDir);
+}
+
+export function finalizeOpenCodeDist(pkgJson) {
+  const opencodeDir = join(distDir, 'opencode');
+  mkdirSync(opencodeDir, { recursive: true });
+
+  writeJson(
+    join(opencodeDir, 'package.json'),
+    buildOpenCodePackageJson(pkgJson)
+  );
+
+  cpSync(
+    join(sourceDir, 'opencode', 'server.js'),
+    join(opencodeDir, 'server.js')
+  );
+  copySharedDocs(opencodeDir);
 }
 
 function bundleCodexInstaller(codexDir) {

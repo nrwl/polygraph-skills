@@ -86,5 +86,9 @@ jobs:
         run: npm publish --provenance --access public
         working-directory: dist/codex
 
+      - name: Publish OpenCode plugin on npm
+        run: npm publish --provenance --access public
+        working-directory: dist/opencode
+
       - name: Push release tag
         run: git push origin "v${{ needs.detect.outputs.version }}"

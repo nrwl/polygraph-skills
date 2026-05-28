@@ -8,7 +8,7 @@
 <h1 align="center">Polygraph Skills</h1>
 
 <p align="center">
-  AI agent skills and subagents for <a href="https://nx.dev/features/polygraph">Polygraph</a> multi-repo coordination. The build writes publishable package roots into <code>dist/</code>.
+  AI agent skills and subagents for <a href="https://nx.dev/features/polygraph">Polygraph</a> multi-repo coordination.
 </p>
 
 <p align="center">
@@ -35,12 +35,6 @@ Polygraph is a standalone product for coordinating changes across multiple repos
 
 - **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session
 - **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion
-
-## Dist Layout
-
-- `dist/claude` — publishable Claude plugin npm package (`polygraph-claude-plugin`)
-- `dist/codex` — publishable Codex plugin npm package (`polygraph-codex-plugin`)
-- `dist/opencode` — generated OpenCode artifacts
 
 ## Codex Installer
 
@@ -82,13 +76,33 @@ To verify an install, run:
 npx polygraph-codex-plugin check
 ```
 
+## OpenCode Plugin
+
+The publishable OpenCode package exposes the skills and subagents through OpenCode's native plugin system. Add it to `opencode.json`:
+
+```json
+{
+  "plugin": ["polygraph-opencode-plugin"]
+}
+```
+
+For repeatable installs, pin the npm version:
+
+```json
+{
+  "plugin": ["polygraph-opencode-plugin@0.4.18"]
+}
+```
+
+The plugin adds its packaged `skills/` directory to OpenCode's skill paths and registers the packaged Markdown agents as `subagent` entries in OpenCode config during startup.
+
 ## Development
 
 ```sh
 # Install dependencies
 npm install
 
-# Generate dist/ directly from source/
+# Regenerate generated artifacts
 npm run sync-artifacts
 ```
 
@@ -96,7 +110,7 @@ npm run sync-artifacts
 
 Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
 It opens a release PR against `main` instead of pushing directly.
-When that PR is merged, the `Stage Release` workflow automatically tags the release and stages both `dist/claude` and `dist/codex` on npm.
+When that PR is merged, the `Stage Release` workflow automatically tags the release and publishes the Claude, Codex, and OpenCode npm packages.
 A maintainer must then review and approve each staged package with 2FA before it is published to the live registry.
 
 Configure each npm package's trusted publisher to allow `npm stage publish` from `.github/workflows/publish.yml`.

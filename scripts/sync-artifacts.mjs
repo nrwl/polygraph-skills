@@ -10,6 +10,7 @@ import { processAgents, processSkills } from './src/sync-artifacts/processors.mj
 import {
   finalizeClaudeDist,
   finalizeCodexDist,
+  finalizeOpenCodeDist,
   readRootPackageJson,
 } from './src/sync-artifacts/package-artifacts.mjs';
 
@@ -34,6 +35,7 @@ function runSync() {
   const pkgJson = readRootPackageJson();
   finalizeClaudeDist(pkgJson);
   finalizeCodexDist(pkgJson);
+  finalizeOpenCodeDist(pkgJson);
 
   console.log('Dist assembly complete.');
 }
