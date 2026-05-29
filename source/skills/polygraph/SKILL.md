@@ -441,6 +441,26 @@ When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission
 ---
 
 *GRNT-01: `allow_agent` with `scope: 'one-time'`. GRNT-02: `allow_agent` with `scope: 'session'` (remembered until resetContext or sidecar exit). GRNT-03: `deny_agent` (child continues without the action). GRNT-04: `pendingPermission` on `cloud_polygraph_child_status` carries harness/action/target/repo.*
+{% else %}
+<!-- phase-39 D-10: Claude and Codex parents handle permission gates via the native MCP
+     elicitation dialog rendered by polygraph-mcp's show_agent handler. The dialog targets
+     the parent harness's own UI, NOT this agent. From the agent's vantage point the
+     gate is transient: a `show_agent` poll may briefly see `permission-required` between
+     the child opening the gate and the user picking in the dialog. The agent must NOT
+     resolve it itself. -->
+## Handling permission requests
+
+Your MCP client supports the native permission dialog. When a child agent requests permission, the dialog renders directly in your UI and the user picks — the decision routes back through `polygraph-mcp` automatically.
+
+**Critical: do NOT call `allow_agent` or `deny_agent` yourself.** If `show_agent` (or `cloud_polygraph_child_status`) briefly reports a child in `permission-required` state with `pendingPermission` populated, that is a transient state the dialog is in the middle of resolving. Your job is to keep polling — the next poll will see the child back in `in-progress` (or `failed` / `cancelled` if the user denied or dismissed).
+
+If you call `allow_agent` while the dialog is already open, you create a race: the user's pick lands first and the explicit allow fails with `Task <id> is in state 'completed', not 'permission-required'`. The child receives the user's choice; your call is wasted work.
+
+The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do NOT advertise elicitation capability (opencode TUI today, per FUT-05). They are not part of your flow.
+
+---
+
+*GRNT-01..04 are honoured here too — the dialog's three options are: "Allow once" (one-time grant), "Allow for this session" (session grant remembered until resetContext or sidecar exit), and "Deny" (child continues without the action). `pendingPermission` data still appears on `cloud_polygraph_child_status` for inspection / logging; do not act on it.*
 {% endif %}
 
 ### 2. Push Branches
