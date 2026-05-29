@@ -121,10 +121,6 @@ State machine:
    - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
    - Resume polling.
 {% if platform == "opencode" %}
-<!-- phase-39 D-10: opencode-only gate. Claude and Codex parents handle permission gates
-     via the native MCP elicitation dialog and never see permission-required tasks — this
-     state-machine branch is unreachable for them. FUT-05 may close the opencode MCP-client
-     elicitation gap upstream, at which point this gate can be removed. -->
 3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
    - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
    - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
@@ -132,10 +128,17 @@ State machine:
    - Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }` — `allow_agent` also takes `scope` (`'one-time'` or `'session'`) and an optional `reason`; `deny_agent` takes only `{ sessionId, repo }` plus an optional `reason`.
    - **Fail-closed:** When you see `permission-required`, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
    - Resume polling.
+{% else %}
+<!-- phase-39 D-10: Claude and Codex parents handle permission gates via the native MCP
+     elicitation dialog rendered by polygraph-mcp's show_agent handler. The dialog targets
+     the parent's main thread, NOT this subagent. From this subagent's perspective the gate
+     is transient: a poll may observe permission-required briefly, but the parent's pick
+     resolves it and the next poll sees the child back in progress. Do nothing here. -->
+3. `child.status === 'permission-required'` — child is paused waiting on a permission grant. **Do not** call `spawn_agent`, `stop_agent`, or any other tool to resolve it. The parent's native MCP elicitation dialog handles the decision and routes it back to the child sidecar through `polygraph-mcp` directly. From the subagent's vantage point this is a transient state; the next poll will observe the child back in `in-progress` (or `failed` / `cancelled` if the user denied or dismissed). **Sleep through the backoff and resume polling** — no other action.
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
-4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
-5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
+5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
+6. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
 
 ## Cancelling a running child
 
