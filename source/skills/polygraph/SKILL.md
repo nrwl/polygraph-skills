@@ -54,7 +54,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
 | `complete_session` | `polygraph session complete <id>` | Mark a session complete |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
-| — | `polygraph login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
+| — | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | — | `polygraph session list` | List all sessions |
 | — | `polygraph org list` / `org select` | Organization management |
 | — | `polygraph whoami` | Show current auth status and org |
@@ -80,7 +80,7 @@ Before using Polygraph tools, ensure the CLI is authenticated and an organizatio
 Use `polygraph whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
 
 - If the user **is logged in** and an org is selected → proceed to the workflow.
-- If the user **is not logged in** → use `polygraph login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+- If the user **is not logged in** → use `polygraph auth login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
 
 ### Select Organization
 
