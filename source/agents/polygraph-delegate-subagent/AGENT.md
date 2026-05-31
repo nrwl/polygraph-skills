@@ -106,7 +106,7 @@ Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** �
 
 For each child in the response (field: `children[]`), inspect:
 
-- `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
+- `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`). Note `'permission-required'` and `'input-required'` are DIFFERENT states handled by different cases below — do not conflate them.
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
 - `child.lastOutputLines` — recent log tail (use for status narration; do not treat as an API surface).
 - `child.repoFullName` — human-facing identifier for which repo is talking.
@@ -134,7 +134,12 @@ State machine:
      the parent's main thread, NOT this subagent. From this subagent's perspective the gate
      is transient: a poll may observe permission-required briefly, but the parent's pick
      resolves it and the next poll sees the child back in progress. Do nothing here. -->
-3. `child.status === 'permission-required'` — child is paused waiting on a permission grant. **Do not** call `spawn_agent`, `stop_agent`, or any other tool to resolve it. The parent's native MCP elicitation dialog handles the decision and routes it back to the child sidecar through `polygraph-mcp` directly. From the subagent's vantage point this is a transient state; the next poll will observe the child back in `in-progress` (or `failed` / `cancelled` if the user denied or dismissed). **Sleep through the backoff and resume polling** — no other action.
+3. `child.status === 'permission-required'` — the child opened a permission gate. **This is NOT `input-required`. Do not treat it like case 2.** The parent's native MCP elicitation dialog already renders the prompt in the parent's own UI and routes the decision back to the child through `polygraph-mcp`. Your only job is to stay out of the way and keep polling:
+
+   - **Do NOT return, finish, summarize, relay, or surface this to the parent.** Do NOT describe the child as "needing input", "awaiting approval", "asking for permission", or anything that would make the parent prompt the user — the parent already has its own dialog. Returning here is the bug this case exists to prevent.
+   - **Do NOT read `child.pendingPermission` as a question to answer or forward.** It is for inspection/logging only; it is not your input prompt.
+   - **Do NOT call any tool** (`spawn_agent`, `stop_agent`, `allow_agent`, `deny_agent`) to resolve it.
+   - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Sleep through the backoff and resume polling** — no other action. The next poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
