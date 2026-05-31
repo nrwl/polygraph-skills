@@ -52,11 +52,11 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
-| `complete_session` | `polygraph session complete <id>` | Mark a session complete |
+| `complete_session` | `polygraph session archive <id>` | Mark a session complete |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
 | — | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | — | `polygraph session list` | List all sessions |
-| — | `polygraph org list` / `org select` | Organization management |
+| — | `polygraph account list` / `polygraph account select` | Organization management |
 | — | `polygraph whoami` | Show current auth status and org |
 
 {% if platform == "claude" or platform == "opencode" %}
@@ -69,7 +69,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 ## CLI Statefulness
 
-The Polygraph CLI (`polygraph`) is **stateful**. When you select an organization — via `polygraph org select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
+The Polygraph CLI (`polygraph`) is **stateful**. When you select an organization — via `polygraph account select` or the equivalent MCP tool — that selection is saved globally and all subsequent CLI commands and MCP tool calls operate against it. You do not need to pass the org on every command.
 
 ## Setup
 
@@ -84,7 +84,7 @@ Use `polygraph whoami` (or the `whoami` MCP tool) to check if the user is curren
 
 ### Select Organization
 
-After logging in (or if logged in but no org is selected), use `polygraph org select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
+After logging in (or if logged in but no org is selected), use `polygraph account select` (or the equivalent MCP tool) to choose the organization that future commands will run against.
 
 ## Workflow Overview
 
@@ -216,7 +216,7 @@ Use this workflow when the user gives a Polygraph session ID and asks to underst
 
 1. Fetch detailed session context:
    - Prefer `show_session` with `details: true` when the MCP tool exposes that option.
-   - Otherwise run `polygraph session show <session-id> --details`.
+   - Otherwise run `polygraph session show --details <session-id>`.
 2. Treat the detailed output as authoritative context. It should include:
    - `<summary>` — the session summary.
    - `<repositories>` — relevant repos, including each repo's `<id>` and `<name>`.
