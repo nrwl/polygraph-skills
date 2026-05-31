@@ -114,7 +114,7 @@ There are three cases. Pick exactly one before calling any tool.
 
 **Hard rule: if a session ID is already in scope (e.g., the startup banner says "You're in Polygraph session …", or the user passed one), that session ID is authoritative for this entire conversation. NEVER call `start_session` — doing so creates a brand-new session and orphans the one the parent harness is pointed at. Reuse the existing session via `show_session` and, if needed, `add_repo`.**
 
-**Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Print the session details (format below) and proceed.
+**Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Run `polygraph session intro -s <sessionId>` and display its output verbatim as the session welcome card, then proceed.
 
 **Case B — Existing session, no repos yet (or user wants to add more).** If the user gives exact repo refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call `add_repo(sessionId, repoIds: [...])` directly with those refs. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT launch the init subagent just to resolve those refs. If the user wants discovery/filtering instead, launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant repositories, and call `add_repo` against the existing session — it will NOT call `start_session`.
 
@@ -197,16 +197,9 @@ The subagent will:
 4. Call `show_session` to retrieve session details
 5. Return a summary with session URL and repo info
 
-**After receiving the subagent's summary (or after calling `show_session` for an existing session), print the session details:**
+**After receiving the subagent's summary (or after calling `show_session` for an existing session), render the session welcome card:**
 
-**Session:** POLYGRAPH_SESSION_URL
-
-**Repositories in this session:**
-
-- REPO_FULL_NAME
-
-- REPO_FULL_NAME: from the session repository entries
-- POLYGRAPH_SESSION_URL: from `polygraphSessionUrl`
+Run `polygraph session intro -s <sessionId>` in the session's working directory and display its output verbatim as the welcome card. (The `sessionId` is the one returned by the subagent or already in scope from the startup banner.)
 
 ### Explore an Existing Session
 
