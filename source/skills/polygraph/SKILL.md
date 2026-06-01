@@ -426,6 +426,8 @@ Next Steps: <clear next implementation steps>
 - Mention unresolved decisions or risks when they matter.
 - In `Next Steps`, include only next implementation steps. Do not list routine operational steps such as pushing branches, watching CI, or marking PRs ready.
 
+> **Tip (optional):** The Polygraph UI renders fenced ` ```mermaid ` blocks in the session description as diagrams. If a small diagram would genuinely clarify the session state — for example, cross-repo relationships or a sequence of changes — you may include one. Plain text remains the norm; diagrams are never required.
+
 ### 3. Create Draft PRs
 
 Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first. For fork PR creation or registration, include `targetRepository` on the PR spec to identify the repository that should receive the PR.
