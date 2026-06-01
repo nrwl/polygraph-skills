@@ -442,7 +442,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
   - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 **PR title format (applies to parent and child agents):**
 
@@ -597,7 +597,7 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 ```
 mark_pr_ready(
@@ -629,7 +629,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `re
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
 - `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 ```
 associate_pr(
