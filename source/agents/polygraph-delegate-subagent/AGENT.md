@@ -106,7 +106,7 @@ Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** �
 
 For each child in the response (field: `children[]`), inspect:
 
-- `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
+- `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`). Note `'permission-required'` and `'input-required'` are DIFFERENT states handled by different cases below — do not conflate them.
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
 - `child.lastOutputLines` — recent log tail (use for status narration; do not treat as an API surface).
 - `child.repoFullName` — human-facing identifier for which repo is talking.
@@ -120,9 +120,30 @@ State machine:
    - Wait for the parent/user to supply an answer.
    - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
    - Resume polling.
-3. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
-4. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
-5. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
+{% if platform == "opencode" %}
+3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
+   - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
+   - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
+   - Wait for the parent/user to decide.
+   - Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }` — `allow_agent` also takes `scope` (`'one-time'` or `'session'`) and an optional `reason`; `deny_agent` takes only `{ sessionId, repo }` plus an optional `reason`.
+   - **Fail-closed:** When you see `permission-required`, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
+   - Resume polling.
+{% else %}
+<!-- Claude and Codex parents handle permission gates via the native MCP elicitation dialog
+     rendered by polygraph-mcp's show_agent handler. The dialog targets the parent's main
+     thread, NOT this subagent. From this subagent's perspective the gate is transient: a
+     poll may observe permission-required briefly, but the parent's pick resolves it and the
+     next poll sees the child back in progress. Do nothing here. -->
+3. `child.status === 'permission-required'` — the child opened a permission gate. **This is NOT `input-required`. Do not treat it like case 2.** The parent's native MCP elicitation dialog already renders the prompt in the parent's own UI and routes the decision back to the child through `polygraph-mcp`. Your only job is to stay out of the way and keep polling:
+
+   - **Do NOT return, finish, summarize, relay, or surface this to the parent.** Do NOT describe the child as "needing input", "awaiting approval", "asking for permission", or anything that would make the parent prompt the user — the parent already has its own dialog. Returning here is the bug this case exists to prevent.
+   - **Do NOT read `child.pendingPermission` as a question to answer or forward.** It is for inspection/logging only; it is not your input prompt.
+   - **Do NOT call any tool** (`spawn_agent`, `stop_agent`, `allow_agent`, `deny_agent`) to resolve it.
+   - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Sleep through the backoff and resume polling** — no other action. The next poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
+{% endif %}
+4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
+5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
+6. `child.status === 'cancelled'` — child was stopped via `stop_agent`. Its session is preserved for later context restoration. Do not restart or continue work from that preserved session unless the user explicitly asks for changes.
 
 ## Cancelling a running child
 

@@ -384,6 +384,76 @@ Use this pattern when the child may need clarification, the task is exploratory,
 
 Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
 
+{% if platform == "opencode" %}
+<!-- opencode-only gate. Claude and Codex parents handle permission gates via the native
+     MCP elicitation dialog and never see permission-required tasks in the polling loop —
+     these instructions are noise for them. This gate can be removed once opencode's MCP
+     client gains elicitation capability upstream. -->
+## Handling permission requests
+
+Child agents running in other repositories may pause and ask the parent agent whether a specific action is permitted. Polygraph exposes this via two wire paths.
+
+**Native path (MCP permission dialog):** If your MCP client supports the permission dialog UI, the user picks directly in that dialog — you (the agent) won't see `permission-required` tasks in that flow.
+
+**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `allow_agent` (to grant the requested action) or `deny_agent` (to refuse it) with the `{sessionId, repo}` of the child agent.
+
+### Answering a permission request
+
+```jsonc
+// To grant the requested action:
+{
+  "sessionId": "...",
+  "repo": "nrwl/example-repo",
+  "scope": "session",              // or "one-time"
+  "reason": "Trusted local repo"   // optional
+}
+// — call `allow_agent` with this payload.
+
+// To refuse the requested action:
+{
+  "sessionId": "...",
+  "repo": "nrwl/example-repo",
+  "reason": "Action looks risky"   // optional
+}
+// — call `deny_agent` with this payload.
+```
+
+The three decisions:
+
+- `allow_agent` with `scope: 'one-time'` — permits the single action only; the child must ask again for the next action of the same type.
+- `allow_agent` with `scope: 'session'` — permits the action and remembers that grant for the rest of the child's session; the child will not ask again.
+- `deny_agent` — rejects the request; child continues without performing the action.
+
+**Fail-closed default:** When you see a task in `permission-required` state, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
+
+> **OpenCode caveat:** *OpenCode children sometimes request permissions without specific command/path (target is empty). Dialog says 'session' grant covers ALL `${action}` calls this session — read carefully before granting session scope.*
+
+### Polling for permission-required in the fallback path
+
+When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission-required` like `input-required`:
+
+1. Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, and `scope`.
+2. Surface the request to the user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
+3. Obtain the user's decision.
+4. Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }`.
+5. Resume polling.
+{% else %}
+<!-- Claude and Codex parents handle permission gates via the native MCP elicitation dialog
+     rendered by polygraph-mcp's show_agent handler. The dialog targets the parent harness's
+     own UI, NOT this agent. From the agent's vantage point the gate is transient: a
+     `show_agent` poll may briefly see `permission-required` between the child opening the
+     gate and the user picking in the dialog. The agent must NOT resolve it itself. -->
+## Handling permission requests
+
+Your MCP client supports the native permission dialog. When a child agent requests permission, the dialog renders directly in your UI and the user picks — the decision routes back through `polygraph-mcp` automatically.
+
+**Critical: do NOT call `allow_agent` or `deny_agent` yourself.** If `show_agent` (or `cloud_polygraph_child_status`) briefly reports a child in `permission-required` state with `pendingPermission` populated, that is a transient state the dialog is in the middle of resolving. Your job is to keep polling — the next poll will see the child back in `in-progress` (or `failed` / `cancelled` if the user denied or dismissed).
+
+If you call `allow_agent` while the dialog is already open, you create a race: the user's pick lands first and the explicit allow fails with `Task <id> is in state 'completed', not 'permission-required'`. The child receives the user's choice; your call is wasted work.
+
+The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do NOT advertise elicitation capability (opencode TUI today). They are not part of your flow.
+{% endif %}
+
 ### 2. Push Branches
 
 Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
