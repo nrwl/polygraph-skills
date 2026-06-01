@@ -129,11 +129,11 @@ State machine:
    - **Fail-closed:** When you see `permission-required`, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
    - Resume polling.
 {% else %}
-<!-- phase-39 D-10: Claude and Codex parents handle permission gates via the native MCP
-     elicitation dialog rendered by polygraph-mcp's show_agent handler. The dialog targets
-     the parent's main thread, NOT this subagent. From this subagent's perspective the gate
-     is transient: a poll may observe permission-required briefly, but the parent's pick
-     resolves it and the next poll sees the child back in progress. Do nothing here. -->
+<!-- Claude and Codex parents handle permission gates via the native MCP elicitation dialog
+     rendered by polygraph-mcp's show_agent handler. The dialog targets the parent's main
+     thread, NOT this subagent. From this subagent's perspective the gate is transient: a
+     poll may observe permission-required briefly, but the parent's pick resolves it and the
+     next poll sees the child back in progress. Do nothing here. -->
 3. `child.status === 'permission-required'` — the child opened a permission gate. **This is NOT `input-required`. Do not treat it like case 2.** The parent's native MCP elicitation dialog already renders the prompt in the parent's own UI and routes the decision back to the child through `polygraph-mcp`. Your only job is to stay out of the way and keep polling:
 
    - **Do NOT return, finish, summarize, relay, or surface this to the parent.** Do NOT describe the child as "needing input", "awaiting approval", "asking for permission", or anything that would make the parent prompt the user — the parent already has its own dialog. Returning here is the bug this case exists to prevent.
