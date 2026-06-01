@@ -197,7 +197,9 @@ The subagent will:
 4. Call `show_session` to retrieve session details
 5. Return a summary with session URL and repo info
 
-**After receiving the subagent's summary (or after calling `show_session` for an existing session), print the session details:**
+**Case C only — new session just created:** After the init subagent completes and creates the new session, render the session welcome card (skip the session-details block below for this case). Prefer the `session_intro` MCP tool — call it with the session ID; it returns the card as markdown. If that tool is unavailable, run `polygraph session intro -s <sessionId>` via the CLI instead. Either way, print the result to the user verbatim as markdown — do NOT wrap it in a code block or reformat it (the logo is pre-fenced; the rest is live markdown). It needs no other input, and you do not need to call `show_session` first. Then continue (ask the user what they want, or start the requested task).
+
+**After receiving the subagent's summary (Case B) or after calling `show_session` for an existing session (Case A), print the session details:**
 
 **Session:** POLYGRAPH_SESSION_URL
 
@@ -510,7 +512,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
   - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 **PR title format (applies to parent and child agents):**
 
@@ -665,7 +667,7 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 ```
 mark_pr_ready(
@@ -697,7 +699,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `re
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
 - `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy. Omit it rather than using an ad hoc one-line summary.
+- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 ```
 associate_pr(
