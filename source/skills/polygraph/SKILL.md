@@ -114,7 +114,7 @@ There are three cases. Pick exactly one before calling any tool.
 
 **Hard rule: if a session ID is already in scope (e.g., the startup banner says "You're in Polygraph session …", or the user passed one), that session ID is authoritative for this entire conversation. NEVER call `start_session` — doing so creates a brand-new session and orphans the one the parent harness is pointed at. Reuse the existing session via `show_session` and, if needed, `add_repo`.**
 
-**Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Print the session details (format below) and proceed.
+**Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely. Proceed to the welcome card step below.
 
 **Case B — Existing session, no repos yet (or user wants to add more).** If the user gives exact repo refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call `add_repo(sessionId, repoIds: [...])` directly with those refs. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT launch the init subagent just to resolve those refs. If the user wants discovery/filtering instead, launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant repositories, and call `add_repo` against the existing session — it will NOT call `start_session`.
 
@@ -197,9 +197,13 @@ The subagent will:
 4. Call `show_session` to retrieve session details
 5. Return a summary with session URL and repo info
 
+After the subagent completes, take its returned session ID and proceed to render the welcome card. Do not display the subagent's summary or any session details of your own — the welcome card (below) is the sole initial output.
+
 **Render the session welcome card:**
 
 Render the session welcome card. Prefer the `session_intro` MCP tool — call it with the session ID; it returns the card as markdown. If that tool is unavailable, run `polygraph session intro -s <sessionId>` via the CLI instead. Either way, print the result to the user verbatim as markdown — do NOT wrap it in a code block or reformat it (the logo is pre-fenced; the rest is live markdown). It needs no other input, and you do not need to call `show_session` first.
+
+This card is the complete initial session summary. Do NOT print anything else about the session before or after it — no "session is ready" message, no repository table, no restated repo list, URL, or session overview of your own. Output only the card, then continue (ask the user what they want, or start the requested task).
 
 ### Explore an Existing Session
 
