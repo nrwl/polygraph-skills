@@ -199,7 +199,7 @@ The subagent will:
 
 **Render the session welcome card:**
 
-Once the session is started (or you have joined an existing one), render the session welcome card: run `polygraph session intro -s <sessionId>` and display its output verbatim. The command auto-detects everything it needs (repos, multiplexer state, URL) from the local session — do not pass any other flags, and you do not need to call `show_session` first.
+Render the session welcome card: run `polygraph session intro -s <sessionId>` and print its output to the user verbatim as markdown. Do NOT wrap the output in a code block or otherwise reformat it — the command already formats itself (the logo is pre-fenced; the rest is live markdown). It auto-detects everything it needs (repos, multiplexer state, URL) from the local session, so pass no other flags and do not call `show_session` first.
 
 ### Explore an Existing Session
 
