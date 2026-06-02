@@ -478,7 +478,7 @@ push_branch(
 
 `description` is user-facing Polygraph session context.
 
-The same policy applies anywhere a Polygraph tool accepts `description`, including `create_pr`, `mark_pr_ready`, `associate_pr`, and `update_session_description`.
+The same policy applies anywhere a Polygraph tool accepts `description`, including `create_pr`, `associate_pr`, and `update_session_description`.
 
 If you pass `description`, use the canonical structured format:
 
@@ -667,7 +667,6 @@ Once all changes are verified and ready to merge, use `mark_pr_ready` to transit
 
 - `sessionId` (required): The Polygraph session ID
 - `prUrls` (required): Array of PR URLs to mark as ready for review
-- `description` (optional): Optional. If supplied, it must follow the Session Description Policy.
 
 ```
 mark_pr_ready(
