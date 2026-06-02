@@ -24,6 +24,11 @@ export const PolygraphPlugin = async () => {
         cfg.agent[name] = agent;
       }
     },
+
+    'shell.env': async (input, output) => {
+      output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
+      output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
+    },
   };
 };
 
