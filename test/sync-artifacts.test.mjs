@@ -290,7 +290,7 @@ test('codex plugin manifest does not advertise agents (codex ignores the field)'
 test('opencode package is published as a native plugin package', () => {
   const pkg = buildOpenCodePackageJson(readRootPackageJson());
 
-  assert.equal(pkg.name, 'polygraph-opencode-plugin');
+  assert.equal(pkg.name, '@polygraph/opencode-plugin');
   assert.equal(pkg.private, false);
   assert.equal(pkg.type, 'module');
   assert.deepEqual(pkg.exports, { './server': './server.js' });

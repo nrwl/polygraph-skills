@@ -151,7 +151,7 @@ test('installPlugin re-copies plugin payload when installed version differs', ()
   const staleVersion = '1.2.2';
   writeFileSync(
     join(installedPluginPath, 'package.json'),
-    JSON.stringify({ name: 'polygraph-codex-plugin', version: staleVersion }, null, 2)
+    JSON.stringify({ name: '@polygraph/codex-plugin', version: staleVersion }, null, 2)
   );
   // Also corrupt a skill file to confirm it gets restored
   writeFileSync(join(installedPluginPath, 'skills', 'polygraph', 'SKILL.md'), '# stale\n');
@@ -189,7 +189,7 @@ test('installPlugin refuses to reuse an invalid target without --force when vers
   mkdirSync(installedPluginPath, { recursive: true });
   writeFileSync(
     join(installedPluginPath, 'package.json'),
-    JSON.stringify({ name: 'polygraph-codex-plugin', version: fixture.version }, null, 2)
+    JSON.stringify({ name: '@polygraph/codex-plugin', version: fixture.version }, null, 2)
   );
 
   assert.throws(
@@ -406,7 +406,7 @@ function createFixturePackage(baseDir = tmpdir(), version = '1.2.3') {
     join(packageRoot, 'package.json'),
     JSON.stringify(
       {
-        name: 'polygraph-codex-plugin',
+        name: '@polygraph/codex-plugin',
         version,
         files: ['.codex-plugin/', 'skills/', 'agents/', '.mcp.json', 'README.md', 'bin/', 'lib/'],
         bin: {
