@@ -81,7 +81,7 @@ function buildPublishPackageJson(pkgJson, packageName, files, extraFields = {}) 
 }
 
 export function buildOpenCodePackageJson(pkgJson) {
-  return buildPublishPackageJson(pkgJson, 'polygraph-opencode-plugin', [
+  return buildPublishPackageJson(pkgJson, '@polygraph/opencode-plugin', [
     'server.js',
     'skills/',
     'agents/',
@@ -114,7 +114,7 @@ export function finalizeClaudeDist(pkgJson) {
 
   writeJson(
     join(claudeDir, 'package.json'),
-    buildPublishPackageJson(pkgJson, 'polygraph-claude-plugin', [
+    buildPublishPackageJson(pkgJson, '@polygraph/claude-plugin', [
       'skills/',
       'agents/',
       'hooks/',
@@ -142,7 +142,7 @@ export function finalizeCodexDist(pkgJson) {
 
   writeJson(
     join(codexDir, 'package.json'),
-    buildPublishPackageJson(pkgJson, 'polygraph-codex-plugin', [
+    buildPublishPackageJson(pkgJson, '@polygraph/codex-plugin', [
       '.codex-plugin/',
       'skills/',
       'agents/',

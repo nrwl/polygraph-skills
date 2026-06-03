@@ -41,7 +41,7 @@ Polygraph is a standalone product for coordinating changes across multiple repos
 The publishable Codex package now exposes an explicit installer CLI:
 
 ```sh
-npx polygraph-codex-plugin
+npx @polygraph/codex-plugin
 ```
 
 That command copies the packaged Codex plugin into:
@@ -73,7 +73,7 @@ $CODEX_HOME/config.toml
 To verify an install, run:
 
 ```sh
-npx polygraph-codex-plugin check
+npx @polygraph/codex-plugin check
 ```
 
 ## OpenCode Plugin
@@ -82,7 +82,7 @@ The publishable OpenCode package exposes the skills and subagents through OpenCo
 
 ```json
 {
-  "plugin": ["polygraph-opencode-plugin"]
+  "plugin": ["@polygraph/opencode-plugin"]
 }
 ```
 
@@ -90,7 +90,7 @@ For repeatable installs, pin the npm version:
 
 ```json
 {
-  "plugin": ["polygraph-opencode-plugin@0.4.18"]
+  "plugin": ["@polygraph/opencode-plugin@0.4.18"]
 }
 ```
 

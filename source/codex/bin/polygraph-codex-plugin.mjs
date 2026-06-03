@@ -7,9 +7,9 @@ import {
 } from '../lib/installer.mjs';
 
 const usage = `Usage:
-  npx polygraph-codex-plugin
-  npx polygraph-codex-plugin install [--force] [--json]
-  npx polygraph-codex-plugin check [--json]`;
+  npx @polygraph/codex-plugin
+  npx @polygraph/codex-plugin install [--force] [--json]
+  npx @polygraph/codex-plugin check [--json]`;
 
 async function main() {
   const args = process.argv.slice(2);
