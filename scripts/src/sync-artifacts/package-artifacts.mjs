@@ -13,7 +13,7 @@ export function buildMcpConfig() {
       'polygraph-mcp': {
         type: 'stdio',
         command: 'npx',
-        args: ['polygraph-mcp@latest'],
+        args: ['@polygraph/mcp@latest'],
       },
     },
   };
