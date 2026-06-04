@@ -119,7 +119,7 @@ For the strictest release flow, do not allow direct `npm publish` for the truste
 ## Learn More
 
 - **[Polygraph](https://nx.dev/features/polygraph)** — Multi-repo coordination with Polygraph
-- **[polygraph-mcp](https://www.npmjs.com/package/polygraph-mcp)** — The MCP server that powers Polygraph tools
+- **[@polygraph/mcp](https://www.npmjs.com/package/@polygraph/mcp)** — The MCP server that powers Polygraph tools
 - **[Nx AI Agent Skills](https://github.com/nrwl/nx-ai-agents-config)** — The main Nx AI agent skills repo
 
 ## License

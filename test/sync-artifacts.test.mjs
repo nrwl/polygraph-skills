@@ -305,7 +305,7 @@ test('buildMcpConfig wraps MCP servers under mcpServers', () => {
       'polygraph-mcp': {
         type: 'stdio',
         command: 'npx',
-        args: ['polygraph-mcp@latest'],
+        args: ['@polygraph/mcp@latest'],
       },
     },
   });
