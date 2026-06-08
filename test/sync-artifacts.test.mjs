@@ -287,6 +287,12 @@ test('codex plugin manifest does not advertise agents (codex ignores the field)'
   assert.equal(manifest.agents, undefined);
 });
 
+test('codex plugin manifest registers the bundled SessionStart hooks file', () => {
+  const manifest = buildCodexPluginManifest(readRootPackageJson());
+
+  assert.equal(manifest.hooks, './hooks/hooks.json');
+});
+
 test('opencode package is published as a native plugin package', () => {
   const pkg = buildOpenCodePackageJson(readRootPackageJson());
 

@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { PolygraphPlugin } from '../source/opencode/server.js';
+import {
+  PolygraphPlugin,
+  polygraphCompactionNote,
+} from '../source/opencode/server.js';
 
 test('PolygraphPlugin returns a shell.env hook', async () => {
   const plugin = await PolygraphPlugin();
@@ -42,4 +48,65 @@ test('config hook still registers skills path', async () => {
   await plugin.config(cfg);
   assert.ok(Array.isArray(cfg.skills.paths));
   assert.equal(cfg.skills.paths.length, 1);
+});
+
+test('PolygraphPlugin exposes the experimental.session.compacting hook', async () => {
+  const plugin = await PolygraphPlugin();
+  assert.equal(typeof plugin['experimental.session.compacting'], 'function');
+});
+
+test('polygraphCompactionNote builds a preserve note from local Polygraph state', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pg-opencode-'));
+  try {
+    const agentSessionId = 'ses_opencode_demo';
+    const polygraphSessionId = 'demo-session-abc';
+    mkdirSync(join(root, 'sidecars', polygraphSessionId), { recursive: true });
+    writeFileSync(
+      join(root, 'sidecars', polygraphSessionId, `parent-${agentSessionId}.json`),
+      JSON.stringify({
+        sessionId: polygraphSessionId,
+        parentSessionId: agentSessionId,
+        parentAgentType: 'opencode',
+      })
+    );
+    mkdirSync(join(root, 'sessions', polygraphSessionId, 'session'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(root, 'sessions', polygraphSessionId, 'session', 'session.json'),
+      JSON.stringify({
+        sessionId: polygraphSessionId,
+        repos: [
+          { repoFullName: 'nrwl/polygraph-skills' },
+          { repoFullName: 'nrwl/ocean' },
+        ],
+      })
+    );
+
+    const note = polygraphCompactionNote(agentSessionId, root);
+    assert.match(note, /Polygraph session demo-session-abc/);
+    assert.match(note, /nrwl\/polygraph-skills, nrwl\/ocean/);
+    assert.match(note, /[Pp]reserve/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('polygraphCompactionNote returns undefined outside a Polygraph session', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pg-opencode-empty-'));
+  try {
+    assert.equal(polygraphCompactionNote('ses_unknown', root), undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('experimental.session.compacting is a no-op outside a Polygraph session', async () => {
+  const plugin = await PolygraphPlugin();
+  const output = { context: [] };
+  await plugin['experimental.session.compacting'](
+    { sessionID: 'ses_definitely_not_a_polygraph_session' },
+    output
+  );
+  assert.deepEqual(output.context, []);
 });

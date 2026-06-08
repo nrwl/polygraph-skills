@@ -67,6 +67,11 @@ test('installPlugin copies the package payload and preserves unrelated config', 
   assert.equal(result.pluginPath, installedPluginPath);
   assert.equal(existsSync(join(result.pluginPath, '.codex-plugin', 'plugin.json')), true);
   assert.equal(existsSync(join(result.pluginPath, 'skills', 'polygraph', 'SKILL.md')), true);
+  assert.equal(existsSync(join(result.pluginPath, 'hooks', 'hooks.json')), true);
+  assert.equal(
+    existsSync(join(result.pluginPath, 'hooks', 'reinject-polygraph-context.mjs')),
+    true
+  );
   assert.equal(existsSync(join(result.pluginPath, 'agents', 'polygraph-init-subagent.toml')), true);
   assert.equal(existsSync(join(agentsPath, 'polygraph-init-subagent.toml')), true);
   assert.equal(existsSync(join(agentsPath, 'polygraph-delegate-subagent.toml')), true);
@@ -401,6 +406,7 @@ function createFixturePackage(baseDir = tmpdir(), version = '1.2.3') {
   mkdirSync(join(packageRoot, 'agents'), { recursive: true });
   mkdirSync(join(packageRoot, 'bin'), { recursive: true });
   mkdirSync(join(packageRoot, 'lib'), { recursive: true });
+  mkdirSync(join(packageRoot, 'hooks'), { recursive: true });
 
   writeFileSync(
     join(packageRoot, 'package.json'),
@@ -408,7 +414,7 @@ function createFixturePackage(baseDir = tmpdir(), version = '1.2.3') {
       {
         name: '@polygraph/codex-plugin',
         version,
-        files: ['.codex-plugin/', 'skills/', 'agents/', '.mcp.json', 'README.md', 'bin/', 'lib/'],
+        files: ['.codex-plugin/', 'skills/', 'agents/', 'hooks/', '.mcp.json', 'README.md', 'bin/', 'lib/'],
         bin: {
           'polygraph-codex-plugin': './bin/polygraph-codex-plugin.mjs',
         },
@@ -425,6 +431,14 @@ function createFixturePackage(baseDir = tmpdir(), version = '1.2.3') {
   writeFileSync(join(packageRoot, 'README.md'), '# Fixture\n');
   writeFileSync(join(packageRoot, 'bin', 'polygraph-codex-plugin.mjs'), '#!/usr/bin/env node\n');
   writeFileSync(join(packageRoot, 'lib', 'installer.mjs'), 'export {};\n');
+  writeFileSync(
+    join(packageRoot, 'hooks', 'hooks.json'),
+    JSON.stringify({ hooks: { SessionStart: [] } })
+  );
+  writeFileSync(
+    join(packageRoot, 'hooks', 'reinject-polygraph-context.mjs'),
+    '// fixture hook\n'
+  );
   writeFileSync(join(packageRoot, 'skills', 'polygraph', 'SKILL.md'), '# Polygraph\n');
   writeFileSync(
     join(packageRoot, 'agents', 'polygraph-init-subagent.toml'),

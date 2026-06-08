@@ -42,6 +42,7 @@ export function buildCodexPluginManifest(pkgJson) {
     keywords: pkgJson.keywords,
     skills: './skills/',
     mcpServers: './.mcp.json',
+    hooks: './hooks/hooks.json',
     interface: {
       displayName: 'Polygraph',
       shortDescription: 'Multi-repo coordination skills for Codex.',
@@ -146,6 +147,7 @@ export function finalizeCodexDist(pkgJson) {
       '.codex-plugin/',
       'skills/',
       'agents/',
+      'hooks/',
       '.mcp.json',
       'README.md',
       'bin/',
@@ -157,6 +159,21 @@ export function finalizeCodexDist(pkgJson) {
   );
   writeJson(join(codexDir, '.mcp.json'), buildMcpConfig());
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
+
+  // Plugin-bundled SessionStart hook. Reuses the same re-injection script as the
+  // Claude plugin; Codex resolves ${PLUGIN_ROOT} in the hook command and injects
+  // its stdout `additionalContext` exactly like Claude Code does.
+  const codexHooksDir = join(codexDir, 'hooks');
+  mkdirSync(codexHooksDir, { recursive: true });
+  cpSync(
+    join(sourceDir, 'codex', 'hooks', 'hooks.json'),
+    join(codexHooksDir, 'hooks.json')
+  );
+  cpSync(
+    join(sourceDir, 'hooks', 'reinject-polygraph-context.mjs'),
+    join(codexHooksDir, 'reinject-polygraph-context.mjs')
+  );
+
   copySharedDocs(codexDir);
 }
 
