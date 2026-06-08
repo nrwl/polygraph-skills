@@ -18,7 +18,7 @@
 //
 // Outside a Polygraph session (no matching sidecar) the hook is a silent no-op.
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,8 +141,21 @@ export function main() {
   );
 }
 
-// Run only when executed directly as a hook, not when imported by tests.
-const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (invokedPath && path.resolve(fileURLToPath(import.meta.url)) === invokedPath) {
+// Run only when executed directly as a hook, not when imported (e.g. by tests).
+// realpath both sides so the check holds when the plugin lives under a symlinked
+// path (e.g. macOS /tmp -> /private/tmp, or a symlinked plugin install dir),
+// where import.meta.url is realpath'd by Node but process.argv[1] is not.
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return (
+      realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   main();
 }
