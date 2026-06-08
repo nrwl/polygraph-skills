@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
@@ -28,6 +29,18 @@ export const PolygraphPlugin = async () => {
     'shell.env': async (input, output) => {
       output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
       output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
+    },
+
+    // OpenCode has no SessionStart hook, but the Polygraph CLI already seeds the
+    // session id into context at launch. The one thing compaction can drop is
+    // that identity, so we steer the summary prompt to retain it. This fires
+    // before each compaction; the note is appended to the summarization prompt
+    // (best-effort — we trust the model to keep the id + repos in the summary).
+    'experimental.session.compacting': async (input, output) => {
+      const note = polygraphCompactionNote(input.sessionID);
+      if (note) {
+        output.context.push(note);
+      }
     },
   };
 };
@@ -91,4 +104,79 @@ function numberValue(value) {
 
 function recordValue(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+}
+
+// --- Polygraph session context (mirrors source/hooks/reinject-polygraph-context.mjs) ---
+//
+// Resolve the Polygraph session for this OpenCode session id from local state,
+// then build a short instruction telling the summarizer to keep the Polygraph
+// session id and repo list in the compaction summary. Returns null when this is
+// not a Polygraph session (no matching parent-log sidecar) — a silent no-op.
+
+export function polygraphCompactionNote(agentSessionId, root) {
+  const session = readPolygraphSession(agentSessionId, root);
+  if (!session) {
+    return undefined;
+  }
+
+  const repos = session.repos
+    .map((repo) => repo.repoFullName)
+    .filter(Boolean)
+    .join(', ');
+
+  return (
+    `This conversation is running inside Polygraph session ${session.sessionId}` +
+    (repos ? ` (repos: ${repos})` : '') +
+    '. Preserve the Polygraph session id and the repo list verbatim in the ' +
+    'summary so they remain available after compaction.'
+  );
+}
+
+export function readPolygraphSession(
+  agentSessionId,
+  root = path.join(homedir(), '.polygraph')
+) {
+  if (!agentSessionId) {
+    return undefined;
+  }
+
+  const sidecarsDir = path.join(root, 'sidecars');
+  if (!existsSync(sidecarsDir)) {
+    return undefined;
+  }
+
+  const fileName = `parent-${agentSessionId}.json`;
+  let polygraphSessionId;
+  for (const entry of readdirSync(sidecarsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(sidecarsDir, entry.name, fileName);
+    if (existsSync(candidate)) {
+      try {
+        polygraphSessionId = JSON.parse(readFileSync(candidate, 'utf8')).sessionId;
+      } catch {
+        polygraphSessionId = undefined;
+      }
+      break;
+    }
+  }
+  if (!polygraphSessionId) {
+    return undefined;
+  }
+
+  let session = {};
+  try {
+    session = JSON.parse(
+      readFileSync(
+        path.join(root, 'sessions', polygraphSessionId, 'session', 'session.json'),
+        'utf8'
+      )
+    );
+  } catch {
+    session = {};
+  }
+
+  return {
+    sessionId: polygraphSessionId,
+    repos: Array.isArray(session.repos) ? session.repos : [],
+  };
 }

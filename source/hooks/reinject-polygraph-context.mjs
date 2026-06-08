@@ -1,11 +1,15 @@
-// SessionStart hook: when this Claude session is running inside a Polygraph
-// session, re-inject the Polygraph session id and basic session info as
-// context. This restores facts that context compaction may have dropped, and
-// re-establishes them on resume.
+// SessionStart hook: when the calling agent (Claude Code or Codex) is running
+// inside a Polygraph session, re-inject the Polygraph session id and basic
+// session info as context. This restores facts that context compaction may
+// have dropped, and re-establishes them on resume.
+//
+// Shared by the Claude and Codex plugins — both fire a SessionStart hook whose
+// stdin carries `session_id` and whose stdout `additionalContext` is injected
+// into the model.
 //
 // Everything is read from local Polygraph state — no network calls:
-//   ~/.polygraph/sidecars/<polygraphSessionId>/parent-<claudeSessionId>.json
-//       maps this Claude session id -> Polygraph session id (the "parent log
+//   ~/.polygraph/sidecars/<polygraphSessionId>/parent-<agentSessionId>.json
+//       maps this agent session id -> Polygraph session id (the "parent log
 //       sidecar" the CLI uses to stream parent-agent activity to the UI).
 //   ~/.polygraph/sessions/<polygraphSessionId>/session/session.json
 //       holds the session's repos, agentType, and orgId.
@@ -31,15 +35,15 @@ function readJson(file) {
   }
 }
 
-// Find the sidecar that maps a Claude session id to a Polygraph session.
+// Find the sidecar that maps an agent session id to a Polygraph session.
 // Returns the parsed sidecar object, or null when none matches.
-export function findSidecar(claudeSessionId, root = polygraphRoot()) {
-  if (!claudeSessionId) return null;
+export function findSidecar(agentSessionId, root = polygraphRoot()) {
+  if (!agentSessionId) return null;
 
   const sidecarsDir = path.join(root, 'sidecars');
   if (!existsSync(sidecarsDir)) return null;
 
-  const fileName = `parent-${claudeSessionId}.json`;
+  const fileName = `parent-${agentSessionId}.json`;
   let entries;
   try {
     entries = readdirSync(sidecarsDir, { withFileTypes: true });
@@ -57,13 +61,14 @@ export function findSidecar(claudeSessionId, root = polygraphRoot()) {
   return null;
 }
 
-// Build the context block for a Polygraph session, or null when this is not a
-// Polygraph-managed Claude session.
-export function buildPolygraphContext(claudeSessionId, root = polygraphRoot()) {
-  const sidecar = findSidecar(claudeSessionId, root);
+// Build the context block for a Polygraph session, or null when the agent is
+// not running inside a Polygraph session.
+export function buildPolygraphContext(agentSessionId, root = polygraphRoot()) {
+  const sidecar = findSidecar(agentSessionId, root);
   if (!sidecar || !sidecar.sessionId) return null;
 
   const polygraphSessionId = sidecar.sessionId;
+  const agentType = sidecar.parentAgentType || 'agent';
   const session =
     readJson(
       path.join(root, 'sessions', polygraphSessionId, 'session', 'session.json')
@@ -90,7 +95,7 @@ export function buildPolygraphContext(claudeSessionId, root = polygraphRoot()) {
     'You are running inside a Polygraph session. Keep this in mind across compaction:',
     `- Polygraph session id: ${polygraphSessionId}`,
     sessionUrl ? `- Session URL: ${sessionUrl}` : null,
-    `- This Claude session id (parent agent): ${claudeSessionId}`,
+    `- Parent agent (${agentType}) session id: ${agentSessionId}`,
     repoLines.length
       ? ['- Repositories in this session:', ...repoLines].join('\n')
       : '- Repositories in this session: (none recorded)',
@@ -102,7 +107,7 @@ export function buildPolygraphContext(claudeSessionId, root = polygraphRoot()) {
 
 function readStdin() {
   try {
-    // fd 0 — Claude Code pipes the hook payload as JSON on stdin.
+    // fd 0 — Claude Code / Codex pipe the hook payload as JSON on stdin.
     return readFileSync(0, 'utf8');
   } catch {
     return '';
@@ -120,10 +125,10 @@ export function main() {
     }
   }
 
-  const claudeSessionId =
+  const agentSessionId =
     payload.session_id || process.env.CLAUDE_CODE_SESSION_ID || '';
 
-  const context = buildPolygraphContext(claudeSessionId);
+  const context = buildPolygraphContext(agentSessionId);
   if (!context) return; // not a Polygraph session — stay silent
 
   process.stdout.write(

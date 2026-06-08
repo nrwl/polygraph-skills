@@ -98,7 +98,7 @@ test('buildPolygraphContext includes session id, URL, and repo list', () => {
       ctx,
       /Session URL: https:\/\/example\.test\/orgs\/org-123\/sessions\/chipped-twig-23a03-3dba703b/
     );
-    assert.match(ctx, /This Claude session id \(parent agent\): 88b2ff2e-/);
+    assert.match(ctx, /Parent agent \(claude\) session id: 88b2ff2e-/);
     assert.match(ctx, /- nrwl\/polygraph-skills \(initiator\) \[in-place\]/);
     assert.match(ctx, /- nrwl\/ocean \[clone\]/);
   } finally {
