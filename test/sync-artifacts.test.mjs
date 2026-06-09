@@ -157,6 +157,16 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assertNoNonCodexDelegationText(rendered);
 });
 
+test('rendered polygraph skill keeps session intro as hidden internal fallback', () => {
+  const rendered = renderSkill('polygraph');
+  const toolsSection = sectionBetween(rendered, '## Available Tools', '## CLI Statefulness');
+
+  assert.match(rendered, /`session_intro` MCP tool/);
+  assert.match(rendered, /`polygraph session intro -s <sessionId>`/);
+  assert.match(rendered, /intentionally hidden\/internal and may not appear in public command listings/);
+  assert.doesNotMatch(toolsSection, /polygraph session intro/);
+});
+
 test('rendered polygraph skill documents PR repository semantics', () => {
   const rendered = renderSkill('polygraph');
   const createPrSection = sectionBetween(
