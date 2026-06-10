@@ -115,7 +115,8 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
   assert.match(rendered, /`update_session_description` for session metadata updates/);
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
-  assert.match(policySection, /`create_pr`, `mark_pr_ready`, `associate_pr`, and `update_session_description`/);
+  assert.match(policySection, /`push_branch`, `create_pr`, `associate_pr`, and `update_session_description`/);
+  assert.match(policySection, /`mark_pr_ready` does not take a description/);
   assert.match(policySection, /Goal: <what the session is trying to accomplish>/);
   assert.match(policySection, /Current Progress: <what has been completed so far, including PR\/session state when relevant>/);
   assert.match(policySection, /What Worked: <important decisions, approaches, or constraints that future agents should preserve>/);
@@ -125,9 +126,9 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(policySection, /Prefer high-level state over file-by-file changelogs/);
   assert.match(policySection, /Mention unresolved decisions or risks when they matter/);
   assert.match(policySection, /include only next implementation steps/);
-  assert.match(createPrSection, /must follow the Session Description Policy/);
-  assert.match(markPrReadySection, /must follow the Session Description Policy/);
-  assert.match(associatePrSection, /must follow the Session Description Policy/);
+  assert.match(createPrSection, /Must follow the Session Description Policy/);
+  assert.doesNotMatch(markPrReadySection, /[Dd]escription/);
+  assert.match(associatePrSection, /Must follow the Session Description Policy/);
   assert.match(updateDescriptionSection, /canonical structured format in the Session Description Policy/);
   assert.match(updateDescriptionSection, /Read the current session details\./);
   assert.match(updateDescriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
