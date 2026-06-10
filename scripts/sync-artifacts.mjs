@@ -12,6 +12,7 @@ import {
   finalizeCodexDist,
   finalizeOpenCodeDist,
   readRootPackageJson,
+  syncCodexMarketplacePlugin,
 } from './src/sync-artifacts/package-artifacts.mjs';
 
 function runSync() {
@@ -36,6 +37,10 @@ function runSync() {
   finalizeClaudeDist(pkgJson);
   finalizeCodexDist(pkgJson);
   finalizeOpenCodeDist(pkgJson);
+
+  console.log('\n[codex marketplace] → .agents/plugins/polygraph/');
+  syncCodexMarketplacePlugin(pkgJson);
+  console.log('  Plugin dir synced from dist/codex\n');
 
   console.log('Dist assembly complete.');
 }

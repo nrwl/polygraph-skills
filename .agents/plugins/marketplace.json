@@ -1,0 +1,20 @@
+{
+  "name": "polygraph-plugins",
+  "interface": {
+    "displayName": "Polygraph Plugins"
+  },
+  "plugins": [
+    {
+      "name": "polygraph",
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/polygraph"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
