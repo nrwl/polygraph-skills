@@ -4,10 +4,22 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  PolygraphPlugin,
-  polygraphCompactionNote,
-} from '../source/opencode/server.js';
+import { PolygraphPlugin } from '../source/opencode/server.js';
+import * as serverModule from '../source/opencode/server.js';
+
+// The compaction-note helpers resolve Polygraph state under os.homedir(), so
+// these tests point HOME at a temp dir instead of injecting a root.
+async function withTempHome(fn) {
+  const home = mkdtempSync(join(tmpdir(), 'pg-opencode-home-'));
+  const savedHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    return await fn(join(home, '.polygraph'));
+  } finally {
+    process.env.HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
 
 test('PolygraphPlugin returns a shell.env hook', async () => {
   const plugin = await PolygraphPlugin();
@@ -55,9 +67,8 @@ test('PolygraphPlugin exposes the experimental.session.compacting hook', async (
   assert.equal(typeof plugin['experimental.session.compacting'], 'function');
 });
 
-test('polygraphCompactionNote builds a preserve note from local Polygraph state', () => {
-  const root = mkdtempSync(join(tmpdir(), 'pg-opencode-'));
-  try {
+test('compacting hook pushes a preserve note built from local Polygraph state', async () => {
+  await withTempHome(async (root) => {
     const agentSessionId = 'ses_opencode_demo';
     const polygraphSessionId = 'demo-session-abc';
     mkdirSync(join(root, 'sidecars', polygraphSessionId), { recursive: true });
@@ -83,21 +94,45 @@ test('polygraphCompactionNote builds a preserve note from local Polygraph state'
       })
     );
 
-    const note = polygraphCompactionNote(agentSessionId, root);
+    const plugin = await PolygraphPlugin();
+    const output = { context: [] };
+    await plugin['experimental.session.compacting'](
+      { sessionID: agentSessionId },
+      output
+    );
+
+    assert.equal(output.context.length, 1);
+    const note = output.context[0];
     assert.match(note, /Polygraph session demo-session-abc/);
     assert.match(note, /nrwl\/polygraph-skills, nrwl\/ocean/);
     assert.match(note, /[Pp]reserve/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  });
 });
 
-test('polygraphCompactionNote returns undefined outside a Polygraph session', () => {
-  const root = mkdtempSync(join(tmpdir(), 'pg-opencode-empty-'));
-  try {
-    assert.equal(polygraphCompactionNote('ses_unknown', root), undefined);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+test('compacting hook pushes nothing outside a Polygraph session', async () => {
+  await withTempHome(async () => {
+    const plugin = await PolygraphPlugin();
+    const output = { context: [] };
+    await plugin['experimental.session.compacting'](
+      { sessionID: 'ses_unknown' },
+      output
+    );
+    assert.deepEqual(output.context, []);
+  });
+});
+
+// OpenCode's plugin loader calls EVERY export of this module as a plugin
+// factory and registers whatever it returns as a hooks object. An export that
+// is not a function — or whose result is not a hooks object — crashes the
+// OpenCode server on startup ("Unexpected server error").
+test('every export is a plugin factory that returns a hooks object', async () => {
+  for (const [name, value] of Object.entries(serverModule)) {
+    assert.equal(typeof value, 'function', `export "${name}" must be a function`);
+    const hooks = await value({});
+    assert.ok(
+      hooks && typeof hooks === 'object',
+      `export "${name}" must return a hooks object when called as a plugin factory`
+    );
   }
 });
 
