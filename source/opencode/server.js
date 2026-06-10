@@ -112,8 +112,12 @@ function recordValue(value) {
 // then build a short instruction telling the summarizer to keep the Polygraph
 // session id and repo list in the compaction summary. Returns null when this is
 // not a Polygraph session (no matching parent-log sidecar) — a silent no-op.
+//
+// These helpers must NOT be exported: OpenCode calls every export of this
+// module as a plugin factory, and a factory that doesn't return a hooks object
+// crashes the server on startup ("Unexpected server error").
 
-export function polygraphCompactionNote(agentSessionId, root) {
+function polygraphCompactionNote(agentSessionId, root) {
   const session = readPolygraphSession(agentSessionId, root);
   if (!session) {
     return undefined;
@@ -132,7 +136,7 @@ export function polygraphCompactionNote(agentSessionId, root) {
   );
 }
 
-export function readPolygraphSession(
+function readPolygraphSession(
   agentSessionId,
   root = path.join(homedir(), '.polygraph')
 ) {
