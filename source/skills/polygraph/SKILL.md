@@ -52,7 +52,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
-| `archive_session` | `polygraph session archive <id>` | Archive a session, sealing it from further changes |
+| `archive_session` | `polygraph session archive <id>` | Archive a session, hiding it from active lists (it can still be resumed) |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
 | — | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | — | `polygraph session list` | List all sessions |
@@ -748,7 +748,7 @@ add_repo(
 
 **IMPORTANT: Only call this tool when the user explicitly asks to archive or close the session.** Do not archive sessions automatically as part of the workflow.
 
-Use `archive_session` (CLI: `polygraph session archive <id>`) to archive the session. Archiving seals the session from further modifications (no new PRs, status changes, etc.). It is idempotent — archiving an already-archived session returns success.
+Use `archive_session` (CLI: `polygraph session archive <id>`) to archive the session. Archiving only hides the session from active lists — it can still be resumed and interacted with afterwards. It is idempotent — archiving an already-archived session returns success.
 
 **Parameters:**
 
@@ -871,4 +871,4 @@ If the session has a description timeline, also display:
 1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
-1. **Only archive sessions when asked** — Only call `archive_session` when the user explicitly requests it. Archiving seals the session from further modifications.
+1. **Only archive sessions when asked** — Only call `archive_session` when the user explicitly requests it. Archiving hides the session from active lists; it can still be resumed later.
