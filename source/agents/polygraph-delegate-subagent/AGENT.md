@@ -40,6 +40,8 @@ The main agent provides these parameters in the prompt:
 
 Call the `spawn_agent` tool to start a child agent on the repo or to route an explicit follow-up to an active task. If the main agent supplied a `taskId` - meaning this is a user-approved follow-up turn against an already active task - forward it unchanged; otherwise omit `taskId` and a new child run is started.
 
+`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo. A repo has at most one active child: if it already has one, pass `taskId` to route the message to it instead of starting a new run.
+
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
 ```
