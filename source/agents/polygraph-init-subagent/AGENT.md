@@ -42,7 +42,7 @@ The main agent provides these parameters in the prompt:
 
 Additionally, the main agent may pass in repos via **MCP resource syntax** (e.g. `polygraph://repos/org/repo-name`).
 
-**Direct-add rule:** If `sessionId` is provided and the prompt names exact repositories to add by ID, short name, full name, GitHub `owner/repo` slug, URL-like slug, or MCP resource syntax, call `add_repo` directly with those refs in `repoIds`. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT require candidate discovery first. Candidate discovery is account-repo-only; `list_repos` is only for discovery/filtering when the user does not know the exact repo or explicitly wants candidate selection.
+**Direct-add rule:** If `sessionId` is provided and the prompt names exact repositories to add by ID, short name, full name, GitHub `owner/repo` slug, URL-like slug, or MCP resource syntax, call `add_repo` directly with those refs in `repoIds`. Refs are not limited to organization repos — public open-source repos can be added by `owner/repo` slug or URL, even though they never appear in `list_repos`. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT require candidate discovery first. Candidate discovery is account-repo-only; `list_repos` is only for discovery/filtering when the user does not know the exact repo or explicitly wants candidate selection.
 
 ## Workflow
 
@@ -118,7 +118,7 @@ Call `add_repo` to attach the selected repositories to the existing session — 
 add_repo(sessionId: "<sessionId>", repoIds: [...])
 ```
 
-`repoIds` may be repository IDs from discovery, or exact refs provided by the user: short name, full name, GitHub `owner/repo` slug, URL-like slug, or MCP resource syntax. For exact user-provided refs, pass the strings directly and do not call `list_repos` first.
+`repoIds` may be repository IDs from discovery, or exact refs provided by the user: short name, full name, GitHub `owner/repo` slug, URL-like slug, or MCP resource syntax — including repos outside the organization, such as public open-source repos. For exact user-provided refs, pass the strings directly and do not call `list_repos` first.
 
 ### Step 4: Get Session Details
 

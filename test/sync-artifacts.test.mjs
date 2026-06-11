@@ -39,7 +39,7 @@ test('renderArtifact preserves a valid frontmatter boundary for the codex polygr
 
   assert.match(rendered, /^---\n[\s\S]*?\n---\n/);
   assert.doesNotMatch(rendered, /\n---#/);
-  assert.match(rendered, /\n# Multi-Repo Coordination with Polygraph\b/);
+  assert.match(rendered, /\n# Working with Polygraph\b/);
 });
 
 test('rendered polygraph skill documents linked references', () => {
@@ -96,11 +96,6 @@ test('rendered polygraph skill documents session description policy guidance', (
     '### 3. Create Draft PRs',
     '### 4. Get Current Polygraph Session'
   );
-  const markPrReadySection = sectionBetween(
-    rendered,
-    '### 5. Mark PRs Ready',
-    '### 6. Associate Existing PRs'
-  );
   const associatePrSection = sectionBetween(
     rendered,
     '### 6. Associate Existing PRs',
@@ -126,9 +121,8 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(policySection, /Prefer high-level state over file-by-file changelogs/);
   assert.match(policySection, /Mention unresolved decisions or risks when they matter/);
   assert.match(policySection, /include only next implementation steps/);
-  assert.match(createPrSection, /Must follow the Session Description Policy/);
-  assert.doesNotMatch(markPrReadySection, /[Dd]escription/);
-  assert.match(associatePrSection, /Must follow the Session Description Policy/);
+  assert.match(createPrSection, /[Mm]ust follow the Session Description Policy/);
+  assert.match(associatePrSection, /[Mm]ust follow the Session Description Policy/);
   assert.match(updateDescriptionSection, /canonical structured format in the Session Description Policy/);
   assert.match(updateDescriptionSection, /Read the current session details\./);
   assert.match(updateDescriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
