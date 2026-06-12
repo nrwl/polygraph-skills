@@ -54,11 +54,12 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
 | `archive_session` | `polygraph session archive <id>` | Archive a session, hiding it from active lists (it can still be resumed) |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
-| — | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
+| `login` | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | `logout` | `polygraph auth logout` | Log out of Polygraph |
 | `list_sessions` | `polygraph session list` | List sessions. By default only active sessions created by the current git user; pass `recommendedFilters: false` for all sessions. |
-| — | `polygraph account list` / `polygraph account select` | Organization management |
-| — | `polygraph whoami` | Show current auth status and org |
+| `list_accounts` | `polygraph account list` | List available organizations |
+| `select_account` | `polygraph account select` | Select the organization that future commands run against |
+| `whoami` | `polygraph whoami` | Show current auth status and org |
 
 {% if platform == "claude" or platform == "opencode" %}
 
