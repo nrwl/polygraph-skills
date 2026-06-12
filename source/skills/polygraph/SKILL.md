@@ -25,7 +25,7 @@ Read this before the tool table below — it determines which tools are yours to
 - **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
 - **For explicit repo additions to an existing session:** if the user gives exact refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call Polygraph MCP `add_repo` directly with those refs. Do NOT call `list_repos` or launch candidate discovery first.
 - **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
-- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, `update_session_description` for session metadata updates, `link_reference` for linking external references to sessions, and `add_repo` only for explicit repo additions to an existing session.
+- **Allowed direct Polygraph MCP calls from the parent:** `whoami`, `login`, `list_accounts`, `select_account`, `show_session` for read-only inspection of an existing session, `update_session` for session metadata updates, `link_reference` for linking external references to sessions, and `add_repo` only for explicit repo additions to an existing session.
 - Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
 {% endif %}
 
@@ -42,12 +42,12 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
 | `spawn_agent` | — | Start a new child task or send an explicit follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, context?, taskId? }`. Output: `{ taskId, message, status: 'delegated' }`. Pass the `taskId` returned by a prior call to route a follow-up message to a specific active task; omit to start a new child run. A repo has at most one active child at a time: while a task is active in a repo, pass `taskId` to follow up — never start a second concurrent run in the same repo. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
-| `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
+| `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'permission-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
-| `update_session_description` | `polygraph session update-description` | Set the current session description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
+| `update_session` | `polygraph session update --session <id> [--title] [--description]` | Update the session title and/or description (at least one required). Set the description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
 | `link_reference` | — | Link an external reference to a session. |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
@@ -55,7 +55,8 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `archive_session` | `polygraph session archive <id>` | Archive a session, hiding it from active lists (it can still be resumed) |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
 | — | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
-| — | `polygraph session list` | List all sessions |
+| `logout` | `polygraph auth logout` | Log out of Polygraph |
+| `list_sessions` | `polygraph session list` | List sessions. By default only active sessions created by the current git user; pass `recommendedFilters: false` for all sessions. |
 | — | `polygraph account list` / `polygraph account select` | Organization management |
 | — | `polygraph whoami` | Show current auth status and org |
 
@@ -101,7 +102,7 @@ The delegate/monitor/stop steps apply only when working across repos. A single-r
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
 5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits. A required `description` must follow the Session Description Policy.
-7. **Update session description** - Use `update_session_description` to update the session description; must follow the Session Description Policy. Independent of PR creation or mark-ready.
+7. **Update session description** - Use `update_session` to update the session description; must follow the Session Description Policy. Independent of PR creation or mark-ready.
 8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Always pass `description` following the Session Description Policy.
 9. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
 10. **Query PR status** - Use `show_session` to check progress.
@@ -359,7 +360,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
 
 2. Poll `show_agent`. The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
 
-   - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
+   - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
    - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`.
    - `child.lastOutputLines` — recent log tail.
    - `child.repoFullName` — which repo is talking.
@@ -371,6 +372,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    - `child.status === 'completed'` — read `child.lastOutputLines`, proceed to `push_branch` + `create_pr`.
    - `child.status === 'failed'` — read `child.lastOutputLines`, surface the failure.
    - `child.status === 'cancelled'` — the child was stopped via `stop_agent`; see below.
+   - `child.status === 'permission-required'` — the child is waiting on a permission decision; see "Handling permission requests" below.
 
 3. To abort mid-flight, call `stop_agent` with `{ sessionId, repo }`. The response is:
 
@@ -483,7 +485,7 @@ push_branch(
 
 `description` is user-facing Polygraph session context.
 
-`description` is required for `push_branch`, `create_pr`, `associate_pr`, and `update_session_description`. (`mark_pr_ready` does not take a description.) Use the canonical structured format:
+`description` is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (which takes `title` and/or `description`). (`mark_pr_ready` does not take a description.) Use the canonical structured format:
 
 ```text
 Goal: <what the session is trying to accomplish>
@@ -819,7 +821,7 @@ Before writing:
 - If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
 - If updating or replacing the existing last item, write the resulting state directly.
 
-Write the description using the canonical structured format in the Session Description Policy. Then call `update_session_description` with the resulting summary.
+Write the description using the canonical structured format in the Session Description Policy. Then call `update_session` with the resulting summary as `description`.
 
 ### Print Polygraph Session Details
 
@@ -860,7 +862,7 @@ If the session has a description timeline, also display:
 1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) via `show_agent` before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
-1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session_description` — it is required and must follow the Session Description Policy
+1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session` — it is required and must follow the Session Description Policy
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
    {% if platform == "claude" %}

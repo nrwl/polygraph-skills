@@ -107,10 +107,12 @@ test('rendered polygraph skill documents session description policy guidance', (
     '### Print Polygraph Session Details'
   );
 
-  assert.match(rendered, /`update_session_description` \| `polygraph session update-description`/);
-  assert.match(rendered, /`update_session_description` for session metadata updates/);
+  assert.match(rendered, /`update_session` \| `polygraph session update --session <id> \[--title\] \[--description\]`/);
+  assert.match(rendered, /`update_session` for session metadata updates/);
+  assert.doesNotMatch(rendered, /update_session_description/);
+  assert.doesNotMatch(rendered, /update-description/);
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
-  assert.match(policySection, /`push_branch`, `create_pr`, `associate_pr`, and `update_session_description`/);
+  assert.match(policySection, /`push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session`/);
   assert.match(policySection, /`mark_pr_ready` does not take a description/);
   assert.match(policySection, /Goal: <what the session is trying to accomplish>/);
   assert.match(policySection, /Current Progress: <what has been completed so far, including PR\/session state when relevant>/);
@@ -126,7 +128,7 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(updateDescriptionSection, /canonical structured format in the Session Description Policy/);
   assert.match(updateDescriptionSection, /Read the current session details\./);
   assert.match(updateDescriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
-  assert.match(updateDescriptionSection, /Then call `update_session_description` with the resulting summary\./);
+  assert.match(updateDescriptionSection, /Then call `update_session` with the resulting summary as `description`\./);
   assert.doesNotMatch(updateDescriptionSection, /\*\*Parameters:\*\*/);
   assert.doesNotMatch(updateDescriptionSection, /Do not pass `agentSessionId` to this tool/);
   assert.doesNotMatch(updateDescriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
