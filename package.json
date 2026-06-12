@@ -22,7 +22,6 @@
   "scripts": {
     "sync-artifacts": "node scripts/sync-artifacts.mjs",
     "build": "npm run sync-artifacts",
-    "check-codex-marketplace": "node scripts/check-codex-marketplace.mjs",
     "test": "node --test"
   },
   "devDependencies": {

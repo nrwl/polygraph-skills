@@ -1,7 +1,7 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSync } from 'esbuild';
-import { codexMarketplacePluginDir, distDir, rootDir, sourceDir, writeJson } from './common.mjs';
+import { distDir, rootDir, sourceDir, writeJson } from './common.mjs';
 
 export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
@@ -191,36 +191,6 @@ export function finalizeOpenCodeDist(pkgJson) {
     join(opencodeDir, 'server.js')
   );
   copySharedDocs(opencodeDir);
-}
-
-/**
- * Sync the Codex marketplace plugin directory (.agents/plugins/polygraph/).
- *
- * This is the committed plugin directory that codex reads when users add this
- * repo as a marketplace source via:
- *   codex plugin marketplace add nrwl/polygraph-skills
- *   codex plugin add polygraph@polygraph-plugins
- *
- * It mirrors the dist/codex payload minus the npm-specific files (package.json,
- * bin/). The version in .codex-plugin/plugin.json must always match package.json,
- * so this function must be re-run whenever the version is bumped.
- */
-export function syncCodexMarketplacePlugin(pkgJson, targetDir = codexMarketplacePluginDir) {
-  // Rebuild from scratch on every sync so stale files can't accumulate.
-  if (existsSync(targetDir)) {
-    rmSync(targetDir, { recursive: true });
-  }
-  mkdirSync(targetDir, { recursive: true });
-
-  // The dist/codex directory is the authoritative built payload; copy from it
-  // but exclude npm-specific files (package.json, bin/).
-  const codexDist = join(distDir, 'codex');
-  const EXCLUDE = new Set(['package.json', 'bin']);
-
-  for (const entry of readdirSync(codexDist)) {
-    if (EXCLUDE.has(entry)) continue;
-    cpSync(join(codexDist, entry), join(targetDir, entry), { recursive: true });
-  }
 }
 
 function bundleCodexInstaller(codexDir) {

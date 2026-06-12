@@ -6,7 +6,6 @@ export const rootDir = join(import.meta.dirname, '..', '..', '..');
 export const sourceDir = join(rootDir, 'source');
 export const distDir = join(rootDir, 'dist');
 export const legacyGeneratedDir = join(rootDir, 'generated');
-export const codexMarketplacePluginDir = join(rootDir, '.agents', 'plugins', 'polygraph');
 
 const liquid = new Liquid();
 

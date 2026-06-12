@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'smol-toml';
@@ -12,7 +12,6 @@ import {
   buildMcpConfig,
   buildOpenCodePackageJson,
   readRootPackageJson,
-  syncCodexMarketplacePlugin,
 } from '../scripts/src/sync-artifacts/package-artifacts.mjs';
 
 function renderSkill(skillName, platform = 'codex') {
@@ -326,57 +325,4 @@ test('buildMcpConfig wraps MCP servers under mcpServers', () => {
       },
     },
   });
-});
-
-test('syncCodexMarketplacePlugin generates required plugin files without npm-specific entries', () => {
-  const outputDir = mkdtempSync(join(tmpdir(), 'polygraph-codex-marketplace-'));
-  syncCodexMarketplacePlugin(readRootPackageJson(), outputDir);
-
-  // Required: .codex-plugin/plugin.json with correct name and version
-  const pluginJson = JSON.parse(readFileSync(join(outputDir, '.codex-plugin', 'plugin.json'), 'utf8'));
-  assert.equal(pluginJson.name, 'polygraph');
-  assert.match(pluginJson.version, /^\d+\.\d+\.\d+$/);
-
-  // Required: .mcp.json
-  assert.ok(existsSync(join(outputDir, '.mcp.json')), 'missing .mcp.json');
-
-  // Required: skills/
-  assert.ok(existsSync(join(outputDir, 'skills')), 'missing skills/');
-
-  // Required: hooks/
-  assert.ok(existsSync(join(outputDir, 'hooks')), 'missing hooks/');
-
-  // Required: agents/
-  assert.ok(existsSync(join(outputDir, 'agents')), 'missing agents/');
-  const agentFiles = readdirSync(join(outputDir, 'agents')).filter((f) => f.endsWith('.toml'));
-  assert.ok(agentFiles.length > 0, 'missing agent .toml files');
-
-  // Must NOT include npm-specific files
-  assert.ok(!existsSync(join(outputDir, 'package.json')), 'package.json should not be in marketplace plugin dir');
-  assert.ok(!existsSync(join(outputDir, 'bin')), 'bin/ should not be in marketplace plugin dir');
-});
-
-test('committed .agents/plugins/marketplace.json uses the polygraph-plugins name', () => {
-  const marketplacePath = join(rootDir, '.agents', 'plugins', 'marketplace.json');
-  assert.ok(existsSync(marketplacePath), 'marketplace.json not committed');
-
-  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf8'));
-  assert.equal(marketplace.name, 'polygraph-plugins', 'marketplace name must be polygraph-plugins');
-
-  const polygraphPlugin = marketplace.plugins?.find((p) => p.name === 'polygraph');
-  assert.ok(polygraphPlugin, 'marketplace must include a polygraph plugin entry');
-  assert.equal(polygraphPlugin.source.source, 'local');
-  assert.match(polygraphPlugin.source.path, /plugins\/polygraph$/);
-});
-
-test('committed .agents/plugins/polygraph/ is in sync with source', () => {
-  const committedPluginDir = join(rootDir, '.agents', 'plugins', 'polygraph');
-  const pluginJson = JSON.parse(readFileSync(join(committedPluginDir, '.codex-plugin', 'plugin.json'), 'utf8'));
-  const pkg = readRootPackageJson();
-
-  assert.equal(
-    pluginJson.version,
-    pkg.version,
-    'plugin.json version must match package.json version — run npm run sync-artifacts to update'
-  );
 });
