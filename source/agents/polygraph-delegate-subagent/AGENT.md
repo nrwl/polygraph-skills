@@ -100,8 +100,6 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-The returned `taskId` identifies the child run for status narration. You do not pass it back — follow-up `spawn_agent` calls for the same repo are routed to the active task automatically.
-
 Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
 For each child in the response (field: `children[]`), inspect:

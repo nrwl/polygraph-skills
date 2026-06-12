@@ -357,8 +357,6 @@ Use this pattern when the child may need clarification, the task is exploratory,
    { "taskId": "…", "message": "…", "status": "delegated" }
    ```
 
-   The returned `taskId` identifies the child run. You do not pass it back — follow-up `spawn_agent` calls for the same repo are routed to the active task automatically.
-
 2. Poll `show_agent`. The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
 
    - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
