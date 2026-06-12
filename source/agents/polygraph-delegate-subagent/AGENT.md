@@ -34,13 +34,12 @@ The main agent provides these parameters in the prompt:
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
-| `taskId`      | (Optional) Existing active task to route a user-approved follow-up to; omit on the first call for a new run |
 
 ## Delegating work
 
-Call the `spawn_agent` tool to start a child agent on the repo or to route an explicit follow-up to an active task. If the main agent supplied a `taskId` - meaning this is a user-approved follow-up turn against an already active task - forward it unchanged; otherwise omit `taskId` and a new child run is started.
+Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic: if the repo already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message; otherwise it starts a new child run.
 
-`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo. A repo has at most one active child: if it already has one, pass `taskId` to route the message to it instead of starting a new run.
+`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo. A repo has at most one active child: while one is active, any `spawn_agent` call for that repo is routed to it as a follow-up rather than starting a second run.
 
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
@@ -49,8 +48,7 @@ spawn_agent(
   sessionId: "<sessionId>",
   repo: "<repo>",
   instruction: "<instruction>",
-  context: "<context>",
-  taskId: "<taskId>"  // optional - pass only for a user-approved follow-up to an active task
+  context: "<context>"
 )
 ```
 
@@ -102,7 +100,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Store the returned `taskId`. You will pass it back to `spawn_agent` on any follow-up turn so the orchestrator routes the message to the same active task instead of starting a new run.
+The returned `taskId` identifies the child run for status narration. You do not pass it back — follow-up `spawn_agent` calls for the same repo are routed to the active task automatically.
 
 Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
@@ -120,7 +118,7 @@ State machine:
    - Read `child.inputRequiredQuestion`.
    - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
    - Wait for the parent/user to supply an answer.
-   - Call `spawn_agent` again with `instruction: <the answer>` and `taskId: <stored taskId>` so the orchestrator routes the answer to the same active task.
+   - Call `spawn_agent` again with the same `repo` and `instruction: <the answer>` — the orchestrator routes it to the active task automatically.
    - Resume polling.
 {% if platform == "opencode" %}
 3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
