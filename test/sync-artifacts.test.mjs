@@ -112,8 +112,7 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.doesNotMatch(rendered, /update_session_description/);
   assert.doesNotMatch(rendered, /update-description/);
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
-  assert.match(policySection, /optional but strongly recommended for `push_branch`, `create_pr`, and `associate_pr`/);
-  assert.match(policySection, /primary input to `update_session`, which requires at least one of `title` or `description`/);
+  assert.match(policySection, /`push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session`/);
   assert.match(policySection, /`mark_pr_ready` does not take a description/);
   assert.match(policySection, /Goal: <what the session is trying to accomplish>/);
   assert.match(policySection, /Current Progress: <what has been completed so far, including PR\/session state when relevant>/);

@@ -44,7 +44,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `spawn_agent` | — | Start a new child task or send a follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, context? }`. Output: `{ taskId, message, status: 'delegated' }`. Follow-up routing is automatic: if the repo already has an active child task, the instruction is delivered to it as a follow-up message; otherwise a new child run starts. A repo has at most one active child at a time. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
 | `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'permission-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
 | `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
-| `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Accepts an optional session description (strongly recommended). |
+| `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
 | `update_session` | `polygraph session update --session <id> [--title] [--description]` | Update the session title and/or description (at least one required). Set the description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
@@ -102,7 +102,7 @@ The delegate/monitor/stop steps apply only when working across repos. A single-r
    {% endif %}
 4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
 5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
-6. **Push branches** - Use `push_branch` after making commits. Pass a `description` following the Session Description Policy (optional, strongly recommended).
+6. **Push branches** - Use `push_branch` after making commits. A required `description` must follow the Session Description Policy.
 7. **Update session description** - Use `update_session` to update the session description; must follow the Session Description Policy. Independent of PR creation or mark-ready.
 8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Always pass `description` following the Session Description Policy.
 9. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
@@ -472,7 +472,7 @@ Once work is complete in a repository, push the branch using `push_branch`. This
 - `sessionId` (required): The Polygraph session ID
 - `repo` (required): Repository name or repository ID to push from
 - `branch` (required): Branch name to push to remote
-- `description` (optional, strongly recommended): When provided, updates the session description timeline alongside the push. Must follow the Session Description Policy.
+- `description` (required): A session description is required. Must follow the Session Description Policy.
 
 ```
 push_branch(
@@ -486,7 +486,7 @@ push_branch(
 
 `description` is user-facing Polygraph session context.
 
-`description` is optional but strongly recommended for `push_branch`, `create_pr`, and `associate_pr` — when provided, the session description timeline is updated alongside the operation. It is the primary input to `update_session`, which requires at least one of `title` or `description`. (`mark_pr_ready` does not take a description.) When you pass a description, use the canonical structured format:
+`description` is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (which takes `title` and/or `description`). (`mark_pr_ready` does not take a description.) Use the canonical structured format:
 
 ```text
 Goal: <what the session is trying to accomplish>
@@ -520,7 +520,7 @@ Create PRs for all repositories at once using `create_pr`. PRs are created as dr
   - `body` (required): PR description (session metadata is appended automatically)
   - `branch` (required): Branch name that was pushed
   - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (optional, strongly recommended): When provided, updates the session description timeline alongside the operation. Must follow the Session Description Policy.
+- `description` (required): Must follow the Session Description Policy.
 
 **PR title format (applies to parent and child agents):**
 
@@ -706,7 +706,7 @@ Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `re
 - `prUrl` (optional): URL of an existing pull request to associate
 - `branch` (optional): Branch name to find and associate PRs for
 - `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (optional, strongly recommended): When provided, updates the session description timeline alongside the operation. Must follow the Session Description Policy.
+- `description` (required): Must follow the Session Description Policy.
 
 ```
 associate_pr(
@@ -863,7 +863,7 @@ If the session has a description timeline, also display:
 1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) via `show_agent` before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
-1. **Always pass `description`** when calling `push_branch`, `create_pr`, `associate_pr`, or `update_session` — it is optional at the schema level (except on `update_session`) but strongly recommended, and must follow the Session Description Policy
+1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session` — it is required and must follow the Session Description Policy
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
    {% if platform == "claude" %}
