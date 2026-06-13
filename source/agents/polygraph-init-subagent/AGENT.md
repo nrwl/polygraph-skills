@@ -25,7 +25,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories. Hard filters narrow the pool; semanticQuery/similarToRepo rank it. Each result carries evidence (`signals`) for why it passed. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a NEW session with selected repositories. Only use when no `sessionId` was provided. |
 | `add_repo` | — | Attach repositories to an EXISTING session. Use when `sessionId` was provided and the session has no repos yet, or when the user wants to add more. |
 | `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
@@ -68,16 +68,26 @@ Call `list_repos` to discover available candidate repositories:
 list_repos()
 ```
 
+The tool takes two kinds of parameters. Understand the distinction before filtering:
+
+- **Hard filters narrow the pool.** `connectedTo` (+ `connectionType`), `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`, `nameFilter`. Every returned repo satisfies ALL specified filters; within a single filter, any listed value may match. Package, API, and name matching is case-insensitive **substring** — `consumedPackages: ["axios"]` also matches a repo that only consumes `axios-retry`, so do not assume exactness.
+- **Search ranks the pool.** Provide at most one of `semanticQuery` (free-text description) or `similarToRepo` (a reference repo). Ranking never adds repos the filters excluded and never removes repos they admitted (very-low-similarity repos are hidden but stay in `total`). Without a search param, results are ordered by most recent activity.
+
+`connectionType` chooses direction and depth for `connectedTo`: `directly-upstream` (direct dependencies), `directly-downstream` (direct dependents), `directly-both` (default), or transitive `upstream` / `downstream` / `both`.
+
 This returns:
 
-- **`initiator`**: The current repository, or `null` if not running from a specific repo
-- **`candidates`**: Candidate account repositories, each with:
+- **`repos`**: Candidate account repositories, each with:
   - `id`: Repository ID
   - `name`: Repository name
+  - `repository`: Full repo name (e.g., `org/repo`)
   - `description`: AI-generated description of what the repository does (may be null)
-  - `vcsConfiguration.repositoryFullName`: Full repo name (e.g., `org/repo`)
-  - `graphRelationship`: How this repository relates to the initiator (`distance`, `direction`, `path`), or `null` if the repository is not in the dependency graph. When `initiator` is null, `graphRelationship` will be null for all candidates.
-- **`dependencyGraph`**: Graph of repository dependency `edges` (always available, independent of initiator)
+  - `signals`: Evidence for why the repo passed (may be absent when no filters were used):
+    - `graph`: when `connectedTo` was used — `distance` (shortest path to the reference repo), `direction` (`upstream` / `downstream` / `both`), and `via` (the edges it came through, e.g. `"@acme/ui (package)"`)
+    - `similarity`: cosine similarity, present when ranked
+    - `matchedPackages` / `matchedApis`: which requested filter values hit
+- **`total`**: Pool size before truncation — `total` larger than the repo count means results were cut by the limit or similarity floor
+- **`ranked`**: Whether results are similarity-ordered. `false` with a `notice` means semantic ranking was unavailable and the order is by recency instead — do not treat that order as relevance.
 
 ### Step 2: Select Relevant Repos
 
@@ -87,14 +97,14 @@ If `selectedRepoIds` or exact repo refs were provided by the main agent, use tho
 
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
 
-1. Read each candidate's `description` and `graphRelationship`
+1. Read each repo's `description` and `signals`
 2. Match against the `userContext` — consider:
    - Repository descriptions that mention relevant functionality
-   - Graph relationships (closer repos are more likely relevant); note that `graphRelationship` may be `null` for repositories not in the dependency graph — use their `description` to assess relevance
-   - When `graphRelationship` is null for all candidates (no initiator), rely on `description` fields and the raw `dependencyGraph` edges for selection instead
-   - Direction (upstream/downstream based on the nature of the change)
+   - Graph evidence (`signals.graph`): closer repos are more likely relevant, `via` tells you which package or API connects them, and `direction` tells you whether the repo is a dependency (upstream) or a dependent (downstream) relative to the nature of the change
+   - `signals.similarity` when `ranked` is true
 3. Select only the repos that are clearly relevant to the task
 4. If uncertain which repos are relevant, include all candidates (safe default)
+5. When the user described the task in natural language and the unfiltered list is large, re-query with `semanticQuery` set to that description instead of paging through everything
 
 ### Step 3: Initialize Polygraph Session or Attach Repos
 
@@ -147,14 +157,9 @@ Return a structured summary in this format:
 ### All Candidates Discovered
 (Only include this section if `list_repos` was called)
 
-| Repo | Repository ID | Description | Selected |
-| --- | --- | --- | --- |
-| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | Yes/No |
-
-### Initiator
-(Only include this section if `list_repos` was called and `initiator` is non-null)
-- **Name:** <initiator name>
-- **Repo:** <initiator repo full name>
+| Repo | Repository ID | Description | Evidence | Selected |
+| --- | --- | --- | --- | --- |
+| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | e.g. "downstream, distance 1, via @acme/ui (package)" or "similarity 0.82" | Yes/No |
 ```
 
 ## Important Notes
