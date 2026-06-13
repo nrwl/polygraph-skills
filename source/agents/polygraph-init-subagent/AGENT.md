@@ -25,7 +25,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories, with optional filtering and similarity ordering. |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a NEW session with selected repositories. Only use when no `sessionId` was provided. |
 | `add_repo` | — | Attach repositories to an EXISTING session. Use when `sessionId` was provided and the session has no repos yet, or when the user wants to add more. |
 | `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
