@@ -68,25 +68,25 @@ Call `list_repos` to discover available candidate repositories:
 list_repos()
 ```
 
-`list_repos` accepts these optional parameters; combine whichever narrow the results to what the user wants. Refer to the tool schema for each parameter's exact behavior.
+`list_repos` accepts these optional parameters; set whichever apply. Refer to the tool schema for each parameter.
 
-- `connectedTo`: repo ID, name, or full name to find repos connected to in the dependency graph
+- `connectedTo`: repo ID, name, or full name (e.g. `nrwl/ocean`); pair with `connectionType`
 - `connectionType`: `directly-upstream` | `directly-downstream` | `directly-both` (default) | `upstream` | `downstream` | `both`
-- `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`: arrays of package names or API paths
-- `nameFilter`: array of repo name patterns
-- `semanticQuery`: free-text description to order results by
-- `similarToRepo`: repo ID, name, or full name to order results by similarity to
+- `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`: arrays of package names / API paths
+- `nameFilter`: array of repo name patterns (e.g. `nrwl/*`)
+- `semanticQuery`: free-text description of the repositories you want (at most one of `semanticQuery` / `similarToRepo`)
+- `similarToRepo`: repo ID, name, or full name (at most one of `semanticQuery` / `similarToRepo`)
 - `limit`: maximum number of repos to return
 
 This returns:
 
-- **`repos`**: Candidate account repositories, in result order, each with:
+- **`repos`**: Candidate account repositories, each with:
   - `id`: Repository ID
   - `name`: Repository name
   - `repository`: Full repo name (e.g., `org/repo`)
   - `provider`: VCS provider (e.g., `GITHUB`)
   - `description`: AI-generated description of what the repository does (may be null)
-- **`total`**: Total matching repos before `limit` truncation
+- **`total`**: Total number of candidate repositories
 
 ### Step 2: Select Relevant Repos
 
@@ -97,10 +97,10 @@ If `selectedRepoIds` or exact repo refs were provided by the main agent, use tho
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
 
 1. Read each repo's `description`
-2. Match against the `userContext`, favoring repos whose descriptions mention relevant functionality
-3. Select only the repos that are clearly relevant to the task
-4. If uncertain which repos are relevant, include all candidates (safe default)
-5. When the user described the task in natural language and the unfiltered list is large, re-query with `semanticQuery` set to that description instead of paging through everything
+2. Match repo descriptions against the `userContext` to identify relevant repos
+3. Select the repos that are relevant to the task
+4. When uncertain, include all candidates
+5. When the user described the task in natural language and the result is large, re-query with `semanticQuery` set to that description
 
 ### Step 3: Initialize Polygraph Session or Attach Repos
 
