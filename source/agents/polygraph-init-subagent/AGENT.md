@@ -25,7 +25,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories. Hard filters narrow the pool; semanticQuery/similarToRepo rank it. Each result carries evidence (`signals`) for why it passed. |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories. Optional filter/ordering parameters (`connectedTo` + `connectionType`, packages, APIs, names, `semanticQuery`/`similarToRepo`, `limit`); each result carries `signals` evidence. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a NEW session with selected repositories. Only use when no `sessionId` was provided. |
 | `add_repo` | — | Attach repositories to an EXISTING session. Use when `sessionId` was provided and the session has no repos yet, or when the user wants to add more. |
 | `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
@@ -68,12 +68,15 @@ Call `list_repos` to discover available candidate repositories:
 list_repos()
 ```
 
-The tool takes two kinds of parameters. Understand the distinction before filtering:
+`list_repos` accepts these optional parameters; combine whichever narrow the results to what the user wants. Refer to the tool schema for each parameter's exact behavior.
 
-- **Hard filters narrow the pool.** `connectedTo` (+ `connectionType`), `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`, `nameFilter`. Every returned repo satisfies ALL specified filters; within a single filter, any listed value may match. Package, API, and name matching is case-insensitive **substring** — `consumedPackages: ["axios"]` also matches a repo that only consumes `axios-retry`, so do not assume exactness.
-- **Search ranks the pool.** Provide at most one of `semanticQuery` (free-text description) or `similarToRepo` (a reference repo). Ranking never adds repos the filters excluded and never removes repos they admitted (very-low-similarity repos are hidden but stay in `total`). Without a search param, results are ordered by most recent activity.
-
-`connectionType` chooses direction and depth for `connectedTo`: `directly-upstream` (direct dependencies), `directly-downstream` (direct dependents), `directly-both` (default), or transitive `upstream` / `downstream` / `both`.
+- `connectedTo`: repo ID, name, or full name to find repos connected to in the dependency graph
+- `connectionType`: `directly-upstream` | `directly-downstream` | `directly-both` (default) | `upstream` | `downstream` | `both`
+- `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`: arrays of package names or API paths
+- `nameFilter`: array of repo name patterns
+- `semanticQuery`: free-text description to order results by
+- `similarToRepo`: repo ID, name, or full name to order results by similarity to
+- `limit`: maximum number of repos to return
 
 This returns:
 
@@ -81,13 +84,12 @@ This returns:
   - `id`: Repository ID
   - `name`: Repository name
   - `repository`: Full repo name (e.g., `org/repo`)
+  - `provider`: VCS provider (e.g., `GITHUB`)
   - `description`: AI-generated description of what the repository does (may be null)
-  - `signals`: Evidence for why the repo passed (may be absent when no filters were used):
-    - `graph`: when `connectedTo` was used — `distance` (shortest path to the reference repo), `direction` (`upstream` / `downstream` / `both`), and `via` (the edges it came through, e.g. `"@acme/ui (package)"`)
-    - `similarity`: cosine similarity, present when ranked
-    - `matchedPackages` / `matchedApis`: which requested filter values hit
-- **`total`**: Pool size before truncation — `total` larger than the repo count means results were cut by the limit or similarity floor
-- **`ranked`**: Whether results are similarity-ordered. `false` with a `notice` means semantic ranking was unavailable and the order is by recency instead — do not treat that order as relevance.
+  - `signals`: Evidence for why the repo matched, with fields present only when relevant: `graph` (`distance`, `direction`, `via`), `similarity`, `matchedPackages`, `matchedApis`
+- **`total`**: Total matching repos before `limit` truncation
+- **`ranked`**: Whether results are ordered by `similarity`; when `false`, `notice` explains why and results are ordered by recent activity
+- **`notice`**: Optional human-readable note (may be null)
 
 ### Step 2: Select Relevant Repos
 
