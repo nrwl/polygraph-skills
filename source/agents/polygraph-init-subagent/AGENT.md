@@ -74,9 +74,7 @@ list_repos()
 - `connectionType`: `directly-upstream` | `directly-downstream` | `directly-both` (default) | `upstream` | `downstream` | `both`
 - `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`: arrays of package names / API paths
 - `nameFilter`: array of repo name patterns (e.g. `nrwl/*`)
-- `semanticQuery`: free-text description of the repositories you want (at most one of `semanticQuery` / `similarToRepo`)
-- `similarToRepo`: repo ID, name, or full name (at most one of `semanticQuery` / `similarToRepo`)
-- `limit`: maximum number of repos to return
+- `semanticQuery`: free-text description of the repositories you want
 
 This returns:
 
