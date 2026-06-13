@@ -25,7 +25,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories, with optional filtering and similarity ranking; each result carries `signals` evidence. |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories, with optional filtering and similarity ordering. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a NEW session with selected repositories. Only use when no `sessionId` was provided. |
 | `add_repo` | — | Attach repositories to an EXISTING session. Use when `sessionId` was provided and the session has no repos yet, or when the user wants to add more. |
 | `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
@@ -80,16 +80,13 @@ list_repos()
 
 This returns:
 
-- **`repos`**: Candidate account repositories, each with:
+- **`repos`**: Candidate account repositories, in result order, each with:
   - `id`: Repository ID
   - `name`: Repository name
   - `repository`: Full repo name (e.g., `org/repo`)
   - `provider`: VCS provider (e.g., `GITHUB`)
   - `description`: AI-generated description of what the repository does (may be null)
-  - `signals`: Evidence for why the repo matched, with fields present only when relevant: `graph` (`distance`, `direction`, `via`), `similarity`, `matchedPackages`, `matchedApis`
 - **`total`**: Total matching repos before `limit` truncation
-- **`ranked`**: Whether results are ordered by `similarity`; when `false`, `notice` explains why and results are ordered by recent activity
-- **`notice`**: Optional human-readable note (may be null)
 
 ### Step 2: Select Relevant Repos
 
@@ -99,11 +96,8 @@ If `selectedRepoIds` or exact repo refs were provided by the main agent, use tho
 
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
 
-1. Read each repo's `description` and `signals`
-2. Match against the `userContext` — consider:
-   - Repository descriptions that mention relevant functionality
-   - Graph evidence (`signals.graph`): closer repos are more likely relevant, `via` tells you which package or API connects them, and `direction` tells you whether the repo is a dependency (upstream) or a dependent (downstream) relative to the nature of the change
-   - `signals.similarity` when `ranked` is true
+1. Read each repo's `description`
+2. Match against the `userContext`, favoring repos whose descriptions mention relevant functionality
 3. Select only the repos that are clearly relevant to the task
 4. If uncertain which repos are relevant, include all candidates (safe default)
 5. When the user described the task in natural language and the unfiltered list is large, re-query with `semanticQuery` set to that description instead of paging through everything
@@ -159,9 +153,9 @@ Return a structured summary in this format:
 ### All Candidates Discovered
 (Only include this section if `list_repos` was called)
 
-| Repo | Repository ID | Description | Evidence | Selected |
-| --- | --- | --- | --- | --- |
-| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | e.g. "downstream, distance 1, via @acme/ui (package)" or "similarity 0.82" | Yes/No |
+| Repo | Repository ID | Description | Selected |
+| --- | --- | --- | --- |
+| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | Yes/No |
 ```
 
 ## Important Notes
