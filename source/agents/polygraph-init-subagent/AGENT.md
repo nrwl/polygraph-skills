@@ -84,7 +84,6 @@ This returns:
   - `repository`: Full repo name (e.g., `org/repo`)
   - `provider`: VCS provider (e.g., `GITHUB`)
   - `description`: AI-generated description of what the repository does (may be null)
-- **`total`**: Total number of candidate repositories
 
 ### Step 2: Select Relevant Repos
 
