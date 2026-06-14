@@ -25,7 +25,7 @@ These tools are available via MCP and CLI. Use whichever is available in your en
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories with descriptions and graph relationships |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a NEW session with selected repositories. Only use when no `sessionId` was provided. |
 | `add_repo` | — | Attach repositories to an EXISTING session. Use when `sessionId` was provided and the session has no repos yet, or when the user wants to add more. |
 | `show_session` | `polygraph session show <id> [--details]` | Get full session details including URL, and use details when session summary, repo IDs, PR URLs, and PR descriptions are needed |
@@ -68,16 +68,22 @@ Call `list_repos` to discover available candidate repositories:
 list_repos()
 ```
 
+`list_repos` accepts these optional parameters; set whichever apply. Refer to the tool schema for each parameter.
+
+- `connectedTo`: repo ID, name, or full name (e.g. `nrwl/ocean`); pair with `connectionType`
+- `connectionType`: `directly-upstream` | `directly-downstream` | `directly-both` (default) | `upstream` | `downstream` | `both`
+- `publishedPackages`, `consumedPackages`, `publishedApis`, `consumedApis`: arrays of package names / API paths
+- `nameFilter`: array of repo name patterns (e.g. `nrwl/*`)
+- `semanticQuery`: free-text description of the repositories you want
+
 This returns:
 
-- **`initiator`**: The current repository, or `null` if not running from a specific repo
-- **`candidates`**: Candidate account repositories, each with:
+- **`repos`**: Candidate account repositories, each with:
   - `id`: Repository ID
   - `name`: Repository name
+  - `repository`: Full repo name (e.g., `org/repo`)
+  - `provider`: VCS provider (e.g., `GITHUB`)
   - `description`: AI-generated description of what the repository does (may be null)
-  - `vcsConfiguration.repositoryFullName`: Full repo name (e.g., `org/repo`)
-  - `graphRelationship`: How this repository relates to the initiator (`distance`, `direction`, `path`), or `null` if the repository is not in the dependency graph. When `initiator` is null, `graphRelationship` will be null for all candidates.
-- **`dependencyGraph`**: Graph of repository dependency `edges` (always available, independent of initiator)
 
 ### Step 2: Select Relevant Repos
 
@@ -87,14 +93,11 @@ If `selectedRepoIds` or exact repo refs were provided by the main agent, use tho
 
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
 
-1. Read each candidate's `description` and `graphRelationship`
-2. Match against the `userContext` — consider:
-   - Repository descriptions that mention relevant functionality
-   - Graph relationships (closer repos are more likely relevant); note that `graphRelationship` may be `null` for repositories not in the dependency graph — use their `description` to assess relevance
-   - When `graphRelationship` is null for all candidates (no initiator), rely on `description` fields and the raw `dependencyGraph` edges for selection instead
-   - Direction (upstream/downstream based on the nature of the change)
-3. Select only the repos that are clearly relevant to the task
-4. If uncertain which repos are relevant, include all candidates (safe default)
+1. Read each repo's `description`
+2. Match repo descriptions against the `userContext` to identify relevant repos
+3. Select the repos that are relevant to the task
+4. When uncertain, include all candidates
+5. When the user described the task in natural language and the result is large, re-query with `semanticQuery` set to that description
 
 ### Step 3: Initialize Polygraph Session or Attach Repos
 
@@ -150,11 +153,6 @@ Return a structured summary in this format:
 | Repo | Repository ID | Description | Selected |
 | --- | --- | --- | --- |
 | REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | Yes/No |
-
-### Initiator
-(Only include this section if `list_repos` was called and `initiator` is non-null)
-- **Name:** <initiator name>
-- **Repo:** <initiator repo full name>
 ```
 
 ## Important Notes
