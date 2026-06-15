@@ -1,8 +1,20 @@
+// ⚠️  IMPORTANT — READ BEFORE EDITING OR ADDING CODE TO THIS FILE ⚠️
+//
+// OpenCode loads this file directly as a plugin module. Any `export` beyond
+// the plugin entry (`PolygraphPlugin` / `export default`) breaks OpenCode
+// plugin loading ENTIRELY for every user who has the plugin installed.
+//
+// DO NOT add new exports to this file. Put shared or testable logic in sibling
+// modules under source/opencode/ (e.g. agent-capture-mapping.mjs) and import
+// it here instead.
+
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+
+import { writeAgentCaptureMapping } from './agent-capture-mapping.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = __dirname;
@@ -29,6 +41,9 @@ export const PolygraphPlugin = async () => {
     'shell.env': async (input, output) => {
       output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
       output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
+      // Record the agent-capture mapping so the Polygraph CLI can bind
+      // parent-log capture deterministically for this session.
+      writeAgentCaptureMapping(input.sessionID);
     },
 
     // OpenCode has no SessionStart hook, but the Polygraph CLI already seeds the
@@ -41,6 +56,9 @@ export const PolygraphPlugin = async () => {
       if (note) {
         output.context.push(note);
       }
+      // Refresh the mapping on compaction (same refresh semantics as Claude/Codex
+      // SessionStart hooks firing on 'compact').
+      writeAgentCaptureMapping(input.sessionID);
     },
   };
 };

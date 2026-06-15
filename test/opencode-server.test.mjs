@@ -1,11 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
+import { writeAgentCaptureMapping } from '../source/opencode/agent-capture-mapping.mjs';
 
 // The compaction-note helpers resolve Polygraph state under os.homedir(), so
 // these tests point HOME at a temp dir instead of injecting a root.
@@ -144,4 +153,179 @@ test('experimental.session.compacting is a no-op outside a Polygraph session', a
     output
   );
   assert.deepEqual(output.context, []);
+});
+
+// ---------------------------------------------------------------------------
+// writeAgentCaptureMapping tests
+// ---------------------------------------------------------------------------
+
+function savePgEnv() {
+  return {
+    POLYGRAPH_SESSION_ID: process.env.POLYGRAPH_SESSION_ID,
+    POLYGRAPH_CHILD_AGENT: process.env.POLYGRAPH_CHILD_AGENT,
+  };
+}
+
+function restorePgEnv(saved) {
+  for (const [key, val] of Object.entries(saved)) {
+    if (val === undefined) delete process.env[key];
+    else process.env[key] = val;
+  }
+}
+
+function readMappingFiles(home, polygraphSessionId) {
+  const dir = join(home, '.polygraph', 'sidecars', polygraphSessionId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((f) => f.startsWith('mapping-'));
+}
+
+function readMappingJson(home, polygraphSessionId) {
+  const files = readMappingFiles(home, polygraphSessionId);
+  assert.equal(files.length, 1);
+  return JSON.parse(
+    readFileSync(
+      join(home, '.polygraph', 'sidecars', polygraphSessionId, files[0]),
+      'utf8'
+    )
+  );
+}
+
+test('writeAgentCaptureMapping writes a valid opencode mapping file', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-map-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-1';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    const before = Date.now();
+    writeAgentCaptureMapping('ses_oc_abc', home);
+    const after = Date.now();
+
+    const mapping = readMappingJson(home, 'poly-oc-1');
+
+    assert.equal(mapping.version, 1);
+    assert.equal(mapping.polygraphSessionId, 'poly-oc-1');
+    assert.equal(mapping.agentType, 'opencode');
+    assert.equal(mapping.agentSessionId, 'ses_oc_abc');
+    assert.equal(mapping.source, 'hook');
+    assert.equal(typeof mapping.cwd, 'string');
+    assert.ok(mapping.cwd.length > 0);
+    assert.ok(Number.isFinite(mapping.pid));
+    assert.ok(Number.isFinite(mapping.firstSeenAt));
+    assert.ok(Number.isFinite(mapping.lastSeenAt));
+    assert.ok(mapping.firstSeenAt >= before && mapping.firstSeenAt <= after);
+    assert.equal(Object.hasOwn(mapping, 'transcriptPath'), false);
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping is a no-op when POLYGRAPH_SESSION_ID is unset', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-noop-'));
+  try {
+    delete process.env.POLYGRAPH_SESSION_ID;
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    writeAgentCaptureMapping('ses_oc_noop', home);
+
+    assert.equal(
+      existsSync(join(home, '.polygraph')),
+      false,
+      'no file written when POLYGRAPH_SESSION_ID unset'
+    );
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping is a no-op when POLYGRAPH_CHILD_AGENT is set', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-child-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-child';
+    process.env.POLYGRAPH_CHILD_AGENT = '1';
+
+    writeAgentCaptureMapping('ses_oc_child', home);
+
+    assert.equal(readMappingFiles(home, 'poly-oc-child').length, 0);
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping is a no-op when agentSessionId is empty', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-empty-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-empty';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    writeAgentCaptureMapping('', home);
+
+    assert.equal(readMappingFiles(home, 'poly-oc-empty').length, 0);
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping preserves firstSeenAt and bumps lastSeenAt on refresh', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-refresh-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-refresh';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    writeAgentCaptureMapping('ses_oc_refresh', home);
+    const first = readMappingJson(home, 'poly-oc-refresh');
+
+    const end = Date.now() + 2;
+    while (Date.now() < end) { /* busy-wait one tick */ }
+
+    writeAgentCaptureMapping('ses_oc_refresh', home);
+    const second = readMappingJson(home, 'poly-oc-refresh');
+
+    assert.equal(second.firstSeenAt, first.firstSeenAt, 'firstSeenAt preserved');
+    assert.ok(second.lastSeenAt >= first.lastSeenAt, 'lastSeenAt updated');
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('shell.env writes a mapping file when POLYGRAPH_SESSION_ID is set', async () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-shell-env-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-shell-env';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    // Call writeAgentCaptureMapping via the plugin's shell.env hook by overriding
+    // HOME so the in-process call lands in our temp dir.
+    const savedHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const plugin = await PolygraphPlugin();
+      const output = { env: {} };
+      await plugin['shell.env']({ sessionID: 'ses_shell_env_test' }, output);
+
+      // shell.env must still set the env vars correctly
+      assert.equal(output.env.POLYGRAPH_AGENT_SESSION_ID, 'ses_shell_env_test');
+      assert.equal(output.env.POLYGRAPH_AGENT_TYPE, 'opencode');
+
+      // and the mapping must be on disk
+      const mapping = readMappingJson(home, 'poly-shell-env');
+      assert.equal(mapping.agentType, 'opencode');
+      assert.equal(mapping.agentSessionId, 'ses_shell_env_test');
+    } finally {
+      process.env.HOME = savedHome;
+    }
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
 });
