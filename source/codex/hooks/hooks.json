@@ -8,6 +8,11 @@
             "type": "command",
             "command": "node ${PLUGIN_ROOT}/hooks/reinject-polygraph-context.mjs",
             "statusMessage": "Re-injecting Polygraph session context"
+          },
+          {
+            "type": "command",
+            "command": "node ${PLUGIN_ROOT}/hooks/record-session-mapping.mjs codex",
+            "statusMessage": "Recording Polygraph agent capture mapping"
           }
         ]
       }
