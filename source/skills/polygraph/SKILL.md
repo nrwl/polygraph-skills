@@ -482,27 +482,9 @@ push_branch(
 
 ### Session Description Policy
 
-`description` is user-facing Polygraph session context.
+`description` is user-facing Polygraph session context. It is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session`. (`mark_pr_ready` does not take a description.)
 
-`description` is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (which takes `title` and/or `description`). (`mark_pr_ready` does not take a description.) Use the canonical structured format:
-
-```text
-Goal: <what the session is trying to accomplish>
-
-Current Progress: <what has been completed so far, including PR/session state when relevant>
-
-What Worked: <important decisions, approaches, or constraints that future agents should preserve>
-
-Next Steps: <clear next implementation steps>
-```
-
-- Do not use a one-line feature summary for final handoff or PR creation in a multi-repo session.
-- Keep it concise but durable for a future resumed agent.
-- Prefer high-level state over file-by-file changelogs.
-- Mention unresolved decisions or risks when they matter.
-- In `Next Steps`, include only next implementation steps. Do not list routine operational steps such as pushing branches, watching CI, or marking PRs ready.
-
-> **Tip (optional):** The Polygraph UI renders fenced ` ```mermaid ` blocks in the session description as diagrams. If a small diagram would genuinely clarify the session state — for example, cross-repo relationships or a sequence of changes — you may include one. Plain text remains the norm; diagrams are never required.
+**Whenever you write or update a session description, read [`reference/session-description.md`](reference/session-description.md) first.** That reference file holds the full policy: the canonical Markdown-heading template (`## Goal` / `## Current progress` / `## What worked` / `## Next steps`), the dual-audience guidance (humans in the web UI now, agents reconstructing history later), and the formatting building blocks the app renders (callouts, tables, mermaid, links, `link_reference`). It is loaded on demand so non-description operations stay cheap.
 
 ### 3. Create Draft PRs
 
@@ -812,15 +794,9 @@ get_ci_logs(
 
 ### Update Session Description
 
-Use this when the user asks to summarize progress, update the session description, capture the current state.
+Use this when the user asks to summarize progress, update the session description, or capture the current state.
 
-Before writing:
-- Read the current session details.
-- Consider the current conversation, child-agent results, PRs, pushed branches, validation, and unresolved decisions.
-- If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
-- If updating or replacing the existing last item, write the resulting state directly.
-
-Write the description using the canonical structured format in the Session Description Policy. Then call `update_session` with the resulting summary as `description`.
+Read [`reference/session-description.md`](reference/session-description.md) for the full update procedure (what to read before writing, how to append vs. replace) and the canonical Markdown-heading format. Then call `update_session` with the resulting summary as `description`.
 
 ### Print Polygraph Session Details
 
