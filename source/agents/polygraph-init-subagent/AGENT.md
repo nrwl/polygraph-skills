@@ -83,7 +83,8 @@ This returns:
   - `name`: Repository name
   - `repository`: Full repo name (e.g., `org/repo`)
   - `provider`: VCS provider (e.g., `GITHUB`)
-  - `description`: AI-generated description of what the repository does (may be null)
+
+Candidate entries do not include repository descriptions. For natural-language discovery, pass the user's intent in `semanticQuery` so the service can apply semantic matching internally.
 
 ### Step 2: Select Relevant Repos
 
@@ -93,8 +94,8 @@ If `selectedRepoIds` or exact repo refs were provided by the main agent, use tho
 
 Otherwise, analyze the candidates using the `userContext` to determine which repos are relevant:
 
-1. Read each repo's `description`
-2. Match repo descriptions against the `userContext` to identify relevant repos
+1. Review each repo's `repository`, `name`, `provider`, and any relationship/filter metadata returned by the tool
+2. Match those fields and any requested filters against the `userContext` to identify relevant repos
 3. Select the repos that are relevant to the task
 4. When uncertain, include all candidates
 5. When the user described the task in natural language and the result is large, re-query with `semanticQuery` set to that description
@@ -143,16 +144,16 @@ Return a structured summary in this format:
 
 ### Repositories in this session
 
-| Repo | Repository ID | Description | Relationship |
-| --- | --- | --- | --- |
-| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | DIRECTION (distance: N) |
+| Repo | Repository ID | Relationship |
+| --- | --- | --- |
+| REPO_FULL_NAME | REPOSITORY_ID | DIRECTION (distance: N) |
 
 ### All Candidates Discovered
 (Only include this section if `list_repos` was called)
 
-| Repo | Repository ID | Description | Selected |
-| --- | --- | --- | --- |
-| REPO_FULL_NAME | REPOSITORY_ID | DESCRIPTION | Yes/No |
+| Repo | Repository ID | Selected |
+| --- | --- | --- |
+| REPO_FULL_NAME | REPOSITORY_ID | Yes/No |
 ```
 
 ## Important Notes

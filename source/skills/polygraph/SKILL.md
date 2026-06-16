@@ -39,7 +39,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 | MCP Tool | CLI Equivalent | Description |
 | --- | --- | --- |
-| `list_repos` | `polygraph repo list` | Discover candidate repositories. |
+| `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
 | `spawn_agent` | — | Start a new child task or send a follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, context? }`. Output: `{ taskId, message, status: 'delegated' }`. Follow-up routing is automatic: if the repo already has an active child task, the instruction is delivered to it as a follow-up message; otherwise a new child run starts. A repo has at most one active child at a time. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
 | `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'permission-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |

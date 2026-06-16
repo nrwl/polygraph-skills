@@ -19,6 +19,11 @@ function renderSkill(skillName, platform = 'codex') {
   return renderArtifact(raw, platform);
 }
 
+function renderAgent(agentName, platform = 'codex') {
+  const raw = readFileSync(join(rootDir, 'source', 'agents', agentName, 'AGENT.md'), 'utf8');
+  return renderArtifact(raw, platform);
+}
+
 function assertNoNonCodexDelegationText(rendered) {
   assert.doesNotMatch(rendered, /Task\(/);
   assert.doesNotMatch(rendered, /subagent_type:/);
@@ -33,6 +38,31 @@ function sectionBetween(content, start, end) {
   assert.notEqual(endIndex, -1);
   return content.slice(startIndex, endIndex);
 }
+
+test('polygraph init subagent does not expect candidate repo descriptions', () => {
+  const rendered = renderAgent('polygraph-init-subagent');
+  const discoverySection = sectionBetween(
+    rendered,
+    '### Step 1: Discover Candidate Repos',
+    '### Step 2: Select Relevant Repos'
+  );
+  const selectionSection = sectionBetween(
+    rendered,
+    '### Step 2: Select Relevant Repos',
+    '### Step 3: Initialize Polygraph Session or Attach Repos'
+  );
+  const summarySection = sectionBetween(
+    rendered,
+    '### Step 5: Return Summary',
+    '## Important Notes'
+  );
+
+  assert.doesNotMatch(discoverySection, /`description`/);
+  assert.match(discoverySection, /Candidate entries do not include repository descriptions/);
+  assert.doesNotMatch(selectionSection, /repo descriptions?/);
+  assert.doesNotMatch(summarySection, /\| Repo \| Repository ID \| Description \|/);
+  assert.match(summarySection, /\| Repo \| Repository ID \| Selected \|/);
+});
 
 test('renderArtifact preserves a valid frontmatter boundary for the codex polygraph skill', () => {
   const rendered = renderSkill('polygraph');
