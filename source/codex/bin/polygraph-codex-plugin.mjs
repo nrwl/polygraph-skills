@@ -9,7 +9,14 @@ import {
 const usage = `Usage:
   npx @polygraph/codex-plugin
   npx @polygraph/codex-plugin install [--force] [--json]
-  npx @polygraph/codex-plugin check [--json]`;
+  npx @polygraph/codex-plugin check [--json]
+
+The install command materializes the plugin payload so that codex's official
+plugin system can pick it up. After running install, run:
+
+  codex plugin add polygraph@polygraph-plugins
+
+to have codex register and enable the plugin in its own config.`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -55,18 +62,14 @@ async function main() {
     console.log(JSON.stringify(result, null, 2));
   } else if (command === 'check') {
     if (result.ok) {
-      console.log(`Polygraph Codex plugin is enabled.`);
+      console.log(`Polygraph Codex plugin is materialized.`);
       console.log(`Plugin path: ${result.pluginPath}`);
       console.log(`Agents: ${result.agentsPath}`);
-      console.log(`Config: ${result.configPath}`);
       console.log(`Marketplace: ${result.marketplacePath}`);
     } else {
       const pluginState = result.pluginInstalled
         ? 'plugin files present'
         : 'plugin files not present';
-      const configState = result.configEnabled
-        ? 'plugin enabled in config'
-        : 'plugin not enabled in config';
       const agentsState = result.agentsInstalled
         ? 'agents installed'
         : 'agents not installed';
@@ -74,15 +77,15 @@ async function main() {
         ? 'plugin present in marketplace'
         : 'plugin not present in marketplace';
       console.error(
-        `Polygraph Codex plugin check failed: ${pluginState}; ${configState}; ${agentsState}; ${marketplaceState}.`
+        `Polygraph Codex plugin check failed: ${pluginState}; ${agentsState}; ${marketplaceState}.`
       );
     }
   } else {
-    console.log(`Installed Polygraph Codex plugin ${result.version}.`);
+    console.log(`Materialized Polygraph Codex plugin ${result.version}.`);
     console.log(`Plugin path: ${result.pluginPath}`);
     console.log(`Agents: ${result.agentsPath}`);
-    console.log(`Config: ${result.configPath}`);
     console.log(`Marketplace: ${result.marketplacePath}`);
+    console.log(`Next step: codex plugin add ${result.plugin}`);
   }
 
   if (command === 'check' && !result.ok) {
