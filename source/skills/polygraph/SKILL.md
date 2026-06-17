@@ -482,9 +482,11 @@ push_branch(
 
 ### Session Description Policy
 
-`description` is user-facing Polygraph session context. It is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session`. (`mark_pr_ready` does not take a description.)
+`description` is user-facing Polygraph session context. It is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (`mark_pr_ready` does not take a description). Use this when the user asks to summarize progress, update the session description, or capture the current state.
 
 **Whenever you write or update a session description, read [`reference/session-description.md`](reference/session-description.md) first.** That reference file holds the full policy: the canonical Markdown-heading template (`## Goal` / `## Current progress` / `## What worked` / `## Next steps`), the dual-audience guidance (humans in the web UI now, agents reconstructing history later), and the formatting building blocks the app renders (callouts, tables, mermaid, links, `link_reference`).
+
+Be liberal about updating the session description when you make changes that affect the scope of the session, how logic flows between repos, or anything else important for posterity. Avoid updating it for small implementation details that are not relevant outside of this session. An up-to-date session description matters for maintainability.
 
 ### 3. Create Draft PRs
 
