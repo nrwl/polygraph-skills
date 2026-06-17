@@ -53,7 +53,7 @@ Use the `##` headings from the canonical template. Use **bold**/*italic* for emp
 
 ### Callouts (GitHub alert syntax)
 
-Newly supported by the app renderer (added on the app side of this issue). The app maps each callout to a status color, so pick the right type:
+The app maps each callout to a status color, so pick the right type:
 
 - `> [!WARNING]` / `> [!CAUTION]` — risky migrations, destructive operations, or **required manual steps** a reader must not miss.
 - `> [!NOTE]` / `> [!IMPORTANT]` — context, rationale, or a key constraint worth highlighting.
@@ -66,20 +66,20 @@ Newly supported by the app renderer (added on the app side of this issue). The a
 
 ### Tables (GFM)
 
-Newly supported by the app renderer. Use a GitHub-Flavored Markdown table only for genuinely tabular data, such as per-repo status:
+Use a GitHub-Flavored Markdown table only for genuinely tabular data. The polygraph UI already shows per-PR state so avoid that. 
 
 ```markdown
-| Repo        | Branch                  | Status        |
-| ----------- | ----------------------- | ------------- |
-| org/api     | nxa-1807-auth           | PR open       |
-| org/web     | nxa-1807-auth           | pushed, no PR |
+| Repo        |  Change Type        |
+| ----------- |  ------------------ |
+| org/api     |  api functionality  |
+| org/web     |  text-only          |
 ```
 
 ### Mermaid diagrams
 
 The app renders fenced ` ```mermaid ` blocks as diagrams. Use one only when it genuinely clarifies session state. Good uses:
 
-- Control or data flow between logic pieces **across repos**.
+- Control or data flow between logic pieces across repos or system components.
 - A sequence of changes, or migration order.
 - A state machine.
 
@@ -101,10 +101,6 @@ Use fenced code blocks for commands, signatures, or short snippets. Use task lis
 
 ## Updating the session description
 
-Use this when the user asks to summarize progress, update the session description, or capture the current state.
-
-Be liberal about updating the session description when you make changes that affect the scope of the session, how logic flows between repos, or anything else important for posterity. Avoid updating it for small implementation details that are not relevant outside of this session. An up-to-date session description matters for maintainability.
-
 Before writing:
 
 - Read the current session details.
@@ -112,4 +108,4 @@ Before writing:
 - If appending a new item, read the current/latest description first and write the full replacement description with the existing items plus the new item.
 - If updating or replacing the existing last item, write the resulting state directly.
 
-Write the description using the canonical structured format above. Then call `update_session` with the resulting summary as `description`.
+Write the description using the canonical structured format above. Then call `update_session` or one of the other tools like `create_pr` that take a description as input.
