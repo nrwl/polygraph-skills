@@ -1,6 +1,6 @@
 # Session Description Reference
 
-Read this file whenever you write or update a Polygraph session `description` — for `push_branch`, `create_pr`, `associate_pr`, or `update_session`. It is loaded on demand so that non-description Polygraph operations stay cheap.
+Read this file whenever you write or update a Polygraph session `description` — for `push_branch`, `create_pr`, `associate_pr`, or `update_session`.
 
 ## Session Description Policy
 
