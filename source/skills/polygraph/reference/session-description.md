@@ -1,7 +1,5 @@
 # Session Description Reference
 
-Read this file whenever you write or update a Polygraph session `description` — for `push_branch`, `create_pr`, `associate_pr`, or `update_session`.
-
 ## Session Description Policy
 
 `description` is user-facing Polygraph session context.
@@ -104,6 +102,8 @@ Use fenced code blocks for commands, signatures, or short snippets. Use task lis
 ## Updating the session description
 
 Use this when the user asks to summarize progress, update the session description, or capture the current state.
+
+Be liberal about updating the session description when you make changes that affect the scope of the session, how logic flows between repos, or anything else important for posterity. Avoid updating it for small implementation details that are not relevant outside of this session. An up-to-date session description matters for maintainability.
 
 Before writing:
 

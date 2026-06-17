@@ -115,7 +115,7 @@ test('rendered polygraph skill points at the session description reference file'
   // The policy section is now a short on-demand pointer to the reference file.
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
   assert.match(policySection, /read \[`reference\/session-description\.md`\]\(reference\/session-description\.md\)/);
-  assert.match(policySection, /loaded on demand/);
+  assert.match(policySection, /That reference file holds the full policy/);
   assert.match(createPrSection, /[Mm]ust follow the Session Description Policy/);
   assert.match(associatePrSection, /[Mm]ust follow the Session Description Policy/);
   assert.match(updateDescriptionSection, /reference\/session-description\.md/);
