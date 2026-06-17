@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parse } from 'smol-toml';
 
 import { renderArtifact, rootDir } from '../scripts/src/sync-artifacts/common.mjs';
-import { processAgents } from '../scripts/src/sync-artifacts/processors.mjs';
+import { processAgents, processSkills } from '../scripts/src/sync-artifacts/processors.mjs';
 import {
   buildCodexPluginManifest,
   buildMcpConfig,
@@ -84,7 +84,7 @@ test('rendered polygraph skill documents linked references', () => {
   assert.doesNotMatch(rendered, /--(?:target|dependency|dependent)Id\b|\b(?:target|dependency|dependent)Id:/);
 });
 
-test('rendered polygraph skill documents session description policy guidance', () => {
+test('rendered polygraph skill points at the session description reference file', () => {
   const rendered = renderSkill('polygraph');
   const policySection = sectionBetween(
     rendered,
@@ -111,31 +111,83 @@ test('rendered polygraph skill documents session description policy guidance', (
   assert.match(rendered, /`update_session` for session metadata updates/);
   assert.doesNotMatch(rendered, /update_session_description/);
   assert.doesNotMatch(rendered, /update-description/);
+
+  // The policy section is now a short on-demand pointer to the reference file.
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
-  assert.match(policySection, /`push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session`/);
-  assert.match(policySection, /`mark_pr_ready` does not take a description/);
-  assert.match(policySection, /Goal: <what the session is trying to accomplish>/);
-  assert.match(policySection, /Current Progress: <what has been completed so far, including PR\/session state when relevant>/);
-  assert.match(policySection, /What Worked: <important decisions, approaches, or constraints that future agents should preserve>/);
-  assert.match(policySection, /Next Steps: <clear next implementation steps>/);
-  assert.match(policySection, /Do not use a one-line feature summary/);
-  assert.match(policySection, /Keep it concise but durable for a future resumed agent/);
-  assert.match(policySection, /Prefer high-level state over file-by-file changelogs/);
-  assert.match(policySection, /Mention unresolved decisions or risks when they matter/);
-  assert.match(policySection, /include only next implementation steps/);
+  assert.match(policySection, /read \[`reference\/session-description\.md`\]\(reference\/session-description\.md\)/);
+  assert.match(policySection, /That reference file holds the full policy/);
   assert.match(createPrSection, /[Mm]ust follow the Session Description Policy/);
   assert.match(associatePrSection, /[Mm]ust follow the Session Description Policy/);
-  assert.match(updateDescriptionSection, /canonical structured format in the Session Description Policy/);
-  assert.match(updateDescriptionSection, /Read the current session details\./);
-  assert.match(updateDescriptionSection, /child-agent results, PRs, pushed branches, validation, and unresolved decisions/);
+  assert.match(updateDescriptionSection, /reference\/session-description\.md/);
   assert.match(updateDescriptionSection, /Then call `update_session` with the resulting summary as `description`\./);
+
+  // The detailed guidance moved OUT of SKILL.md into the reference file.
+  assert.doesNotMatch(rendered, /Goal: <what the session is trying to accomplish>/);
+  assert.doesNotMatch(rendered, /Next Steps: <clear next implementation steps>/);
+  assert.doesNotMatch(rendered, /Prefer high-level state over file-by-file changelogs/);
   assert.doesNotMatch(updateDescriptionSection, /\*\*Parameters:\*\*/);
-  assert.doesNotMatch(updateDescriptionSection, /Do not pass `agentSessionId` to this tool/);
-  assert.doesNotMatch(updateDescriptionSection, /CLI\/MCP layer captures or derives the agent session ID automatically/);
   assert.doesNotMatch(rendered, /description: "Add user preferences feature: UI in frontend, API in backend"/);
-  assert.doesNotMatch(rendered, /description: "Register fork PR for user preferences UI"/);
   assert.doesNotMatch(rendered, /Session Description Summary/);
   assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
+});
+
+test('session description reference ships to every platform dist skill folder', () => {
+  const platforms = ['claude', 'opencode', 'codex'];
+
+  for (const platform of platforms) {
+    const outputDir = mkdtempSync(join(tmpdir(), `polygraph-${platform}-skills-`));
+    processSkills(platform, {
+      outputDir,
+      skillsDir: 'skills',
+      skillsFile: 'SKILL.md',
+    });
+
+    const referencePath = join(
+      outputDir,
+      'skills',
+      'polygraph',
+      'reference',
+      'session-description.md'
+    );
+    const reference = readFileSync(referencePath, 'utf8');
+
+    // Canonical template now uses Markdown headings instead of flat labels.
+    assert.match(reference, /^## Goal$/m);
+    assert.match(reference, /^## Current progress$/m);
+    assert.match(reference, /^## What worked$/m);
+    assert.match(reference, /^## Next steps$/m);
+    assert.doesNotMatch(reference, /^Goal: <what the session is trying to accomplish>$/m);
+
+    // Durable guidance bullets preserved.
+    assert.match(reference, /Do not use a one-line feature summary/);
+    assert.match(reference, /Keep it concise but durable for a future resumed agent/);
+    assert.match(reference, /Prefer high-level state over file-by-file changelogs/);
+    assert.match(reference, /Mention unresolved decisions or risks when they matter/);
+    assert.match(reference, /include only next implementation steps/);
+
+    // Dual-audience note.
+    assert.match(reference, /humans, in the web UI/i);
+    assert.match(reference, /reconstructing session history/i);
+    assert.match(reference, /Don't assume the original working tree is available/);
+
+    // Formatting building blocks.
+    assert.match(reference, /## Formatting building blocks/);
+    assert.match(reference, /> \[!WARNING\]/);
+    assert.match(reference, /> \[!CAUTION\]/);
+    assert.match(reference, /> \[!NOTE\]/);
+    assert.match(reference, /> \[!IMPORTANT\]/);
+    assert.match(reference, /> \[!TIP\]/);
+    assert.match(reference, /newly supported by the app renderer/i);
+    assert.match(reference, /Tables \(GFM\)/);
+    assert.match(reference, /mermaid/);
+    assert.match(reference, /Do NOT redraw the cross-repo dependency \/ repository graph/);
+    assert.match(reference, /Plain text remains the norm; diagrams are optional/);
+    assert.match(reference, /localhost/);
+    assert.match(reference, /file:\/\//);
+    assert.match(reference, /Do NOT put repo-relative file paths/);
+    assert.match(reference, /use the `link_reference` tool instead of inline links/);
+    assert.match(reference, /\*\*supplementary\*\* to the description, not a replacement/);
+  }
 });
 
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
