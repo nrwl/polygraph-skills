@@ -25,6 +25,16 @@
 
 Polygraph is a meta-harness for maximum agentic autonomy. It works with the agents you already use and gives them what they're missing: visibility across every repo boundary, and memory that survives every session. Agents discover how repositories relate, coordinate changes across them, and hand off or resume work later with repos, branches, PRs, and logs all preserved.
 
+## Setup
+
+Run the interactive setup and follow the prompts:
+
+```sh
+polygraph config
+```
+
+It detects your AI agent — Claude Code, Codex, OpenCode, and more — and installs the Polygraph skills and subagents for it. Re-run it any time to add another agent or update an existing install.
+
 ## Skills
 
 - **polygraph** — Comprehensive guidance for multi-repo coordination: session init, delegation, branch pushing, PR creation, and session management
@@ -35,66 +45,6 @@ Polygraph is a meta-harness for maximum agentic autonomy. It works with the agen
 
 - **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session
 - **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion
-
-## Codex Installer
-
-The publishable Codex package now exposes an explicit installer CLI:
-
-```sh
-npx @polygraph/codex-plugin
-```
-
-That command copies the packaged Codex plugin into:
-
-```text
-~/.agents/plugins/polygraph
-```
-
-installs the packaged custom Codex subagents into:
-
-```text
-$CODEX_HOME/agents
-```
-
-updates the personal Codex marketplace at:
-
-```text
-~/.agents/plugins/marketplace.json
-```
-
-so the `polygraph` plugin points at `./.agents/plugins/polygraph`, and enables the plugin in:
-
-```text
-$CODEX_HOME/config.toml
-```
-
-`CODEX_HOME` defaults to `~/.codex` when unset.
-
-To verify an install, run:
-
-```sh
-npx @polygraph/codex-plugin check
-```
-
-## OpenCode Plugin
-
-The publishable OpenCode package exposes the skills and subagents through OpenCode's native plugin system. Add it to `opencode.json`:
-
-```json
-{
-  "plugin": ["@polygraph/opencode-plugin"]
-}
-```
-
-For repeatable installs, pin the npm version:
-
-```json
-{
-  "plugin": ["@polygraph/opencode-plugin@0.4.18"]
-}
-```
-
-The plugin adds its packaged `skills/` directory to OpenCode's skill paths and registers the packaged Markdown agents as `subagent` entries in OpenCode config during startup.
 
 ## Development
 
