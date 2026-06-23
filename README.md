@@ -8,7 +8,7 @@
 <h1 align="center">Polygraph Skills</h1>
 
 <p align="center">
-  AI agent skills and subagents for <a href="https://nx.dev/features/polygraph">Polygraph</a> — the meta-harness that gives agents visibility across every repo and memory that survives every session.
+  AI agent skills and subagents for <a href="https://trypolygraph.com/">Polygraph</a> — the meta-harness that gives agents visibility across every repo and memory that survives every session.
 </p>
 
 <p align="center">
@@ -118,7 +118,7 @@ For the strictest release flow, do not allow direct `npm publish` for the truste
 
 ## Learn More
 
-- **[Polygraph](https://nx.dev/features/polygraph)** — The meta-harness for cross-repo visibility and session memory
+- **[Polygraph](https://trypolygraph.com/)** — The meta-harness for cross-repo visibility and session memory
 - **[@polygraph/mcp](https://www.npmjs.com/package/@polygraph/mcp)** — The MCP server that powers Polygraph tools
 - **[Nx AI Agent Skills](https://github.com/nrwl/nx-ai-agents-config)** — The main Nx AI agent skills repo
 
