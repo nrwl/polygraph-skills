@@ -120,8 +120,6 @@ For the strictest release flow, do not allow direct `npm publish` for the truste
 
 - **[Polygraph](https://trypolygraph.com/)** — The meta-harness for cross-repo visibility and session memory
 - **[@polygraph/mcp](https://www.npmjs.com/package/@polygraph/mcp)** — The MCP server that powers Polygraph tools
-- **[Nx AI Agent Skills](https://github.com/nrwl/nx-ai-agents-config)** — The main Nx AI agent skills repo
-
 ## License
 
 License information is defined in the package metadata.
