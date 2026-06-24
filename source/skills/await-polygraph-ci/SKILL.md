@@ -21,13 +21,13 @@ Some Polygraph tools have both MCP and CLI equivalents — use whichever is avai
 
 ## CI status source
 
-CI polling uses the polygraph-mcp `get_ci_status` tool, which returns per-PR CI status directly:
+CI polling uses the polygraph-mcp `show_session` tool, which now carries per-PR CI status directly on each pull request:
 
 ```
-get_ci_status(sessionId: "<session-id>")
+show_session(sessionId: "<session-id>")
 ```
 
-It returns `{ sessionId, prs: [...] }`, where each `prs[]` entry has `prId`, `repositoryId`, `branch`, `url`, `prStatus`, and a `ci` object (`status`, `cipeUrl`, `completedAt`, `selfHealingStatus`, `externalCIRuns`). Use this — **not** `show_session` — for all CI polling. `show_session` remains available for session metadata (e.g., mapping `repositoryId` to a human-readable repo name for display).
+It returns the full session, including `repositories[]` (for repo display names) and `pullRequests[]`. Each `pullRequests[]` entry has `id`, `repositoryId`, `url`, `branch`, `status` (PR status: `DRAFT` / `OPEN` / `MERGED` / `CLOSED`), and a `ci` object — **`ci` may be absent if the PR has no CI**. When present, `ci` has `status`, `cipeUrl` (non-null ⇒ CIPE; null + `externalCIRuns` ⇒ external CI), `completedAt`, `selfHealingStatus`, and `externalCIRuns[]` (each with `runId`, `name`, `status`, `conclusion`, `url`, and `jobs[]`). Always read `ci` defensively (`pr.ci?.…`).
 
 ## Prerequisite: Nx MCP server (CIPE deep-dive + self-healing)
 
@@ -35,36 +35,36 @@ CIPE failure investigation (`ci_information`) and applying/rejecting self-healin
 
 If the Nx MCP server is **not** available, this skill can still:
 
-- Monitor CI to a terminal state (Phases 1–3) via `get_ci_status`, and
+- Monitor CI to a terminal state (Phases 1–3) via `show_session`, and
 - Download and inspect **external-CI** job logs via `get_ci_logs` (a polygraph-mcp tool).
 
 But it **cannot** perform CIPE deep-dives (`ci_information`) or apply self-healing fixes (`update_self_healing_fix`) without the Nx MCP server. If nx-mcp is missing, state this limitation to the user explicitly.
 
 ## Phase 1: Session Setup
 
-Fetch per-PR CI status using `get_ci_status`. (Optionally call `show_session` once to map `repositoryId` → human-readable repo name for display.)
+Fetch the session using `show_session` and read per-PR CI status from `pullRequests[]`.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
 
 ```
-get_ci_status(sessionId: "<session-id>")
+show_session(sessionId: "<session-id>")
 ```
 
 1. Record `monitorStartedAt` = current timestamp (epoch millis).
-2. Build a tracking table from the response's `prs[]`. For each entry, map:
-   - `repo`: repository display name (from `show_session`, keyed by `repositoryId`; fall back to `branch` if unavailable)
-   - `repoId`: `repositoryId` (pass straight to `get_ci_logs`)
-   - `prUrl`: `url`
-   - `prStatus`: `prStatus` (DRAFT / OPEN / MERGED / CLOSED)
-   - `ciStatus`: `ci.status` (may already be a terminal status from a previous run)
-   - `cipeUrl`: `ci.cipeUrl` (null if none → external CI or no CI)
-   - `cipeCompletedAt`: `ci.completedAt` (epoch millis, null if CIPE is active or absent)
-   - `selfHealingStatus`: `ci.selfHealingStatus` (null if none)
-   - `jobs`: `ci.externalCIRuns[].jobs` (external-CI job list, used in Phase 4)
+2. Build a tracking table from `pullRequests[]`. For each PR, map:
+   - `repo`: repository display name from the matching `repositories[]` entry by `pr.repositoryId` (fall back to `pr.branch` if not found)
+   - `repoId`: `pr.repositoryId` (pass straight to `get_ci_logs`)
+   - `prUrl`: `pr.url`
+   - `prStatus`: `pr.status` (DRAFT / OPEN / MERGED / CLOSED)
+   - `ciStatus`: `pr.ci?.status` (may already be a terminal status from a previous run)
+   - `cipeUrl`: `pr.ci?.cipeUrl` (null if none → external CI or no CI)
+   - `cipeCompletedAt`: `pr.ci?.completedAt` (epoch millis, null if CIPE is active or absent)
+   - `selfHealingStatus`: `pr.ci?.selfHealingStatus` (null if none)
+   - `jobs`: `pr.ci?.externalCIRuns?.flatMap(r => r.jobs)` (external-CI job list, used in Phase 4)
    - `firstSeenAt`: current timestamp
-3. If `prs[]` is empty, report "No PRs in session" and exit.
+3. If `pullRequests[]` is empty, report "No PRs in session" and exit.
 4. **Stale detection**: For each PR, determine if its CI status is **stale** — meaning it reflects a previous run, not a current one. A PR's CI status is stale if:
    - `cipeCompletedAt` is non-null AND `cipeCompletedAt < monitorStartedAt` (the CIPE finished before the monitor started)
    - Mark these PRs as `stale: true`
@@ -83,8 +83,8 @@ get_ci_status(sessionId: "<session-id>")
 
 **Each poll iteration:**
 
-1. Call `get_ci_status(sessionId: <session-id>)`
-2. Update each tracked PR from its matching `prs[]` entry (by `prId` / `repositoryId`): `ciStatus` ← `ci.status`, `cipeUrl` ← `ci.cipeUrl`, `cipeCompletedAt` ← `ci.completedAt`, `selfHealingStatus` ← `ci.selfHealingStatus`, `prStatus`, and `jobs` ← `ci.externalCIRuns[].jobs`
+1. Call `show_session(sessionId: <session-id>)`
+2. Update each tracked PR from its matching `pullRequests[]` entry (by PR `id` / `repositoryId`): `ciStatus` ← `pr.ci?.status`, `cipeUrl` ← `pr.ci?.cipeUrl`, `cipeCompletedAt` ← `pr.ci?.completedAt`, `selfHealingStatus` ← `pr.ci?.selfHealingStatus`, `prStatus` ← `pr.status`, and `jobs` ← `pr.ci?.externalCIRuns?.flatMap(r => r.jobs)`
 3. **Clear stale flag**: If a PR was marked `stale: true` and its `cipeCompletedAt` has changed (or become null, meaning a new CIPE is active), clear the stale flag — this PR now has fresh CI data.
 4. Display status update:
    ```
@@ -132,22 +132,22 @@ Include self-healing status for any repo that has one.
 
 ## Phase 4: Failure Investigation (Child Agent Delegation)
 
-For each repo with `ciStatus: FAILED`, branch on the entry's `ci` object from `get_ci_status`:
+For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show_session` (`pullRequests[]`):
 
-- **If `ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL but note the deep-dive can't run).
-- **If `ci.cipeUrl` is null but `ci.externalCIRuns` exists** → external CI only. Examine failed jobs from `ci.externalCIRuns[].jobs` and use `get_ci_logs(sessionId, repositoryId, jobId)` (a polygraph-mcp tool) for log retrieval, passing `repositoryId` and `jobId` straight from the entry.
+- **If `pr.ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL but note the deep-dive can't run).
+- **If `pr.ci.cipeUrl` is null but `pr.ci.externalCIRuns` exists** → external CI only. Examine failed jobs from `pr.ci.externalCIRuns[].jobs` and use `get_ci_logs(sessionId, repositoryId, jobId)` (a polygraph-mcp tool) for log retrieval, passing `pr.repositoryId` and the failed job's `jobId` straight from the same PR object.
 {% if platform == "codex" %}
 
 **Codex subagent wrapper:** Use `polygraph-delegate-subagent` to keep the Polygraph MCP `spawn_agent` / `show_agent` polling loop out of the main conversation. For each failed repo, launch a Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` and instructions to perform steps 2-4 below for that repo, then collect completed summaries with `wait_agent` when the main flow needs them. In the steps below, `spawn_agent` and `show_agent` refer to the Polygraph MCP tools that belong inside the Codex subagent.
 {% endif %}
 
-1. Display known info from the `get_ci_status` entry before delegating:
+1. Display known info from the PR's `ci` object before delegating:
 
    ```
    Repository: frontend
    CI Source: <CIPE or External CI (GitHub Actions)>
-   CI Pipeline: <ci.cipeUrl, or GitHub Actions run URL>
-   Self-healing: <ci.selfHealingStatus, or "None">
+   CI Pipeline: <pr.ci.cipeUrl, or GitHub Actions run URL>
+   Self-healing: <pr.ci.selfHealingStatus, or "None">
    Investigating failure details...
    ```
 
@@ -156,8 +156,8 @@ For each repo with `ciStatus: FAILED`, branch on the entry's `ci` object from `g
    - `sessionId`: the session ID
    - `repo`: the repository name
    - `instruction` (when CIPE exists): Use the Nx MCP `ci_information` tool to investigate the CI failure on this branch (the Nx MCP server must be installed). Return a structured summary with: (1) list of failed task IDs with a one-line error summary each, (2) failure category (Build / Test / Lint / E2E / Infra / Other).
-   - `instruction` (when no CIPE, external CI only): The `get_ci_status` entry shows external CI failures with these failed jobs: [list `jobId` + `name` from `ci.externalCIRuns[].jobs` where `conclusion` is `failure`]. Use `get_ci_logs(sessionId, repositoryId, jobId)` to save the log for each failed job to a local file, then use the `Read` tool to examine the log file contents. Return a structured summary with: (1) one-line error summary per failed job, (2) failure category (Build / Test / Lint / E2E / Infra / Other), (3) relevant log excerpts.
-   - `context`: Polygraph session monitoring — investigating CI failure for unified summary. The repository ID for this repo is the entry's `repositoryId`.
+   - `instruction` (when no CIPE, external CI only): The PR's `ci` object shows external CI failures with these failed jobs: [list `jobId` + `name` from `pr.ci.externalCIRuns[].jobs` where `conclusion` is `failure`]. Use `get_ci_logs(sessionId, repositoryId, jobId)` to save the log for each failed job to a local file, then use the `Read` tool to examine the log file contents. Return a structured summary with: (1) one-line error summary per failed job, (2) failure category (Build / Test / Lint / E2E / Infra / Other), (3) relevant log excerpts.
+   - `context`: Polygraph session monitoring — investigating CI failure for unified summary. The repository ID for this repo is the PR's `repositoryId`.
 
    Since `spawn_agent` is non-blocking, you can delegate to multiple failed repos in parallel.
 
@@ -206,6 +206,6 @@ For each repo with `ciStatus: FAILED`, branch on the entry's `ci` object from `g
 {% if platform == "codex" %}
 - On Codex, the delegate-and-poll loop should run inside `polygraph-delegate-subagent`, and the main conversation should use `wait_agent` only when it needs to collect results.
 {% endif %}
-- Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY when no CIPE exists for the PR (`ci.cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via the Nx MCP `ci_information` tool. Job IDs come from `ci.externalCIRuns[].jobs[].jobId` in the `get_ci_status` response. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
+- Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY when no CIPE exists for the PR (`pr.ci.cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via the Nx MCP `ci_information` tool. Job IDs come from `pr.ci.externalCIRuns[].jobs[].jobId` in the `show_session` response. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
 - `spawn_agent` is **non-blocking** — it starts the child agent and returns immediately. Use `show_agent` to poll for results and `stop_agent` to terminate stuck agents.
-- The `get_ci_status` response is compact and safe to poll from the main agent.
+- The `show_session` response is compact and safe to poll from the main agent.
