@@ -7,6 +7,8 @@
 
 <h1 align="center">Polygraph Skills</h1>
 
+<p align="center">CAT</p>
+
 <p align="center">
   AI agent skills and subagents for <a href="https://trypolygraph.com/">Polygraph</a> — the meta-harness for maximum agentic autonomy, giving agents visibility across every repo and memory that survives every session.
 </p>
