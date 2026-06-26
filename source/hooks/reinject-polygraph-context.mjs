@@ -18,13 +18,61 @@
 //
 // Outside a Polygraph session (no matching sidecar) the hook is a silent no-op.
 
-import { readFileSync, readdirSync, existsSync, realpathSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export function polygraphRoot(home = homedir()) {
   return path.join(home, '.polygraph');
+}
+
+const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+// Append a one-line JSON record of a hook failure to ~/.polygraph/logs/hooks.log.
+// This hook must never write to stdout except its hookSpecificOutput payload
+// (Claude Code injects hook stdout into the model context), so this on-disk log
+// is the only record that something went wrong. The logger is failure-proof.
+function logHookFailure(
+  hook,
+  error,
+  meta = {},
+  home = process.env.HOME?.trim() || homedir()
+) {
+  try {
+    const logsDir = path.join(home, '.polygraph', 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const logFile = path.join(logsDir, 'hooks.log');
+
+    try {
+      if (statSync(logFile).size > HOOK_LOG_MAX_BYTES) {
+        renameSync(logFile, `${logFile}.1`);
+      }
+    } catch {
+      // no prior log, or rotation failed — ignore
+    }
+
+    const entry = {
+      time: new Date().toISOString(),
+      hook,
+      pid: process.pid,
+      ...meta,
+      error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    };
+    appendFileSync(logFile, JSON.stringify(entry) + '\n');
+  } catch {
+    // Logging must never throw — a failing logger must not break the hook.
+  }
 }
 
 function readJson(file) {
@@ -115,30 +163,36 @@ function readStdin() {
 }
 
 export function main() {
-  let payload = {};
-  const raw = readStdin();
-  if (raw) {
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      payload = {};
+  let agentSessionId = '';
+  try {
+    let payload = {};
+    const raw = readStdin();
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        payload = {};
+      }
     }
+
+    agentSessionId =
+      payload.session_id || process.env.CLAUDE_CODE_SESSION_ID || '';
+
+    const context = buildPolygraphContext(agentSessionId);
+    if (!context) return; // not a Polygraph session — stay silent
+
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: context,
+        },
+      })
+    );
+  } catch (error) {
+    // Never let a hook failure surface to the agent; just record it.
+    logHookFailure('reinject-polygraph-context', error, { agentSessionId });
   }
-
-  const agentSessionId =
-    payload.session_id || process.env.CLAUDE_CODE_SESSION_ID || '';
-
-  const context = buildPolygraphContext(agentSessionId);
-  if (!context) return; // not a Polygraph session — stay silent
-
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'SessionStart',
-        additionalContext: context,
-      },
-    })
-  );
 }
 
 // Run only when executed directly as a hook, not when imported (e.g. by tests).

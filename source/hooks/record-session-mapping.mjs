@@ -18,16 +18,57 @@
 //     injects hook stdout into the model context); never exits non-zero.
 
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+// Append a one-line JSON record of a hook failure to ~/.polygraph/logs/hooks.log.
+// This hook swallows its errors silently and must never write to stdout (Claude
+// Code injects hook stdout into the model context), so this on-disk log is the
+// only record that something went wrong. The logger is itself failure-proof.
+function logHookFailure(
+  hook,
+  error,
+  meta = {},
+  home = process.env.HOME?.trim() || homedir()
+) {
+  try {
+    const logsDir = join(home, '.polygraph', 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const logFile = join(logsDir, 'hooks.log');
+
+    try {
+      if (statSync(logFile).size > HOOK_LOG_MAX_BYTES) {
+        renameSync(logFile, `${logFile}.1`);
+      }
+    } catch {
+      // no prior log, or rotation failed — ignore
+    }
+
+    const entry = {
+      time: new Date().toISOString(),
+      hook,
+      pid: process.pid,
+      ...meta,
+      error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+    };
+    appendFileSync(logFile, JSON.stringify(entry) + '\n');
+  } catch {
+    // Logging must never throw — a failing logger must not break the hook.
+  }
+}
 
 function readStdin() {
   try {
@@ -147,8 +188,10 @@ export function main() {
       // process.ppid is the harness pid when the hook is spawned as a child.
       pid: process.ppid,
     });
-  } catch {
-    // Silent — a broken hook must never break the agent session.
+  } catch (error) {
+    // Silent toward the agent — a broken hook must never break the session —
+    // but record it so failures are not invisible.
+    logHookFailure(`${process.argv[2] || 'unknown'}:record-session-mapping`, error);
   }
 }
 
