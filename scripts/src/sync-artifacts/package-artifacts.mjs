@@ -7,13 +7,16 @@ export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 }
 
-export function buildMcpConfig() {
+export function buildMcpConfig(agentType) {
+  const env = agentType ? { POLYGRAPH_AGENT_TYPE: agentType } : undefined;
+
   return {
     mcpServers: {
       'polygraph-mcp': {
         type: 'stdio',
         command: 'npx',
         args: ['@polygraph/mcp@latest'],
+        ...(env ? { env } : {}),
       },
     },
   };
@@ -158,7 +161,7 @@ export function finalizeCodexDist(pkgJson) {
       },
     })
   );
-  writeJson(join(codexDir, '.mcp.json'), buildMcpConfig());
+  writeJson(join(codexDir, '.mcp.json'), buildMcpConfig('codex'));
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
 
   // Plugin-bundled SessionStart hooks. Reuses the same re-injection and
