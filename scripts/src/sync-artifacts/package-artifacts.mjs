@@ -60,7 +60,9 @@ export function buildCodexPluginManifest(pkgJson) {
         'Use Polygraph to monitor CI across all repos in my Polygraph session.',
         'Use Polygraph to delegate work to another repo in the session.',
       ],
-      brandColor: '#0F172A',
+      brandColor: "#F59E0B",
+      composerIcon: "./assets/polygraph-icon.png",
+      logo: "./assets/polygraph-icon.png",
     },
   };
 }
