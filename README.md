@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nrwl/nx-ai-agents-config/main/assets/nx-logo-light.svg">
-    <img src="https://raw.githubusercontent.com/nrwl/nx-ai-agents-config/main/assets/nx-logo.svg" alt="Nx Logo" width="140">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nrwl/polygraph-skills/source/assets/polygraph-light.svg">
+    <img src="https://raw.githubusercontent.com/nrwl/polygraph-skills/source/assets/polygraph.svg" alt="Polygraph Logo" width="140">
   </picture>
 </p>
 
