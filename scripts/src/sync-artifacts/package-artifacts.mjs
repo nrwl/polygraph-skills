@@ -39,7 +39,7 @@ export function buildCodexPluginManifest(pkgJson) {
     version: pkgJson.version,
     description: pkgJson.description,
     author: pkgJson.author,
-    homepage: 'https://nx.dev/features/polygraph',
+    homepage: 'https://docs.trypolygraph.com/',
     repository: pkgJson.repository,
     license: pkgJson.license,
     keywords: pkgJson.keywords,
@@ -54,7 +54,7 @@ export function buildCodexPluginManifest(pkgJson) {
       developerName: pkgJson.author.name,
       category: 'Productivity',
       capabilities: ['Read', 'Write'],
-      websiteURL: 'https://nx.dev/features/polygraph',
+      websiteURL: 'https://docs.trypolygraph.com/',
       defaultPrompt: [
         'Use Polygraph to start a multi-repo session for this change.',
         'Use Polygraph to monitor CI across all repos in my Polygraph session.',
