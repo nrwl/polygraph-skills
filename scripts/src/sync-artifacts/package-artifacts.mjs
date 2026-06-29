@@ -154,6 +154,7 @@ export function finalizeCodexDist(pkgJson) {
       'skills/',
       'agents/',
       'hooks/',
+      'assets/',
       '.mcp.json',
       'README.md',
       'bin/',
@@ -184,6 +185,14 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
+
+  cpSync(
+    join(sourceDir, 'assets'),
+    join(codexDir, 'assets'),
+    {
+      recursive: true
+    }
+  )
 
   copySharedDocs(codexDir);
 }
