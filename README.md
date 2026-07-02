@@ -58,13 +58,16 @@ npm run sync-artifacts
 
 ## Releasing
 
-Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
-It opens a release PR against `main` instead of pushing directly.
-When that PR is merged, the `Stage Release` workflow automatically tags the release and publishes the Claude, Codex, and OpenCode npm packages.
-A maintainer must then review and approve each staged package with 2FA before it is published to the live registry.
+Run the `Release` GitHub Actions workflow (`workflow_dispatch`) and choose a channel:
 
-Configure each npm package's trusted publisher to allow `npm stage publish` from `.github/workflows/publish.yml`.
-For the strictest release flow, do not allow direct `npm publish` for the trusted publisher and disallow token-based publishing after the staged workflow has been verified.
+- **`next`** — the pre-release channel consumed by snapshot and localhost Polygraph agent environments, and by the `polygraph-next` Claude marketplace entry. It publishes `<next patch>-next.<run number>` to the npm `next` dist-tag for all three packages and repoints the `polygraph-next` marketplace entry at the exact published version.
+- **`latest`** — the production channel. Pick a `specifier` (`patch`, `minor`, or `major`); it publishes to the npm `latest` dist-tag and pushes a `v<version>` git tag.
+
+Leave `dry-run` enabled (the default) for a rehearsal — it resolves the version, builds, and runs `npm publish --dry-run` without publishing or pushing. Disable it to release for real. Only maintainers on the workflow's actor allowlist can run it.
+
+Versions are resolved from the registry (`@polygraph/claude-plugin`'s current `latest`), not from a committed bump, and stamped into all three packages by the build. The Claude, Codex, and OpenCode packages always share one version.
+
+Publishing uses npm OIDC trusted publishing with provenance — no npm tokens. Each package's npmjs.com trusted-publisher settings must allow regular OIDC publishing from `.github/workflows/release.yml`; if they currently require staged publishing, a maintainer must update them before the first `latest` release.
 
 ## Learn More
 
