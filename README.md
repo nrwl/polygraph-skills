@@ -63,11 +63,11 @@ Run the `Release` GitHub Actions workflow (`workflow_dispatch`) and choose a cha
 - **`next`** — the pre-release channel consumed by snapshot and localhost Polygraph agent environments, and by the `polygraph-next` Claude marketplace entry. It publishes `<next patch>-next.<run number>` to the npm `next` dist-tag for all three packages and repoints the `polygraph-next` marketplace entry at the exact published version.
 - **`latest`** — the production channel. Pick a `specifier` (`patch`, `minor`, or `major`); it publishes to the npm `latest` dist-tag and pushes a `v<version>` git tag.
 
-Leave `dry-run` enabled (the default) for a rehearsal — it resolves the version, builds, and runs `npm publish --dry-run` without publishing or pushing. Disable it to release for real. Only maintainers on the workflow's actor allowlist can run it.
+Leave `dry-run` enabled (the default) for a rehearsal — it resolves the version, builds, and runs `npm publish --dry-run` without publishing or pushing. Disable it to release for real. Only maintainers on the workflow's actor allowlist can run it, and real (non-dry-run) releases on either channel additionally wait for approval from the `release-approval` environment reviewers.
 
 Versions are resolved from the registry (`@polygraph/claude-plugin`'s current `latest`), not from a committed bump, and stamped into all three packages by the build. The Claude, Codex, and OpenCode packages always share one version.
 
-Publishing uses npm OIDC trusted publishing with provenance — no npm tokens. Each package's npmjs.com trusted-publisher settings must allow regular OIDC publishing from `.github/workflows/release.yml`; if they currently require staged publishing, a maintainer must update them before the first `latest` release.
+Publishing uses npm OIDC trusted publishing with provenance — no npm tokens. Each package's npmjs.com trusted-publisher settings must allow regular OIDC publishing from `.github/workflows/release.yml`; if they currently require staged publishing, a maintainer must update them before the first `latest` release. The trusted publisher can also pin the GitHub environment name `release-approval` for a tighter OIDC binding.
 
 ## Learn More
 

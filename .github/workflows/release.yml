@@ -44,6 +44,10 @@ jobs:
   release:
     needs: authorize
     runs-on: ubuntu-latest
+    # Real releases wait for approval from the release-approval environment
+    # reviewers; dry-runs run in the unprotected dry-run environment so
+    # rehearsals need no approval.
+    environment: ${{ inputs.dry-run && 'dry-run' || 'release-approval' }}
     permissions:
       contents: write
       id-token: write
