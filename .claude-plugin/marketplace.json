@@ -13,6 +13,15 @@
         "source": "npm",
         "package": "@polygraph/claude-plugin"
       }
+    },
+    {
+      "name": "polygraph-next",
+      "description": "Pre-release (next) channel of the Polygraph plugin used by snapshot and local development environments.",
+      "source": {
+        "source": "npm",
+        "package": "@polygraph/claude-plugin",
+        "version": "0.4.34"
+      }
     }
   ]
 }
