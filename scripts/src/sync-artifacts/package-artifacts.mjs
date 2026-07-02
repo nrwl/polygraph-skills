@@ -7,13 +7,16 @@ export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 }
 
-export function buildMcpConfig() {
+export function buildMcpConfig(agentType) {
+  const env = agentType ? { POLYGRAPH_AGENT_TYPE: agentType } : undefined;
+
   return {
     mcpServers: {
       'polygraph-mcp': {
         type: 'stdio',
         command: 'npx',
         args: ['@polygraph/mcp@latest'],
+        ...(env ? { env } : {}),
       },
     },
   };
@@ -36,7 +39,7 @@ export function buildCodexPluginManifest(pkgJson) {
     version: pkgJson.version,
     description: pkgJson.description,
     author: pkgJson.author,
-    homepage: 'https://nx.dev/features/polygraph',
+    homepage: 'https://docs.trypolygraph.com/',
     repository: pkgJson.repository,
     license: pkgJson.license,
     keywords: pkgJson.keywords,
@@ -51,13 +54,15 @@ export function buildCodexPluginManifest(pkgJson) {
       developerName: pkgJson.author.name,
       category: 'Productivity',
       capabilities: ['Read', 'Write'],
-      websiteURL: 'https://nx.dev/features/polygraph',
+      websiteURL: 'https://docs.trypolygraph.com/',
       defaultPrompt: [
         'Use Polygraph to start a multi-repo session for this change.',
         'Use Polygraph to monitor CI across all repos in my Polygraph session.',
         'Use Polygraph to delegate work to another repo in the session.',
       ],
-      brandColor: '#0F172A',
+      brandColor: "#F59E0B",
+      composerIcon: "./assets/polygraph-icon.png",
+      logo: "./assets/polygraph-icon.png",
     },
   };
 }
@@ -149,6 +154,7 @@ export function finalizeCodexDist(pkgJson) {
       'skills/',
       'agents/',
       'hooks/',
+      'assets/',
       '.mcp.json',
       'README.md',
       'bin/',
@@ -158,7 +164,7 @@ export function finalizeCodexDist(pkgJson) {
       },
     })
   );
-  writeJson(join(codexDir, '.mcp.json'), buildMcpConfig());
+  writeJson(join(codexDir, '.mcp.json'), buildMcpConfig('codex'));
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
 
   // Plugin-bundled SessionStart hooks. Reuses the same re-injection and
@@ -179,6 +185,14 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
+
+  cpSync(
+    join(sourceDir, 'assets'),
+    join(codexDir, 'assets'),
+    {
+      recursive: true
+    }
+  )
 
   copySharedDocs(codexDir);
 }

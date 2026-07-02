@@ -405,3 +405,18 @@ test('buildMcpConfig wraps MCP servers under mcpServers', () => {
     },
   });
 });
+
+test('buildMcpConfig can force an MCP server agent type', () => {
+  assert.deepEqual(buildMcpConfig('codex'), {
+    mcpServers: {
+      'polygraph-mcp': {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@polygraph/mcp@latest'],
+        env: {
+          POLYGRAPH_AGENT_TYPE: 'codex',
+        },
+      },
+    },
+  });
+});

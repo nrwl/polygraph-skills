@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
-import { writeAgentCaptureMapping } from './agent-capture-mapping.mjs';
+import { writeAgentCaptureMapping, logHookFailure } from './agent-capture-mapping.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = __dirname;
@@ -39,11 +39,16 @@ export const PolygraphPlugin = async () => {
     },
 
     'shell.env': async (input, output) => {
-      output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
-      output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
-      // Record the agent-capture mapping so the Polygraph CLI can bind
-      // parent-log capture deterministically for this session.
-      writeAgentCaptureMapping(input.sessionID);
+      try {
+        output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
+        output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
+        // Record the agent-capture mapping so the Polygraph CLI can bind
+        // parent-log capture deterministically for this session.
+        writeAgentCaptureMapping(input.sessionID);
+      } catch (error) {
+        // Never let a hook failure break the OpenCode session; just record it.
+        logHookFailure('opencode:shell.env', error, { sessionID: input?.sessionID });
+      }
     },
 
     // OpenCode has no SessionStart hook, but the Polygraph CLI already seeds the
@@ -52,13 +57,20 @@ export const PolygraphPlugin = async () => {
     // before each compaction; the note is appended to the summarization prompt
     // (best-effort — we trust the model to keep the id + repos in the summary).
     'experimental.session.compacting': async (input, output) => {
-      const note = polygraphCompactionNote(input.sessionID);
-      if (note) {
-        output.context.push(note);
+      try {
+        const note = polygraphCompactionNote(input.sessionID);
+        if (note) {
+          output.context.push(note);
+        }
+        // Refresh the mapping on compaction (same refresh semantics as Claude/Codex
+        // SessionStart hooks firing on 'compact').
+        writeAgentCaptureMapping(input.sessionID);
+      } catch (error) {
+        // Never let a hook failure break the OpenCode session; just record it.
+        logHookFailure('opencode:session.compacting', error, {
+          sessionID: input?.sessionID,
+        });
       }
-      // Refresh the mapping on compaction (same refresh semantics as Claude/Codex
-      // SessionStart hooks firing on 'compact').
-      writeAgentCaptureMapping(input.sessionID);
     },
   };
 };
