@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dist-tag:
+        description: "npm dist-tag / channel to publish"
+        required: true
+        type: choice
+        options:
+          - next
+          - latest
+      specifier:
+        description: "Version bump (used only for the latest channel)"
+        required: false
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      dry-run:
+        description: "Resolve, build, and pack without publishing or pushing"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify actor is an allowed releaser
+        run: |
+          allowed="JamesHenry vsavkin jaysoo Cammisuli StalkAltan FrozenPandaz MaxKless"
+          for user in $allowed; do
+            if [ "$user" = "${{ github.actor }}" ]; then
+              echo "${{ github.actor }} is authorized to release."
+              exit 0
+            fi
+          done
+          echo "::error::${{ github.actor }} is not authorized to run the release workflow."
+          exit 1
+
+  release:
+    needs: authorize
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      PUBLISH_MODE: ${{ inputs.dry-run && '--dry-run' || '--provenance' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version.
+        # OIDC trusted publishing with provenance requires npm 11.5.1 or newer.
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.15.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release version
+        id: version
+        run: |
+          current="$(npm view @polygraph/claude-plugin dist-tags.latest 2>/dev/null || true)"
+          if [ -z "$current" ]; then
+            current="$(node -p "require('./package.json').version")"
+            echo "No published latest dist-tag found; falling back to package.json version $current"
+          fi
+          echo "Current latest: $current"
+
+          # Base the root package.json on the registry latest so the bump is computed from it.
+          npm version "$current" --no-git-tag-version --allow-same-version >/dev/null
+
+          if [ "${{ inputs.dist-tag }}" = "latest" ]; then
+            new="$(npm version "${{ inputs.specifier }}" --no-git-tag-version)"
+            new="${new#v}"
+          else
+            base="$(npm version patch --no-git-tag-version)"
+            base="${base#v}"
+            new="${base}-next.${{ github.run_number }}"
+            npm version "$new" --no-git-tag-version --allow-same-version >/dev/null
+          fi
+
+          echo "Computed version: $new"
+          echo "version=$new" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release"
+            echo ""
+            echo "- Channel (dist-tag): \`${{ inputs.dist-tag }}\`"
+            echo "- Version: \`$new\`"
+            echo "- Dry run: \`${{ inputs.dry-run }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build dist artifacts
+        run: npm run build
+
+      - name: Publish Claude plugin on npm
+        run: npm publish --tag "${{ inputs.dist-tag }}" --access public $PUBLISH_MODE
+        working-directory: dist/claude
+
+      - name: Publish Codex plugin on npm
+        run: npm publish --tag "${{ inputs.dist-tag }}" --access public $PUBLISH_MODE
+        working-directory: dist/codex
+
+      - name: Publish OpenCode plugin on npm
+        run: npm publish --tag "${{ inputs.dist-tag }}" --access public $PUBLISH_MODE
+        working-directory: dist/opencode
+
+      - name: Create and push release tag
+        if: ${{ inputs.dist-tag == 'latest' && !inputs.dry-run }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          git tag "v$version"
+          git push origin "v$version"
+
+      - name: Point next marketplace entry at the published version
+        # Commits the resolved prerelease version back to the polygraph-next marketplace entry on main.
+        # If branch protection blocks this push, grant the actions bot an exception or convert this step
+        # into a pull request instead of a direct push.
+        if: ${{ inputs.dist-tag == 'next' && !inputs.dry-run }}
+        env:
+          NEXT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = ".claude-plugin/marketplace.json";
+            const data = JSON.parse(fs.readFileSync(path, "utf8"));
+            const entry = data.plugins.find((p) => p.name === "polygraph-next");
+            if (!entry) {
+              throw new Error("polygraph-next entry not found in marketplace.json");
+            }
+            entry.source.version = process.env.NEXT_VERSION;
+            fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
+          '
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: point polygraph-next marketplace entry at v$NEXT_VERSION"
+          git push origin HEAD:main
