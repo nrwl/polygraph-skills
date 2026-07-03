@@ -298,6 +298,38 @@ test('rendered polygraph skill documents PR repository semantics', () => {
   assert.doesNotMatch(associatePrSection, /targetRepo|targetRepository/);
 });
 
+test('polygraph skill renders platform-specific sandboxing guidance', () => {
+  const claude = renderSkill('polygraph', 'claude');
+  const codex = renderSkill('polygraph', 'codex');
+  const opencode = renderSkill('polygraph', 'opencode');
+
+  for (const rendered of [claude, codex]) {
+    assert.match(rendered, /## Sandboxing in Polygraph Sessions/);
+    assert.match(rendered, /Recognize sandbox denials — do not retry or work around them\./);
+    assert.match(rendered, /`!`-prefixed user commands — those run inside the same sandbox/);
+    assert.match(rendered, /\*\*Respect the sandbox\*\*/);
+    assert.match(rendered, /Never blame the tooling\./);
+    assert.doesNotMatch(rendered, /\{%|\{\{/);
+  }
+
+  assert.match(claude, /\.claude\/settings\.json/);
+  assert.match(claude, /"allowWrite"/);
+  assert.match(claude, /Agent Options → Claude → sandbox/);
+  assert.match(claude, /agentOptions\.claude\.sandbox: false/);
+  assert.doesNotMatch(claude, /\.codex\/config\.toml/);
+  assert.doesNotMatch(claude, /sandbox_workspace_write/);
+
+  assert.match(codex, /\.codex\/config\.toml/);
+  assert.match(codex, /\[sandbox_workspace_write\]/);
+  assert.match(codex, /network_access = true/);
+  assert.match(codex, /Agent Options → Codex → sandbox/);
+  assert.match(codex, /agentOptions\.codex\.sandbox: false/);
+  assert.doesNotMatch(codex, /\.claude\/settings\.json/);
+  assert.doesNotMatch(codex, /"allowWrite"/);
+
+  assert.doesNotMatch(opencode, /sandbox/i);
+});
+
 test('codex CI skills include built-in subagent guidance', () => {
   const getLatestCi = renderSkill('get-latest-ci');
   const awaitPolygraphCi = renderSkill('await-polygraph-ci');
