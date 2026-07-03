@@ -226,6 +226,10 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(rendered, /Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`/);
   assert.match(rendered, /`wait_agent`/);
+  assert.match(rendered, /stop session work/i);
+  assert.match(rendered, /Re-run `polygraph whoami`/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing session ID/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
   assert.match(rendered, /- repo: "<org\/repo-name>"/);
@@ -240,10 +244,20 @@ test('codex session-start skill routes session creation through init subagent', 
 
   assert.match(rendered, /^---\n[\s\S]*?name: session-start[\s\S]*?\n---\n/);
   assert.match(rendered, /Start or reconnect a Polygraph session/);
+  assert.match(rendered, /Check Authentication First/);
+  assert.match(rendered, /If auth is missing, expired, or no organization is selected, stop session work/);
+  assert.match(rendered, /Facilitate user reauth through the browser-based flow/);
+  assert.match(rendered, /Re-run `whoami` after reauth/);
+  assert.match(rendered, /Parent Session Detection/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing Polygraph session ID/);
+  assert.match(rendered, /init subagent cannot infer the parent's current session context by itself/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /agent_type: "polygraph-init-subagent"/);
   assert.match(rendered, /Do NOT call the Polygraph MCP `list_repos` or `start_session` tools directly/);
   assert.match(rendered, /Direct `add_repo` is allowed only when the user gives exact repository refs/);
   assert.match(rendered, /If sessionId is provided, reuse that session and use add_repo/);
+  assert.match(rendered, /The parent conversation detected any existing sessionId/);
+  assert.match(rendered, /this is a fresh session-start flow; create a new session via start_session/);
   assert.match(rendered, /If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos/);
   assert.match(rendered, /Collect the result with `wait_agent`/);
   assert.match(rendered, /`session_intro` MCP tool/);

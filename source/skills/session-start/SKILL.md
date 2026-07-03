@@ -21,6 +21,23 @@ Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a c
 
 {% endif %}
 
+## Check Authentication First
+
+Before session work, the parent conversation must check Polygraph auth with `whoami` or `polygraph whoami`.
+
+- If auth is valid and an organization is selected, continue.
+- If auth is missing, expired, or no organization is selected, stop session work. Do not keep trying session creation or discovery.
+- Facilitate user reauth through the browser-based flow, such as `polygraph auth login` or the MCP `login` equivalent. After login, make sure an organization is selected with `polygraph account select` or the MCP equivalent when needed.
+- Re-run `whoami` after reauth. Continue only after it confirms a valid login and selected organization.
+
+Do not breeze past auth failures. In Codex Desktop, auth recovery usually requires the user to complete the browser login flow; surface that clearly and wait for it before continuing.
+
+## Parent Session Detection
+
+The parent conversation is responsible for detecting an existing Polygraph session ID from the current context, startup banner, or user-provided session URL/ID, then passing that `sessionId` explicitly to `polygraph-init-subagent` when launching it. The init subagent cannot infer the parent's current session context by itself.
+
+For a fresh Codex Desktop conversation started with `/polygraph:session-start`, no `sessionId` is expected. Launch `polygraph-init-subagent` without `sessionId` so it creates a new session.
+
 ## Decide the Session Path
 
 Pick one path before using tools.
@@ -48,7 +65,9 @@ spawn_agent(
     - sessionId: "<existing-session-id-or-omit-for-new-session>"
     - userContext: "<description of what the user wants to do>"
 
-    If sessionId is provided, reuse that session and use add_repo to attach repositories -- do NOT call start_session. If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos. If discovery is needed, discover candidates and select relevant repos. If sessionId is omitted, create a new session via start_session. Return a structured summary.
+    The parent conversation detected any existing sessionId from current context, startup banner, or user-provided session URL/ID and passed it explicitly here. The init subagent cannot infer parent session context by itself.
+
+    If sessionId is provided, reuse that session and use add_repo to attach repositories -- do NOT call start_session. If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos. If discovery is needed, discover candidates and select relevant repos. If sessionId is omitted, this is a fresh session-start flow; create a new session via start_session. Return a structured summary.
   """
 )
 ```
