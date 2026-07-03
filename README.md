@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nrwl/polygraph-skills/source/assets/polygraph-light.svg">
-    <img src="https://raw.githubusercontent.com/nrwl/polygraph-skills/source/assets/polygraph.svg" alt="Polygraph Logo" width="140">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/nrwl/polygraph-skills/main/source/assets/polygraph-light.svg">
+    <img src="https://raw.githubusercontent.com/nrwl/polygraph-skills/main/source/assets/polygraph.svg" alt="Polygraph Logo" width="140">
   </picture>
 </p>
 
@@ -37,7 +37,7 @@ It detects your AI agent — Claude Code, Codex, OpenCode, and more — and inst
 
 ## Skills
 
-- **polygraph** — Comprehensive guidance for multi-repo coordination: session init, delegation, branch pushing, PR creation, and session management
+- **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management
 - **await-polygraph-ci** — Wait for CI pipelines to settle across all repos in a session, investigate failures, and present fix options
 - **get-latest-ci** — One-shot fetch of the latest CI pipeline execution for the current branch
 
