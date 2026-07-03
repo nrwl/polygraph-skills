@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for working with Polygraph — repositories, sessions, child agents, PRs, and CI. Use when discovering repositories or how code is consumed across them, starting, joining, resuming, or sharing a Polygraph session, handing off progress, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, or checking CI status and logs. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for working with Polygraph sessions, shared/resumable agent context, repository graph visibility, linked PR/CI state, and cross-repo expansion when needed. Use when starting, joining, resuming, inspecting, or sharing a Polygraph session; handing off progress; discovering related repositories; coordinating changes/branches/PRs across repos; delegating tasks to child agents in different repos; or checking CI status and logs. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
 {% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
@@ -79,10 +79,13 @@ Before using Polygraph tools, ensure the CLI is authenticated and an organizatio
 
 ### Check Authentication
 
-Use `polygraph whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
+Use `polygraph whoami` (or the `whoami` MCP tool) before session work to check if the user is currently logged in and which organization is active.
 
 - If the user **is logged in** and an org is selected → proceed to the workflow.
-- If the user **is not logged in** → use `polygraph auth login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+- If auth is **missing, expired, or no org is selected** → stop session work. Do not keep trying session creation, repository discovery, delegation, or CI checks.
+- Facilitate user reauth through the browser-based login flow, such as `polygraph auth login` (or the `login` MCP tool). In interactive desktop clients, browser reauth is usually user-driven; surface the need clearly and wait for the user to complete it.
+- After login, an organization must be selected. Use `polygraph account select` (or the MCP equivalent) when needed.
+- Re-run `polygraph whoami` (or `whoami`) after reauth and org selection. Continue only after it confirms a valid login and selected organization.
 
 ### Select Organization
 
@@ -136,6 +139,8 @@ In case B, direct exact repo refs go straight to `add_repo`; use `list_repos` on
 
 - For a new session (case C), `start_session` auto-generates a unique session ID. You do NOT need to pass one.
 - For cases A and B, the session ID already exists; reuse it everywhere — never let `start_session` run in this conversation.
+- The parent conversation is responsible for detecting an existing session ID from current context, the startup banner, or a user-provided session URL/ID, then passing it explicitly to `polygraph-init-subagent`. The init subagent cannot infer parent session context by itself.
+- For a fresh Codex Desktop conversation started with `/polygraph:session-start`, no `sessionId` is expected; launch `polygraph-init-subagent` without `sessionId` so it creates a new session.
 {% if platform == "claude" %}
 
 **Launch the init subagent** (cases B and C — skip in case A):

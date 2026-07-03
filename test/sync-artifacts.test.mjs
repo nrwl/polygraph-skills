@@ -207,7 +207,6 @@ test('session description reference ships to every platform dist skill folder', 
     assert.match(reference, /> \[!NOTE\]/);
     assert.match(reference, /> \[!IMPORTANT\]/);
     assert.match(reference, /> \[!TIP\]/);
-    assert.match(reference, /newly supported by the app renderer/i);
     assert.match(reference, /Tables \(GFM\)/);
     assert.match(reference, /mermaid/);
     assert.match(reference, /Do NOT redraw the cross-repo dependency \/ repository graph/);
@@ -227,12 +226,41 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(rendered, /Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`/);
   assert.match(rendered, /`wait_agent`/);
+  assert.match(rendered, /stop session work/i);
+  assert.match(rendered, /Re-run `polygraph whoami`/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing session ID/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
   assert.match(rendered, /- repo: "<org\/repo-name>"/);
   assert.match(rendered, /repo: "org\/repo-name"/);
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
+  assertNoNonCodexDelegationText(rendered);
+});
+
+test('codex session-start skill routes session creation through init subagent', () => {
+  const rendered = renderSkill('session-start');
+
+  assert.match(rendered, /^---\n[\s\S]*?name: session-start[\s\S]*?\n---\n/);
+  assert.match(rendered, /Start or reconnect a Polygraph session/);
+  assert.match(rendered, /Check Authentication First/);
+  assert.match(rendered, /If auth is missing, expired, or no organization is selected, stop session work/);
+  assert.match(rendered, /Facilitate user reauth through the browser-based flow/);
+  assert.match(rendered, /Re-run `whoami` after reauth/);
+  assert.match(rendered, /Parent Session Detection/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing Polygraph session ID/);
+  assert.match(rendered, /init subagent cannot infer the parent's current session context by itself/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
+  assert.match(rendered, /agent_type: "polygraph-init-subagent"/);
+  assert.match(rendered, /Do NOT call the Polygraph MCP `list_repos` or `start_session` tools directly/);
+  assert.match(rendered, /Direct `add_repo` is allowed only when the user gives exact repository refs/);
+  assert.match(rendered, /If sessionId is provided, reuse that session and use add_repo/);
+  assert.match(rendered, /The parent conversation detected any existing sessionId/);
+  assert.match(rendered, /this is a fresh session-start flow; create a new session via start_session/);
+  assert.match(rendered, /If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos/);
+  assert.match(rendered, /Collect the result with `wait_agent`/);
+  assert.match(rendered, /`session_intro` MCP tool/);
   assertNoNonCodexDelegationText(rendered);
 });
 
@@ -380,6 +408,24 @@ test('codex plugin manifest registers the bundled SessionStart hooks file', () =
   const manifest = buildCodexPluginManifest(readRootPackageJson());
 
   assert.equal(manifest.hooks, './hooks/hooks.json');
+});
+
+test('codex plugin manifest describes Polygraph beyond multi-repo coordination', () => {
+  const manifest = buildCodexPluginManifest(readRootPackageJson());
+
+  assert.equal(
+    manifest.interface.shortDescription,
+    'Cross-repo visibility and persistent memory for Codex agents.'
+  );
+  assert.equal(
+    manifest.interface.longDescription,
+    'Give Codex the Polygraph meta-harness: repository graph context, resumable agent sessions, linked PR and CI state, and workflows for coordinating work across repo boundaries when needed.'
+  );
+  assert.deepEqual(manifest.interface.defaultPrompt, [
+    'Start a Polygraph session for this work.',
+    'Start a Polygraph session and include the repos related to this change.',
+    'Resume or inspect my Polygraph session and summarize the current state.',
+  ]);
 });
 
 test('opencode package is published as a native plugin package', () => {
