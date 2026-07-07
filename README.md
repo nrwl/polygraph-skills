@@ -40,6 +40,7 @@ It detects your AI agent — Claude Code, Codex, OpenCode, and more — and inst
 - **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management
 - **await-polygraph-ci** — Wait for CI pipelines to settle across all repos in a session, investigate failures, and present fix options
 - **get-latest-ci** — One-shot fetch of the latest CI pipeline execution for the current branch
+- **session-debrief** — Analyze the raw logs of past Polygraph sessions and produce structured, rank-ordered debriefs for use in a different session
 
 ## Agents
 
