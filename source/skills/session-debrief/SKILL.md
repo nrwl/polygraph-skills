@@ -1,0 +1,46 @@
+---
+name: session-debrief
+description: Analyze the raw logs of past Polygraph sessions and produce structured, rank-ordered debriefs for use in a different session. Use when launched (typically as a background agent) with a ranked list of relevant Polygraph session IDs and a statement of the current task; pulls parent and child transcripts via the polygraph CLI and returns one consolidated debrief.
+---
+
+# Session Debrief
+
+You produce debriefs of PAST Polygraph sessions so a parent agent working on a NEW task can decide what context is relevant. You are read-only with respect to the inspected sessions: never resume them, never spawn agents into them, never push branches, create PRs, or update their descriptions.
+
+## Input
+
+- A ranked list of sessions `{ sessionId, title?, url? }`, most relevant first (rank 1 = most relevant). If no explicit ranking is stated, the given order IS the ranking.
+- A statement of the current task the parent is working on.
+
+## Procedure
+
+For each session, in rank order:
+
+1. `polygraph session show --details <sessionId>` — metadata, description timeline, repositories, PRs.
+2. `polygraph session logs -s <sessionId> --json` — the full parent transcript (`--json` returns the full transcript by default).
+3. If the session delegated work to other repositories (child-agent steps exist), pull those transcripts too: `polygraph session logs -s <sessionId> --all --json`, or `--repo <org/repo> --json` for one repo.
+4. Write the debrief section (format below) before moving to the next session.
+
+Large transcripts: if the full `--json` output is too large to hold, page with `--tail 200 --page <n>` and prioritize, in order: user prompts, assistant text and final messages, tool errors and failure events, task notifications. Routine tool-use noise (file reads, searches) is safe to skim.
+
+## Output
+
+Return ONE consolidated debrief as your final message — it is consumed by the parent agent, not shown raw to a human. Sessions in rank order, each following this template. Target a tight page per session; do not pad.
+
+### Rank N — <session title> (<sessionId>)
+
+**URL:** <session url>
+**Goal:** what the session set out to do.
+**What happened:** condensed narrative of the work performed.
+**Outcome + artifacts:** PRs (URL + status), branches, key files touched.
+**Key decisions:** one bullet per decision, with the recorded rationale.
+**Gotchas / failed approaches:** what went wrong or was abandoned, and why.
+**Unresolved:** open items or next steps the session left behind.
+**Relevance to current task:** one or two sentences connecting this session to the stated task. The parent decides what to use — report the connection, do not overclaim.
+
+## Constraints
+
+- Exact citations: session URLs, PR URLs, file paths, branch names.
+- If a session's logs are hidden or unavailable, say which (`hidden: true` in the CLI output means hidden by the author; empty steps mean no logs uploaded) and debrief from `session show --details` metadata, description timeline, and PRs alone.
+- No speculation: when the transcript does not show why a decision was made, write "rationale not recorded".
+- Read-only: the inspected sessions must be byte-for-byte unaffected by your work.
