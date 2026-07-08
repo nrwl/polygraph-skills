@@ -54,3 +54,4 @@ Return ONE consolidated debrief as your final message — it is consumed by the 
 - No speculation: when the transcript does not show why a decision was made, write "rationale not recorded".
 - Read-only: the inspected sessions must be byte-for-byte unaffected by your work.
 - Session data only: debrief from what the CLI and MCP tools return (metadata, description timeline, transcripts, PRs). Do NOT read repository code, run git or gh, or fetch PR diffs to verify claims — report what the session shows and leave verification to the parent.
+- Fail fast: if a CLI command errors, retry it once at most, then report the error verbatim in your debrief section and move on. Do not build workarounds (no copying auth/config to a fake HOME, no POLYGRAPH_ROOT redirection, no privilege or sandbox escapes) — a debrief that says "logs unavailable: <error>" is more useful than one that arrives late.
