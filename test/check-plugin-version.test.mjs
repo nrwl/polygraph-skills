@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,7 +18,8 @@ import {
   buildOutdatedMessage,
   checkPluginVersion,
   compareSemver,
-  readFreshCachedLatest,
+  isCacheFresh,
+  readCache,
   resolveInstalledVersion,
 } from '../source/hooks/check-plugin-version.mjs';
 
@@ -185,7 +185,7 @@ test('installed version newer than latest stays silent', async () => {
   }
 });
 
-test('registry unreachable rejects without emitting a message', async () => {
+test('registry unreachable rejects without emitting a message and negative-caches', async () => {
   const home = makeDir('pg-home-');
   const root = makePluginRoot('0.2.33');
   try {
@@ -200,7 +200,83 @@ test('registry unreachable rejects without emitting a message', async () => {
       }),
       /network down/
     );
-    assert.ok(!existsSync(cacheFile(home, 'claude')), 'no cache written');
+
+    const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
+    assert.equal(cache.latest, null);
+    assert.equal(cache.installed, '0.2.33');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('private registry 404/401 responses reject without emitting a message', async () => {
+  const home = makeDir('pg-home-');
+  const root = makePluginRoot('0.2.33');
+  try {
+    for (const status of [404, 401]) {
+      rmSync(cacheFile(home, 'claude'), { force: true });
+      await assert.rejects(
+        checkPluginVersion({
+          harness: 'claude',
+          pluginRoot: root,
+          home,
+          fetchImpl: async () => ({ ok: false, status, json: async () => ({}) }),
+        }),
+        new RegExp(`registry responded ${status}`)
+      );
+      const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
+      assert.equal(cache.latest, null, `status ${status} is negative-cached`);
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fresh negative cache skips the fetch and stays silent', async () => {
+  const home = makeDir('pg-home-');
+  const root = makePluginRoot('0.2.33');
+  const now = 1_000_000_000_000;
+  const calls = [];
+  try {
+    mkdirSync(join(home, '.polygraph', 'logs'), { recursive: true });
+    writeFileSync(
+      cacheFile(home, 'claude'),
+      JSON.stringify({ checkedAt: now - 60_000, installed: '0.2.33', latest: null })
+    );
+
+    const message = await checkPluginVersion({
+      harness: 'claude',
+      pluginRoot: root,
+      home,
+      fetchImpl: makeFetch('0.4.37', calls),
+      now,
+    });
+    assert.equal(message, null);
+    assert.equal(calls.length, 0, 'no fetch after a recent failed check');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unparseable dist-tags latest is negative-cached and silent', async () => {
+  const home = makeDir('pg-home-');
+  const root = makePluginRoot('0.2.33');
+  const now = 1_000_000_000_000;
+  try {
+    const message = await checkPluginVersion({
+      harness: 'claude',
+      pluginRoot: root,
+      home,
+      fetchImpl: makeFetch('not-a-version'),
+      now,
+    });
+    assert.equal(message, null);
+
+    const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
+    assert.equal(cache.latest, null);
   } finally {
     rmSync(home, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
@@ -256,7 +332,11 @@ test('fresh cache (<24h) skips the network fetch and still warns', async () => {
     mkdirSync(join(home, '.polygraph', 'logs'), { recursive: true });
     writeFileSync(
       cacheFile(home, 'claude'),
-      JSON.stringify({ checkedAt: now - DAY_MS + 60_000, latest: '0.4.37' })
+      JSON.stringify({
+        checkedAt: now - DAY_MS + 60_000,
+        installed: '0.2.33',
+        latest: '0.4.37',
+      })
     );
 
     const message = await checkPluginVersion({
@@ -283,7 +363,11 @@ test('stale cache (>24h) triggers a fetch and refreshes the cache', async () => 
     mkdirSync(join(home, '.polygraph', 'logs'), { recursive: true });
     writeFileSync(
       cacheFile(home, 'claude'),
-      JSON.stringify({ checkedAt: now - DAY_MS - 1, latest: '0.3.0' })
+      JSON.stringify({
+        checkedAt: now - DAY_MS - 1,
+        installed: '0.2.33',
+        latest: '0.3.0',
+      })
     );
 
     const message = await checkPluginVersion({
@@ -298,6 +382,7 @@ test('stale cache (>24h) triggers a fetch and refreshes the cache', async () => 
 
     const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
     assert.equal(cache.latest, '0.4.37');
+    assert.equal(cache.installed, '0.2.33');
     assert.equal(cache.checkedAt, now);
   } finally {
     rmSync(home, { recursive: true, force: true });
@@ -305,12 +390,71 @@ test('stale cache (>24h) triggers a fetch and refreshes the cache', async () => 
   }
 });
 
-test('corrupt cache is treated as stale', () => {
+test('updating the plugin invalidates the cache and triggers a fresh check', async () => {
   const home = makeDir('pg-home-');
+  const root = makePluginRoot('0.4.37');
+  const now = 1_000_000_000_000;
+  const calls = [];
+  try {
+    // Fresh cache recorded while 0.2.33 was installed; the user has since
+    // updated the plugin to 0.4.37 — the stale entry must not be trusted.
+    mkdirSync(join(home, '.polygraph', 'logs'), { recursive: true });
+    writeFileSync(
+      cacheFile(home, 'claude'),
+      JSON.stringify({ checkedAt: now - 60_000, installed: '0.2.33', latest: '0.4.37' })
+    );
+
+    const message = await checkPluginVersion({
+      harness: 'claude',
+      pluginRoot: root,
+      home,
+      fetchImpl: makeFetch('0.4.37', calls),
+      now,
+    });
+    assert.equal(calls.length, 1, 'installed-version change forces a re-fetch');
+    assert.equal(message, null);
+
+    const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
+    assert.equal(cache.installed, '0.4.37');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('corrupt or mismatched cache entries are not fresh', () => {
+  const home = makeDir('pg-home-');
+  const now = 1_000_000_000_000;
   try {
     mkdirSync(join(home, '.polygraph', 'logs'), { recursive: true });
     writeFileSync(cacheFile(home, 'claude'), 'not json');
-    assert.equal(readFreshCachedLatest('claude', home), null);
+    assert.equal(readCache('claude', home), null);
+
+    assert.equal(isCacheFresh(null, '0.4.37', now), false);
+    assert.equal(isCacheFresh({}, '0.4.37', now), false);
+    assert.equal(
+      isCacheFresh({ checkedAt: 'yesterday', installed: '0.4.37', latest: '0.4.37' }, '0.4.37', now),
+      false
+    );
+    assert.equal(
+      isCacheFresh({ checkedAt: now + 60_000, installed: '0.4.37', latest: '0.4.37' }, '0.4.37', now),
+      false,
+      'cache from the future is not trusted'
+    );
+    assert.equal(
+      isCacheFresh({ checkedAt: now, installed: '0.4.37', latest: 'garbage' }, '0.4.37', now),
+      false
+    );
+    assert.equal(
+      isCacheFresh({ checkedAt: now, installed: '0.2.33', latest: '0.4.37' }, '0.4.37', now),
+      false,
+      'installed version mismatch is not fresh'
+    );
+    assert.equal(
+      isCacheFresh({ checkedAt: now, installed: '0.4.37', latest: null }, '0.4.37', now),
+      true,
+      'recent negative cache is fresh'
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -379,7 +523,7 @@ test('e2e: current plugin prints nothing and exits 0', async () => {
   }
 });
 
-test('e2e: unreachable registry prints nothing, exits 0, logs the failure', async () => {
+test('e2e: unreachable registry prints nothing, exits 0, logs and negative-caches', async () => {
   const home = makeDir('pg-home-');
   const { root, hookPath } = makeInstalledPlugin('0.2.33');
   try {
@@ -387,9 +531,17 @@ test('e2e: unreachable registry prints nothing, exits 0, logs the failure', asyn
     assert.equal(stdout, '');
     assert.equal(stderr, '');
 
-    const log = readFileSync(join(home, '.polygraph', 'logs', 'hooks.log'), 'utf8');
-    const entry = JSON.parse(log.trim().split('\n').at(-1));
-    assert.equal(entry.hook, 'claude:check-plugin-version');
+    const logFile = join(home, '.polygraph', 'logs', 'hooks.log');
+    const entries = readFileSync(logFile, 'utf8').trim().split('\n');
+    assert.equal(entries.length, 1);
+    assert.equal(JSON.parse(entries[0]).hook, 'claude:check-plugin-version');
+
+    // Second start within the cache window: the negative cache must prevent
+    // another fetch attempt (no new failure log entry, still silent).
+    const second = await runHook(hookPath, home, 'http://127.0.0.1:1');
+    assert.equal(second.stdout, '');
+    assert.equal(second.stderr, '');
+    assert.equal(readFileSync(logFile, 'utf8').trim().split('\n').length, 1);
   } finally {
     rmSync(home, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
@@ -410,6 +562,7 @@ test('successful check writes a cache with timestamp', async () => {
     });
     const cache = JSON.parse(readFileSync(cacheFile(home, 'claude'), 'utf8'));
     assert.equal(cache.latest, '0.4.37');
+    assert.equal(cache.installed, '0.4.37');
     assert.equal(cache.checkedAt, now);
   } finally {
     rmSync(home, { recursive: true, force: true });

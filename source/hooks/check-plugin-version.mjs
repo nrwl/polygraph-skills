@@ -157,29 +157,34 @@ function cachePath(harness, home) {
   return join(home, '.polygraph', 'logs', `plugin-version-check-${harness}.json`);
 }
 
-export function readFreshCachedLatest(harness, home, now = Date.now()) {
+export function readCache(harness, home) {
   try {
-    const cache = tryParseJson(readFileSync(cachePath(harness, home), 'utf8'));
-    if (
-      cache &&
+    return tryParseJson(readFileSync(cachePath(harness, home), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// A cache entry is only trusted when it is recent, was recorded for the
+// currently installed version (updating the plugin invalidates it), and holds
+// either a parseable latest version or null (a negatively-cached failed
+// fetch, so an offline machine does not re-stall on every session start).
+export function isCacheFresh(cache, installed, now) {
+  return Boolean(
+    cache &&
       Number.isFinite(cache.checkedAt) &&
       now - cache.checkedAt >= 0 &&
       now - cache.checkedAt < CACHE_MAX_AGE_MS &&
-      parseSemver(cache.latest)
-    ) {
-      return cache.latest;
-    }
-  } catch {
-    // missing or unreadable cache — treat as stale
-  }
-  return null;
+      cache.installed === installed &&
+      (cache.latest === null || parseSemver(cache.latest))
+  );
 }
 
-function writeCache(harness, home, latest, now) {
+function writeCache(harness, home, entry) {
   const path = cachePath(harness, home);
   mkdirSync(dirname(path), { recursive: true });
   const tmpPath = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmpPath, JSON.stringify({ checkedAt: now, latest }) + '\n');
+  writeFileSync(tmpPath, JSON.stringify(entry) + '\n');
   renameSync(tmpPath, path);
 }
 
@@ -228,11 +233,25 @@ export async function checkPluginVersion({
   const installed = resolveInstalledVersion(pluginRoot);
   if (!installed) return null;
 
-  let latest = readFreshCachedLatest(harness, home, now);
-  if (!latest) {
-    latest = await fetchLatestVersion(packageName, fetchImpl);
-    if (!parseSemver(latest)) return null;
-    writeCache(harness, home, latest, now);
+  let latest;
+  const cache = readCache(harness, home);
+  if (isCacheFresh(cache, installed, now)) {
+    if (cache.latest === null) return null;
+    latest = cache.latest;
+  } else {
+    try {
+      latest = await fetchLatestVersion(packageName, fetchImpl);
+    } catch (error) {
+      // Negative cache: remember the failed fetch so an offline machine
+      // does not re-stall for the fetch timeout on every session start.
+      writeCache(harness, home, { checkedAt: now, installed, latest: null });
+      throw error;
+    }
+    if (!parseSemver(latest)) {
+      writeCache(harness, home, { checkedAt: now, installed, latest: null });
+      return null;
+    }
+    writeCache(harness, home, { checkedAt: now, installed, latest });
   }
 
   if (compareSemver(installed, latest) === -1) {
