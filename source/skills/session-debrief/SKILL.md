@@ -25,10 +25,10 @@ Speed matters: the parent agent keeps working while it waits for you, and it fol
 Invoke the CLI as `${POLYGRAPH_CLI:-polygraph}` in every command: when the session was launched from a specific CLI build, `POLYGRAPH_CLI` points at it and children must use the same one. When you copy these steps into a subagent prompt, keep the `${POLYGRAPH_CLI:-polygraph}` form verbatim.
 
 1. `${POLYGRAPH_CLI:-polygraph} session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
-2. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --json` — the parent transcript plus every child transcript in ONE call. Do not fetch the parent and child transcripts with separate commands.
+2. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --tail none > "$TMPDIR/<sessionId>-logs.txt" 2>&1` — the parent transcript plus every child transcript, rendered as plain text, in ONE call. Then read the file directly (with offsets for large files). Do NOT fetch `--json` and do NOT query the transcript with node/python one-liners — reading the rendered text is faster and you extract while reading.
 3. Write the debrief section (format below).
 
-Large transcripts: if the full `--json` output is too large to hold, page with `--tail 200 --page <n>` and prioritize, in order: user prompts, assistant text and final messages, tool errors and failure events, task notifications. Routine tool-use noise (file reads, searches) is safe to skim.
+Large transcripts: read the file in a few large chunks, prioritizing user prompts, assistant text and final messages, tool errors and failure events, and task notifications. Routine tool-use noise (file reads, searches) is safe to skim. Do not make repeated small queries against the transcript; each round trip costs more than reading a bigger chunk.
 
 ## Output
 
@@ -51,3 +51,4 @@ Return ONE consolidated debrief as your final message — it is consumed by the 
 - If a session's logs are hidden or unavailable, say which (`hidden: true` in the CLI output means hidden by the author; empty steps mean no logs uploaded) and debrief from `session show --details` metadata, description timeline, and PRs alone.
 - No speculation: when the transcript does not show why a decision was made, write "rationale not recorded".
 - Read-only: the inspected sessions must be byte-for-byte unaffected by your work.
+- Session data only: debrief from what the CLI and MCP tools return (metadata, description timeline, transcripts, PRs). Do NOT read repository code, run git or gh, or fetch PR diffs to verify claims — report what the session shows and leave verification to the parent.
