@@ -14,11 +14,11 @@ You produce debriefs of PAST Polygraph sessions so a parent agent working on a N
 
 ## Procedure
 
-Speed matters: the parent agent keeps working while it waits for you, and it folds your debrief in whenever it lands. Debrief the sessions CONCURRENTLY, never one after another.
+Speed matters: the parent agent keeps working while it waits for you, and it folds your debrief in whenever it lands.
 
-**Fan out (default).** Spawn one subagent per session, all in a single message so they run in parallel. Give each subagent: its session entry (sessionId, title, url, rank), the current-task statement, the "Debriefing one session" steps, and the per-session output template — copied into its prompt, since it cannot see this skill. Each subagent returns its completed debrief section as its final message. Assemble the returned sections in rank order and return them; do not rewrite them.
+**Single session (the usual case).** The parent normally launches one background debrief agent per related session, so your input will usually contain exactly one session. Run the "Debriefing one session" steps directly — do not spawn a subagent for a single session.
 
-**Fallback.** Only if your environment cannot spawn subagents, run the "Debriefing one session" steps yourself, sequentially in rank order.
+**Multiple sessions: fan out.** When given more than one session, debrief them CONCURRENTLY, never one after another: spawn one subagent per session, all in a single message so they run in parallel. Give each subagent: its session entry (sessionId, title, url, rank), the current-task statement, the "Debriefing one session" steps, and the per-session output template — copied into its prompt, since it cannot see this skill. Each subagent returns its completed debrief section as its final message. Assemble the returned sections in rank order and return them; do not rewrite them. Only if your environment cannot spawn subagents, run the "Debriefing one session" steps yourself, sequentially in rank order.
 
 ### Debriefing one session
 
