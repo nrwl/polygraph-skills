@@ -22,8 +22,10 @@ Speed matters: the parent agent keeps working while it waits for you, and it fol
 
 ### Debriefing one session
 
-1. `polygraph session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
-2. `polygraph session logs -s <sessionId> --all --json` — the parent transcript plus every child transcript in ONE call. Do not fetch the parent and child transcripts with separate commands.
+Invoke the CLI as `${POLYGRAPH_CLI:-polygraph}` in every command: when the session was launched from a specific CLI build, `POLYGRAPH_CLI` points at it and children must use the same one. When you copy these steps into a subagent prompt, keep the `${POLYGRAPH_CLI:-polygraph}` form verbatim.
+
+1. `${POLYGRAPH_CLI:-polygraph} session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
+2. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --json` — the parent transcript plus every child transcript in ONE call. Do not fetch the parent and child transcripts with separate commands.
 3. Write the debrief section (format below).
 
 Large transcripts: if the full `--json` output is too large to hold, page with `--tail 200 --page <n>` and prioritize, in order: user prompts, assistant text and final messages, tool errors and failure events, task notifications. Routine tool-use noise (file reads, searches) is safe to skim.
