@@ -14,12 +14,17 @@ You produce debriefs of PAST Polygraph sessions so a parent agent working on a N
 
 ## Procedure
 
-For each session, in rank order:
+Speed matters: the parent agent keeps working while it waits for you, and it folds your debrief in whenever it lands. Debrief the sessions CONCURRENTLY, never one after another.
 
-1. `polygraph session show --details <sessionId>` — metadata, description timeline, repositories, PRs.
-2. `polygraph session logs -s <sessionId> --json` — the full parent transcript (`--json` returns the full transcript by default).
-3. If the session delegated work to other repositories (child-agent steps exist), pull those transcripts too: `polygraph session logs -s <sessionId> --all --json`, or `--repo <org/repo> --json` for one repo.
-4. Write the debrief section (format below) before moving to the next session.
+**Fan out (default).** Spawn one subagent per session, all in a single message so they run in parallel. Give each subagent: its session entry (sessionId, title, url, rank), the current-task statement, the "Debriefing one session" steps, and the per-session output template — copied into its prompt, since it cannot see this skill. Each subagent returns its completed debrief section as its final message. Assemble the returned sections in rank order and return them; do not rewrite them.
+
+**Fallback.** Only if your environment cannot spawn subagents, run the "Debriefing one session" steps yourself, sequentially in rank order.
+
+### Debriefing one session
+
+1. `polygraph session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
+2. `polygraph session logs -s <sessionId> --all --json` — the parent transcript plus every child transcript in ONE call. Do not fetch the parent and child transcripts with separate commands.
+3. Write the debrief section (format below).
 
 Large transcripts: if the full `--json` output is too large to hold, page with `--tail 200 --page <n>` and prioritize, in order: user prompts, assistant text and final messages, tool errors and failure events, task notifications. Routine tool-use noise (file reads, searches) is safe to skim.
 
