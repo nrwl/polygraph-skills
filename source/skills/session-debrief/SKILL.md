@@ -25,8 +25,9 @@ Speed matters: the parent agent keeps working while it waits for you, and it fol
 Invoke the CLI as `${POLYGRAPH_CLI:-polygraph}` in every command: when the session was launched from a specific CLI build, `POLYGRAPH_CLI` points at it and children must use the same one. When you copy these steps into a subagent prompt, keep the `${POLYGRAPH_CLI:-polygraph}` form verbatim.
 
 1. `${POLYGRAPH_CLI:-polygraph} session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
-2. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --tail none > "$TMPDIR/<sessionId>-logs.txt" 2>&1` — the parent transcript plus every child transcript, rendered as plain text, in ONE call. Then read the file directly (with offsets for large files). Do NOT fetch `--json` and do NOT query the transcript with node/python one-liners — reading the rendered text is faster and you extract while reading.
-3. Write the debrief section (format below).
+2. Duplicate-work check: if the metadata shows this session pursuing the SAME task as the current one (not merely related work) and it is unfinished or recently active, do NOT read the transcripts. Return the debrief section immediately, with `**DUPLICATE WORK IN FLIGHT**` as the first line after the heading, followed by the session's status and last activity, one line of evidence for the match, and what resuming it would restore. The parent halts and asks the user to choose between resuming that session and continuing the current one, so speed matters more than depth here.
+3. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --tail none > "$TMPDIR/<sessionId>-logs.txt" 2>&1` — the parent transcript plus every child transcript, rendered as plain text, in ONE call. Then read the file directly (with offsets for large files). Do NOT fetch `--json` and do NOT query the transcript with node/python one-liners — reading the rendered text is faster and you extract while reading.
+4. Write the debrief section (format below).
 
 Large transcripts: read the file in a few large chunks, prioritizing user prompts, assistant text and final messages, tool errors and failure events, and task notifications. Routine tool-use noise (file reads, searches) is safe to skim. Do not make repeated small queries against the transcript; each round trip costs more than reading a bigger chunk.
 
@@ -36,6 +37,7 @@ Return ONE consolidated debrief as your final message — it is consumed by the 
 
 ### Rank N — <session title> (<sessionId>)
 
+**DUPLICATE WORK IN FLIGHT** — only when the duplicate-work check fired: status, last activity, one-line evidence. Omit this line otherwise.
 **URL:** <session url>
 **Goal:** what the session set out to do.
 **What happened:** condensed narrative of the work performed.
