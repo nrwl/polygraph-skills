@@ -143,7 +143,7 @@ test('codex message includes codex remediation command', async () => {
       home,
       fetchImpl: makeFetch('0.4.37'),
     });
-    assert.ok(message.includes('npx @polygraph/codex-plugin@latest install'));
+    assert.ok(message.includes('npx --prefer-online @polygraph/codex-plugin@latest install'));
     assert.ok(message.includes('codex plugin add polygraph@polygraph-plugins'));
   } finally {
     rmSync(home, { recursive: true, force: true });

@@ -37,7 +37,7 @@ const PACKAGE_BY_HARNESS = {
 const REMEDIATION_BY_HARNESS = {
   claude: 'run `claude plugins update polygraph@polygraph-plugins`',
   codex:
-    'run `npx @polygraph/codex-plugin@latest install` then `codex plugin add polygraph@polygraph-plugins`',
+    'run `npx --prefer-online @polygraph/codex-plugin@latest install` then `codex plugin add polygraph@polygraph-plugins`',
 };
 
 // Append a one-line JSON record of a hook failure to ~/.polygraph/logs/hooks.log.
