@@ -29,6 +29,8 @@ show_session(sessionId: "<session-id>")
 
 It returns the full session, including `repositories[]` (for repo display names) and `pullRequests[]`. Each `pullRequests[]` entry has `id`, `repositoryId`, `url`, `branch`, `status` (PR status: `DRAFT` / `OPEN` / `MERGED` / `CLOSED`), and a `ci` object — **`ci` may be absent if the PR has no CI**. When present, `ci` has `status`, `cipeUrl` (non-null ⇒ CIPE; null + `externalCIRuns` ⇒ external CI), `completedAt`, `selfHealingStatus`, and `externalCIRuns[]` (each with `runId`, `name`, `status`, `conclusion`, `url`, and `jobs[]`). Always read `ci` defensively (`pr.ci?.…`).
 
+**`cipeUrl` is a human-facing web link, NOT a data source.** It points at the Nx Cloud web app, which requires browser authentication and returns no machine-readable data. Never fetch, curl, WebFetch, or poll `cipeUrl` (or any other Nx Cloud URL) directly. CI *status* comes only from polling `show_session`; CIPE *details* (failed tasks, logs, self-healing) come only from the Nx MCP `ci_information` tool. The only thing to do with `cipeUrl` is display it to the user so they can open it in a browser.
+
 ## Prerequisite: Nx MCP server (CIPE deep-dive + self-healing)
 
 CIPE failure investigation (`ci_information`) and applying/rejecting self-healing fixes (`update_self_healing_fix`) are **not** polygraph-mcp tools — they are provided by the **Nx MCP server** (`mcp__plugin_nx_nx-mcp`). Before relying on the Phase 4 CIPE deep-dive or the Phase 5 self-healing actions, install the Nx MCP server and verify it is available.
@@ -38,7 +40,14 @@ If the Nx MCP server is **not** available, this skill can still:
 - Monitor CI to a terminal state (Phases 1–3) via `show_session`, and
 - Download and inspect **external-CI** job logs via `get_ci_logs` (a polygraph-mcp tool).
 
-But it **cannot** perform CIPE deep-dives (`ci_information`) or apply self-healing fixes (`update_self_healing_fix`) without the Nx MCP server. If nx-mcp is missing, state this limitation to the user explicitly.
+But it **cannot** perform CIPE deep-dives (`ci_information`) or apply self-healing fixes (`update_self_healing_fix`) without the Nx MCP server. Do NOT compensate by fetching or scraping `cipeUrl` — there is no HTTP fallback for CIPE data; the Nx MCP server is the only programmatic access.
+
+If nx-mcp is missing, don't just report the limitation — tell the user how to install it:
+
+- In an Nx workspace, run `nx configure-ai-agents` — it sets up the Nx MCP server (and Nx agent skills) for their AI tools, or
+- Add the server manually as a stdio MCP server: `npx nx-mcp@latest` (see https://github.com/nrwl/nx-ai-agents-config for details).
+
+MCP servers load at session start, so the user must restart the agent session after installing before the deep-dive and self-healing actions become available.
 
 ## Phase 1: Session Setup
 
@@ -134,7 +143,7 @@ Include self-healing status for any repo that has one.
 
 For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show_session` (`pullRequests[]`):
 
-- **If `pr.ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL but note the deep-dive can't run).
+- **If `pr.ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL to the user, offer the install steps from the prerequisite section, and do NOT fetch the URL as a substitute).
 - **If `pr.ci.cipeUrl` is null but `pr.ci.externalCIRuns` exists** → external CI only. Examine failed jobs from `pr.ci.externalCIRuns[].jobs` and use `get_ci_logs(sessionId, repositoryId, jobId)` (a polygraph-mcp tool) for log retrieval, passing `pr.repositoryId` and the failed job's `jobId` straight from the same PR object.
 {% if platform == "codex" %}
 
@@ -192,7 +201,7 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 2. Identify cross-repo dependency issues (e.g., shared-lib build failure blocking frontend)
 3. Suggest fix order based on dependency graph (upstream repos first)
 4. Present next actions to the user based on self-healing status:
-   - If any repo has `selfHealingStatus` with an available fix → offer to **apply self-healing** via `update_self_healing_fix(action: "APPLY")` or **reject** it. `update_self_healing_fix` is an **Nx MCP** tool (`mcp__plugin_nx_nx-mcp`) — it requires the Nx MCP server. If nx-mcp is unavailable, report that a fix is available but cannot be applied from here.
+   - If any repo has `selfHealingStatus` with an available fix → offer to **apply self-healing** via `update_self_healing_fix(action: "APPLY")` or **reject** it. `update_self_healing_fix` is an **Nx MCP** tool (`mcp__plugin_nx_nx-mcp`) — it requires the Nx MCP server. If nx-mcp is unavailable, report that a fix is available but cannot be applied from here, and offer the install steps from the prerequisite section.
    - If self-healing was already applied → offer to **resume monitoring** to watch the re-triggered CI
    - **Delegate fixes**: use Polygraph to send fix instructions to child agents (for repos without self-healing or where self-healing was rejected/failed)
    - **Get more details**: drill into a specific repo's failure
@@ -202,6 +211,7 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 
 - This skill does NOT push code directly. The only write action it may take is applying/rejecting a self-healing fix via `update_self_healing_fix`, an **Nx MCP** tool that performs an Nx Cloud operation (not a local code change) and requires the Nx MCP server.
 - Both `ci_information` and `update_self_healing_fix` are **Nx MCP** tools (`mcp__plugin_nx_nx-mcp`), not polygraph-mcp tools. Their responses include a `hints` array with contextual guidance (e.g., disclaimers about which CI Attempt was retrieved). Always check and surface non-empty hints.
+- `cipeUrl` is a browser link for the user — never fetch, curl, WebFetch, or poll it (in the main agent or in child agents). CIPE data is only available via the Nx MCP `ci_information` tool.
 - All heavy CI data inspection happens in child agents via `spawn_agent` to keep this context window clean.
 {% if platform == "codex" %}
 - On Codex, the delegate-and-poll loop should run inside `polygraph-delegate-subagent`, and the main conversation should use `wait_agent` only when it needs to collect results.
