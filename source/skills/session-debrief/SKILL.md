@@ -14,14 +14,22 @@ You produce debriefs of PAST Polygraph sessions so a parent agent working on a N
 
 ## Procedure
 
-For each session, in rank order:
+Speed matters: the parent agent keeps working while it waits for you, and it folds your debrief in whenever it lands.
 
-1. `polygraph session show --details <sessionId>` — metadata, description timeline, repositories, PRs.
-2. `polygraph session logs -s <sessionId> --json` — the full parent transcript (`--json` returns the full transcript by default).
-3. If the session delegated work to other repositories (child-agent steps exist), pull those transcripts too: `polygraph session logs -s <sessionId> --all --json`, or `--repo <org/repo> --json` for one repo.
-4. Write the debrief section (format below) before moving to the next session.
+**Single session (the usual case).** The parent normally launches one background debrief agent per related session, so your input will usually contain exactly one session. Run the "Debriefing one session" steps directly — do not spawn a subagent for a single session.
 
-Large transcripts: if the full `--json` output is too large to hold, page with `--tail 200 --page <n>` and prioritize, in order: user prompts, assistant text and final messages, tool errors and failure events, task notifications. Routine tool-use noise (file reads, searches) is safe to skim.
+**Multiple sessions: fan out.** When given more than one session, debrief them CONCURRENTLY, never one after another: spawn one subagent per session, all in a single message so they run in parallel. Give each subagent: its session entry (sessionId, title, url, rank), the current-task statement, the "Debriefing one session" steps, and the per-session output template — copied into its prompt, since it cannot see this skill. Each subagent returns its completed debrief section as its final message. Assemble the returned sections in rank order and return them; do not rewrite them. Only if your environment cannot spawn subagents, run the "Debriefing one session" steps yourself, sequentially in rank order.
+
+### Debriefing one session
+
+Invoke the CLI as `${POLYGRAPH_CLI:-polygraph}` in every command: when the session was launched from a specific CLI build, `POLYGRAPH_CLI` points at it and children must use the same one. When you copy these steps into a subagent prompt, keep the `${POLYGRAPH_CLI:-polygraph}` form verbatim.
+
+1. `${POLYGRAPH_CLI:-polygraph} session show --details <sessionId>` — metadata, description timeline, repositories, PRs. The description timeline often already summarizes goals and outcomes; mine it before reading transcripts.
+2. Duplicate-work check: if the metadata shows this session pursuing the SAME task as the current one (not merely related work) and it is unfinished or recently active, do NOT read the transcripts. Return the debrief section immediately, with `**DUPLICATE WORK IN FLIGHT**` as the first line after the heading, followed by the session's status and last activity, one line of evidence for the match, and what resuming it would restore. The parent halts and asks the user to choose between resuming that session and continuing the current one, so speed matters more than depth here.
+3. `${POLYGRAPH_CLI:-polygraph} session logs -s <sessionId> --all --tail none > "$TMPDIR/<sessionId>-logs.txt" 2>&1` — the parent transcript plus every child transcript, rendered as plain text, in ONE call. Then read the file directly (with offsets for large files). Do NOT fetch `--json` and do NOT query the transcript with node/python one-liners — reading the rendered text is faster and you extract while reading.
+4. Write the debrief section (format below).
+
+Large transcripts: read the file in a few large chunks, prioritizing user prompts, assistant text and final messages, tool errors and failure events, and task notifications. Routine tool-use noise (file reads, searches) is safe to skim. Do not make repeated small queries against the transcript; each round trip costs more than reading a bigger chunk.
 
 ## Output
 
@@ -29,6 +37,7 @@ Return ONE consolidated debrief as your final message — it is consumed by the 
 
 ### Rank N — <session title> (<sessionId>)
 
+**DUPLICATE WORK IN FLIGHT** — only when the duplicate-work check fired: status, last activity, one-line evidence. Omit this line otherwise.
 **URL:** <session url>
 **Goal:** what the session set out to do.
 **What happened:** condensed narrative of the work performed.
@@ -44,3 +53,5 @@ Return ONE consolidated debrief as your final message — it is consumed by the 
 - If a session's logs are hidden or unavailable, say which (`hidden: true` in the CLI output means hidden by the author; empty steps mean no logs uploaded) and debrief from `session show --details` metadata, description timeline, and PRs alone.
 - No speculation: when the transcript does not show why a decision was made, write "rationale not recorded".
 - Read-only: the inspected sessions must be byte-for-byte unaffected by your work.
+- Session data only: debrief from what the CLI and MCP tools return (metadata, description timeline, transcripts, PRs). Do NOT read repository code, run git or gh, or fetch PR diffs to verify claims — report what the session shows and leave verification to the parent.
+- Fail fast: if a CLI command errors, retry it once at most, then report the error verbatim in your debrief section and move on. Do not build workarounds (no copying auth/config to a fake HOME, no POLYGRAPH_ROOT redirection, no privilege or sandbox escapes) — a debrief that says "logs unavailable: <error>" is more useful than one that arrives late.
