@@ -40,7 +40,14 @@ If the Nx MCP server is **not** available, this skill can still:
 - Monitor CI to a terminal state (Phases 1–3) via `show_session`, and
 - Download and inspect **external-CI** job logs via `get_ci_logs` (a polygraph-mcp tool).
 
-But it **cannot** perform CIPE deep-dives (`ci_information`) or apply self-healing fixes (`update_self_healing_fix`) without the Nx MCP server. If nx-mcp is missing, state this limitation to the user explicitly. Do NOT compensate by fetching or scraping `cipeUrl` — there is no HTTP fallback for CIPE data; the Nx MCP server is the only programmatic access.
+But it **cannot** perform CIPE deep-dives (`ci_information`) or apply self-healing fixes (`update_self_healing_fix`) without the Nx MCP server. Do NOT compensate by fetching or scraping `cipeUrl` — there is no HTTP fallback for CIPE data; the Nx MCP server is the only programmatic access.
+
+If nx-mcp is missing, don't just report the limitation — tell the user how to install it:
+
+- In an Nx workspace, run `nx configure-ai-agents` — it sets up the Nx MCP server (and Nx agent skills) for their AI tools, or
+- Add the server manually as a stdio MCP server: `npx nx-mcp@latest` (see https://github.com/nrwl/nx-ai-agents-config for details).
+
+MCP servers load at session start, so the user must restart the agent session after installing before the deep-dive and self-healing actions become available.
 
 ## Phase 1: Session Setup
 
@@ -136,7 +143,7 @@ Include self-healing status for any repo that has one.
 
 For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show_session` (`pullRequests[]`):
 
-- **If `pr.ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL to the user and note the deep-dive can't run — do NOT fetch the URL as a substitute).
+- **If `pr.ci.cipeUrl` is non-null** → CIPE is authoritative. Delegate investigation using the Nx MCP `ci_information` tool (requires the Nx MCP server — see the prerequisite note above; if nx-mcp is unavailable, report the CIPE URL to the user, offer the install steps from the prerequisite section, and do NOT fetch the URL as a substitute).
 - **If `pr.ci.cipeUrl` is null but `pr.ci.externalCIRuns` exists** → external CI only. Examine failed jobs from `pr.ci.externalCIRuns[].jobs` and use `get_ci_logs(sessionId, repositoryId, jobId)` (a polygraph-mcp tool) for log retrieval, passing `pr.repositoryId` and the failed job's `jobId` straight from the same PR object.
 {% if platform == "codex" %}
 
@@ -194,7 +201,7 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 2. Identify cross-repo dependency issues (e.g., shared-lib build failure blocking frontend)
 3. Suggest fix order based on dependency graph (upstream repos first)
 4. Present next actions to the user based on self-healing status:
-   - If any repo has `selfHealingStatus` with an available fix → offer to **apply self-healing** via `update_self_healing_fix(action: "APPLY")` or **reject** it. `update_self_healing_fix` is an **Nx MCP** tool (`mcp__plugin_nx_nx-mcp`) — it requires the Nx MCP server. If nx-mcp is unavailable, report that a fix is available but cannot be applied from here.
+   - If any repo has `selfHealingStatus` with an available fix → offer to **apply self-healing** via `update_self_healing_fix(action: "APPLY")` or **reject** it. `update_self_healing_fix` is an **Nx MCP** tool (`mcp__plugin_nx_nx-mcp`) — it requires the Nx MCP server. If nx-mcp is unavailable, report that a fix is available but cannot be applied from here, and offer the install steps from the prerequisite section.
    - If self-healing was already applied → offer to **resume monitoring** to watch the re-triggered CI
    - **Delegate fixes**: use Polygraph to send fix instructions to child agents (for repos without self-healing or where self-healing was rejected/failed)
    - **Get more details**: drill into a specific repo's failure
