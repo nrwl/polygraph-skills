@@ -209,6 +209,7 @@ When `cipeStatus == 'FAILED'` AND `failedTaskIds` is empty AND `selfHealingStatu
 ## Important
 
 - This skill is **read-only**. Do NOT apply fixes, push code, or modify anything.
+- `cipeUrl` and `shortLink` are human-facing web links — include them in the output for the user to open in a browser, but never fetch, curl, or poll them yourself. All CIPE data comes from the Nx MCP `ci_information` tool.
 {% if platform == "claude" %}
 - Always delegate the MCP call to a subagent. Do NOT call ci_information yourself.
 {% elsif platform == "codex" %}

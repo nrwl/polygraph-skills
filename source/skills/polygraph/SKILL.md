@@ -627,7 +627,7 @@ Check the details of a session using `show_session` or `polygraph session show -
   - `relatedPRs`: Array of related PR URLs across repos
 - `session.ciStatus`: CI pipeline status keyed by PR ID, each containing:
   - `status`: One of `SUCCEEDED`, `FAILED`, `IN_PROGRESS`, `NOT_STARTED` (null if no CIPE and no external CI)
-  - `cipeUrl`: URL to the CI pipeline execution details (null if no CIPE)
+  - `cipeUrl`: URL to the CI pipeline execution details (null if no CIPE). This is a human-facing Nx Cloud web link — display it to the user, but never fetch, curl, or poll it directly; CIPE data is only accessible programmatically via the Nx MCP `ci_information` tool
   - `completedAt`: Epoch millis timestamp, set only when the CIPE has completed (null otherwise)
   - `selfHealingStatus`: The self-healing fix status string from Nx Cloud's AI fix feature (null if no AI fix exists)
   - `externalCIRuns`: Array of external CI runs (present when no CIPE but external CI data exists, e.g., GitHub Actions). Each run contains:
@@ -797,7 +797,7 @@ archive_session(
 
 Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. This is the drill-in tool for investigating CI failures after identifying a failed job from the session's CI status.
 
-**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via `ci_information` — do NOT call `get_ci_logs`. This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
+**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via the Nx MCP `ci_information` tool — do NOT call `get_ci_logs`, and do NOT fetch or poll the `cipeUrl` over HTTP (it is a browser link for the user, not an API). This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
 
 **Parameters:**
 
