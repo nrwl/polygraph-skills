@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for working with Polygraph sessions, shared/resumable agent context, repository graph visibility, linked PR/CI state, and cross-repo expansion when needed. Use when starting, joining, resuming, inspecting, or sharing a Polygraph session; handing off progress; discovering related repositories; coordinating changes/branches/PRs across repos; delegating tasks to child agents in different repos; or checking CI status and logs. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for working with Polygraph sessions, shared/resumable agent context, repository graph visibility, linked PR/CI state, and cross-repo expansion when needed. Use when starting, joining, resuming, inspecting, or sharing a Polygraph session; handing off progress; discovering related repositories; coordinating changes/branches/PRs across repos; delegating tasks to child agents in different repos; checking CI status and logs; or tracing a commit or line of code back to the session that produced it. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", asks about what other repos are doing with shared code/APIs/endpoints, or asks about a "commit sha", "session behind this commit", "which session changed this line", "find session by sha", "git blame".
 {% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
@@ -91,6 +91,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `login` | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | `logout` | `polygraph auth logout` | Log out of Polygraph |
 | `list_sessions` | `polygraph session list` | List sessions. By default only active sessions created by the current git user; pass `recommendedFilters: false` for all sessions. |
+| `search_sessions` | `polygraph session search` | Find sessions by free-text `query` OR by commit `sha` — pass EXACTLY ONE of the two (they are mutually exclusive). `sha` (CLI: `--sha <sha>`) is an exact lookup of the session(s) linked to a commit, full or partial, 7-40 hex chars; it returns matching sessions newest first, org-scoped, and explicit sessions only (implicit sessions are never returned). Supports `--json` and `--limit` (1-50). See "Finding the Session Behind a Commit or Line". |
 | `list_accounts` | `polygraph account list` | List available organizations |
 | `select_account` | `polygraph account select` | Select the organization that future commands run against |
 | `whoami` | `polygraph whoami` | Show current auth status and org |
@@ -297,6 +298,32 @@ Description:
 
 Inspect the PR commits/diff and investigate the requested behavior. Report findings with file paths and concrete evidence.
 ```
+
+### Finding the Session Behind a Commit or Line
+
+Use this workflow when the user asks which Polygraph session produced, is behind, or changed a particular commit — or a particular line of code.
+
+**Given a commit sha.** When the user names a sha, or asks what session is behind a commit, resolve it with `search_sessions` using the `sha` parameter (CLI: `polygraph session search --sha <sha>`):
+
+- Pass **exactly one** of `query` or `sha` — they are mutually exclusive.
+- `sha` accepts a full or partial sha, 7-40 hex chars.
+- The lookup is exact and one-shot: it returns the session(s) linked to that commit, newest first, scoped to the current org, and only explicit sessions.
+
+```
+search_sessions(sha: "a1b2c3d")
+# CLI equivalent:
+polygraph session search --sha a1b2c3d
+```
+
+**Given a line number.** There is no line-number lookup — a line MUST first be resolved to a commit sha with `git blame`, then that sha is fed into the sha lookup:
+
+1. `git blame -L <line>,<line> -- <file>` to get the commit that last touched the line.
+2. Pass that sha to `search_sessions(sha: ...)` (or `polygraph session search --sha <sha>`).
+
+**Reading the results.**
+
+- Multiple sessions may match a sha. They come back newest first — pick the most relevant one and report the others if they matter.
+- **A "no match" result does NOT prove the commit had no work behind it.** Not every commit is linked to an explicit session: commits pushed directly (rather than via an ingested PR) and gaps in ingestion metadata mean the sha may simply not be recorded, and implicit sessions are never returned. Report "no linked session found for that sha" — never assert that no work exists behind the commit.
 
 ## Simple tasks (fire-and-forget)
 
