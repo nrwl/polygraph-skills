@@ -11,8 +11,10 @@ const usage = `Usage:
   npx @polygraph/codex-plugin install [--force] [--json]
   npx @polygraph/codex-plugin check [--json]
 
-The install command materializes the plugin payload so that codex's official
-plugin system can pick it up. After running install, run:
+The install command materializes the plugin payload into the marketplace Polygraph
+owns (~/.polygraph/codex-marketplace) and registers that marketplace with codex.
+It does not write to the shared ~/.agents/plugins/marketplace.json. After running
+install, run:
 
   codex plugin add polygraph@polygraph-plugins
 
@@ -74,18 +76,35 @@ async function main() {
         ? 'agents installed'
         : 'agents not installed';
       const marketplaceState = result.marketplaceConfigured
-        ? 'plugin present in marketplace'
-        : 'plugin not present in marketplace';
+        ? `plugin published from the ${result.marketplaceName} marketplace`
+        : `plugin not published from the ${result.marketplaceName} marketplace`;
+      const legacyState = result.legacyMarketplacePresent
+        ? '; a stale entry remains in ~/.agents/plugins/marketplace.json (re-run install to clear it)'
+        : '';
       console.error(
-        `Polygraph Codex plugin check failed: ${pluginState}; ${agentsState}; ${marketplaceState}.`
+        `Polygraph Codex plugin check failed: ${pluginState}; ${agentsState}; ${marketplaceState}${legacyState}.`
       );
     }
   } else {
     console.log(`Materialized Polygraph Codex plugin ${result.version}.`);
     console.log(`Plugin path: ${result.pluginPath}`);
     console.log(`Agents: ${result.agentsPath}`);
-    console.log(`Marketplace: ${result.marketplacePath}`);
-    console.log(`Next step: codex plugin add ${result.plugin}`);
+    console.log(`Marketplace: ${result.marketplaceName} (${result.marketplaceRoot})`);
+    if (result.legacyEntryRemoved) {
+      console.log(
+        result.legacyMarketplaceRemoved
+          ? 'Removed the obsolete ~/.agents/plugins/marketplace.json written by an earlier version.'
+          : 'Removed the obsolete polygraph entry from ~/.agents/plugins/marketplace.json; your other plugins were left untouched.'
+      );
+    }
+    if (result.marketplaceRegistered) {
+      console.log(`Next step: codex plugin add ${result.plugin}`);
+    } else {
+      console.warn(`Warning: ${result.marketplaceRegistrationError}`);
+      console.warn(
+        `Then run: codex plugin add ${result.plugin}`
+      );
+    }
   }
 
   if (command === 'check' && !result.ok) {
