@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Work with Polygraph sessions — shared, resumable agent context linking repos, branches, PRs, and CI for one piece of work. Use when starting, resuming, inspecting, or sharing a session; coordinating or delegating cross-repo changes; checking CI; fetching missing git history in a shallow session clone; or finding the session behind a commit sha. TRIGGER on "polygraph", session resume/share, "cross-repo", "multi-repo", "other repos", "commit sha", "which session changed this line", "shallow clone", "bad object", "missing commit".
+description: Guidance for working with Polygraph sessions, shared/resumable agent context, repository graph visibility, linked PR/CI state, and cross-repo expansion when needed. Use when starting, joining, resuming, inspecting, or sharing a Polygraph session; handing off progress; discovering related repositories; coordinating changes/branches/PRs across repos; delegating tasks to child agents in different repos; checking CI status and logs; fetching missing git history in a shallow session clone; or tracing a commit or line of code back to the session that produced it. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", asks about what other repos are doing with shared code/APIs/endpoints, or asks about a "commit sha", "session behind this commit", "which session changed this line", "find session by sha", "git blame", "shallow clone", "missing commit", "bad object", "unshallow", "fetch history".
 {% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
@@ -862,29 +862,7 @@ get_ci_logs(
 
 ### Fetching Git History for Shallow Clones
 
-Polygraph materializes session repos as shallow (`--depth 1`) clones, and the clone-time credential is not retained — so ordinary `git fetch --unshallow` fails on private repos. When a git operation fails because history is missing — `git revert`, `git log`, `git blame`, `git merge-base`, or `git bisect` hitting `bad object` or a missing commit — call `git_fetch` (CLI: `polygraph git fetch <repo> [--session <id>] [--depth <n>] [--ref <branch>]... --json`) instead of retrying raw git. It obtains a fresh session credential and deepens the clone.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `repo` (required): Repository name or repository ID whose clone needs more history
-- `depth` (optional, CLI: `--depth <n>`): Fetch only the newest n commits — the repo stays shallow
-- `refs` (optional, CLI: repeatable `--ref <branch>`): Additional remote branches to include
-
-**Default vs. depth:** with no `depth`, the tool fetches the FULL history of the repo's default branch (plus the current branch when it exists on the remote) — after that the repo is complete and never needs history fetches again. Pass `depth` only when a bounded fetch is enough.
-
-Safe to call redundantly: an already-complete repo reports success with `alreadyComplete: true`.
-
-Typical use case: reverting a squash-merge commit that predates the shallow boundary — `git revert <sha>` fails with `bad object`; run `git_fetch` with defaults, then retry the revert.
-
-```
-git_fetch(
-  sessionId: "<session-id>",
-  repo: "org/repo-name"
-)
-// CLI equivalent:
-polygraph git fetch org/repo-name --session <session-id> --json
-```
+Session repos are shallow (`--depth 1`) clones and plain `git fetch --unshallow` fails on private repos (the clone-time credential is not retained). When git fails on missing history (`bad object` from `git revert`, `git log`, `git blame`, etc.), call `git_fetch({ sessionId, repo })` (CLI: `polygraph git fetch <repo> --session <id> --json`), then retry. Defaults fetch the default branch's full history; pass `depth` for a bounded fetch or `refs` for extra branches. Safe to call redundantly (`alreadyComplete: true`).
 
 ### Update Session Description
 
