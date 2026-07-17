@@ -68,7 +68,7 @@ show_agent(
 
 Each call blocks up to ~50 seconds and resolves within ~1 second of a state change. It returns immediately if the child is already terminal, `input-required`, or `permission-required`. Call it back-to-back in a loop.
 
-## Polling the children (multi-turn + input-required)
+## Polling the child (multi-turn + input-required)
 
 After calling `spawn_agent`, parse the structured JSON response:
 
@@ -78,7 +78,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 
 Then poll `show_agent` in a loop with `waitForTransitionMs: 50000`. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
-For each child in the response (field: `children[]`), inspect:
+The response's `children[]` array has a single entry — the child for your repo. On it, inspect:
 
 - `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`). Note `'permission-required'` and `'input-required'` are DIFFERENT states handled by different cases below — do not conflate them.
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
