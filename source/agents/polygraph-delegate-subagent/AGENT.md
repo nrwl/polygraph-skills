@@ -68,51 +68,6 @@ show_agent(
 
 Each call blocks server-side until the watched child transitions away from `created`/`in-progress` — or until ~50 seconds elapse — and resolves within ~1 second of an actual state change. If the child is already terminal, `input-required`, or `permission-required`, the call returns immediately. The server-side wait replaces sleeping: back-to-back waited calls are correct and expected. Do not add `sleep` between them.
 
-### Fallback: backoff polling (older servers)
-
-Fall back to timed backoff polling if either:
-
-- `show_agent` errors in a way that suggests `waitForTransitionMs` is unsupported (e.g., an unknown-parameter or validation error), or
-- each waited call returns instantly without any state change — the long-poll is not actually blocking on an old server.
-
-Fallback cadence: poll immediately, then wait between polls with backoff:
-
-| Poll Attempt | Wait Before Poll |
-| ------------ | ---------------- |
-| 1st          | Immediately      |
-| 2nd          | 10 seconds       |
-| 3rd          | 30 seconds       |
-| 4th+         | 60 seconds (cap) |
-
-In this fallback, use `sleep` in Bash between polls — this is mandatory, not aspirational. Without it you will hammer `show_agent` every 2-3s, which both wastes calls and floods your own context with repeated polling output. Always run sleep in the **foreground** (never background).
-
-{% if platform == "claude" %}
-#### Sleeping between fallback polls on Claude Code
-
-**There is exactly one correct pattern. Use it verbatim:**
-
-```
-until false; do sleep 60; break; done   # 4th+ polls — substitute 10 / 30 for earlier attempts
-```
-
-**Every other shape you might reach for is wrong on Claude Code. Specifically:**
-
-| Pattern                                                  | What happens                                                                                                                                                                                                                          |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sleep 60` (bare, foreground)                            | Blocked by the Bash tool with `Blocked: standalone sleep 60`. Wastes a tool call.                                                                                                                                                     |
-| `sleep 10; sleep 10; sleep 10` (chained)                 | Detected and blocked. Explicitly prohibited.                                                                                                                                                                                          |
-| `sleep 60 & wait`, `( sleep 60 )`, other shell tricks    | Treated as the same standalone-sleep antipattern. Do not use.                                                                                                                                                                         |
-| `sleep 60` with `run_in_background: true` ← **WORST**    | Returns immediately — *no actual delay*. The sleep keeps running as an orphaned background process. When it finally finishes, the harness wakes this subagent with a `<task-notification>`, forcing another turn after you've already returned. Every queued background sleep emits a duplicate `completed` notification to the parent. One mis-step here can produce 10+ duplicate parent notifications and burn the user's tokens. |
-
-**Why this matters:** you run as a background Task subagent. Any background Bash command you spawn outlives your turn. Each completion wakes you again and emits another `<status>completed</status>` task-notification to the parent for the *same* parent tool-use ID. The parent has no way to silence it. Use the `until ... break ... done` wrapper — only it produces a real foreground delay.
-
-If you ever see `Blocked: standalone sleep N`, the answer is **never** `run_in_background: true`. The answer is the `until` wrapper above.
-{% else %}
-```
-sleep 60   # between 4th+ fallback polls
-```
-{% endif %}
-
 ## Polling the children (multi-turn + input-required)
 
 After calling `spawn_agent`, parse the structured JSON response:
@@ -121,7 +76,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Then poll `show_agent` in a loop with `waitForTransitionMs: 50000` and no sleep between calls (fallback: backoff polling, per the fallback section above). **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+Then poll `show_agent` in a loop with `waitForTransitionMs: 50000` and no sleep between calls. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
 For each child in the response (field: `children[]`), inspect:
 
@@ -159,7 +114,18 @@ State machine:
    - **Do NOT read `child.pendingPermission` as a question to answer or forward.** It is for inspection/logging only; it is not your input prompt.
    - **Do NOT call any tool** (`spawn_agent`, `stop_agent`, `allow_agent`, `deny_agent`) to resolve it.
    - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Just call `show_agent` (with `waitForTransitionMs`) again** — no other action; do NOT surface it or resolve it yourself. A later poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
-   - One exception to "no sleep between calls": a waited call returns **immediately** while the child sits in `permission-required`, so back-to-back calls would spin. When the returned status is `permission-required`, wait ~10 seconds (using the fallback sleep pattern) before the next waited call.
+   - One exception to "no sleep between calls": a waited call returns **immediately** while the child sits in `permission-required`, so back-to-back calls would spin. When the returned status is `permission-required`, pause ~10 seconds before the next waited call.
+{% if platform == "claude" %}
+     Use exactly this foreground Bash pattern for the pause:
+
+     ```
+     until false; do sleep 10; break; done
+     ```
+
+     Bare `sleep 10` is blocked by the Bash tool, and NEVER use a sleep with `run_in_background: true` — it returns immediately (no real delay) and later wakes you again, emitting duplicate task-notifications to the parent. Only the `until ... break ... done` wrapper produces a real foreground delay.
+{% else %}
+     Use a plain foreground `sleep 10` in Bash for the pause — never a background sleep.
+{% endif %}
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.

@@ -388,7 +388,7 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /Polling with long-poll waits/);
   assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
-  assert.match(delegateAgent.developer_instructions, /Fallback: backoff polling \(older servers\)/);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /Fallback: backoff polling/);
   assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
   assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });

@@ -333,7 +333,7 @@ Use this pattern when the task is well-defined and the child is not expected to 
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls (fallback: backoff polling) until terminal.
+1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
 
 {% raw %}
 
@@ -366,7 +366,7 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls (fallback: backoff polling) until terminal.
+1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
 2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations — one delegation per repo at a time.
 3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Once all subagents report a terminal status, continue to `push_branch` + `create_pr`.
@@ -389,7 +389,7 @@ spawn_agent(
     - instruction: "<the task instruction>"
     - context: "<optional context>"
 
-    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent via chained waitForTransitionMs long-poll calls (fallback: backoff polling) until terminal. Return a structured summary with repo, status, session ID, and result text.
+    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent via chained waitForTransitionMs long-poll calls until terminal. Return a structured summary with repo, status, session ID, and result text.
   """
 )
 ```
@@ -405,7 +405,7 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 {% else %}
 
 1. Call `spawn_agent` with `sessionId`, `repo`, and `instruction` for each repo. The call returns immediately.
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (fallback: backoff polling); for each child, watch `child.status` in the flat `children[]` response until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls; for each child, watch `child.status` in the flat `children[]` response until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 3. Review `child.lastOutputLines` for the final log tail.
 4. Continue to `push_branch` + `create_pr`.
 
@@ -423,7 +423,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    { "taskId": "…", "message": "…", "status": "delegated" }
    ```
 
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (fallback: backoff polling). The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
+2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls. The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
 
    - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
    - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`.
