@@ -56,7 +56,7 @@ The call returns immediately — the child agent runs asynchronously.
 
 **Polling with long-poll waits:**
 
-Call `show_agent` in a loop, passing `waitForTransitionMs: 50000` on every call, with **NO sleep between calls**:
+Call `show_agent` in a loop, passing `waitForTransitionMs: 50000` on every call:
 
 ```
 show_agent(
@@ -66,7 +66,7 @@ show_agent(
 )
 ```
 
-Each call blocks server-side until the watched child transitions away from `created`/`in-progress` — or until ~50 seconds elapse — and resolves within ~1 second of an actual state change. If the child is already terminal, `input-required`, or `permission-required`, the call returns immediately. The server-side wait replaces sleeping: back-to-back waited calls are correct and expected. Do not add `sleep` between them.
+Each call blocks up to ~50 seconds and resolves within ~1 second of a state change. It returns immediately if the child is already terminal, `input-required`, or `permission-required`. Call it back-to-back in a loop.
 
 ## Polling the children (multi-turn + input-required)
 
@@ -76,7 +76,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Then poll `show_agent` in a loop with `waitForTransitionMs: 50000` and no sleep between calls. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+Then poll `show_agent` in a loop with `waitForTransitionMs: 50000`. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
 For each child in the response (field: `children[]`), inspect:
 
@@ -113,19 +113,7 @@ State machine:
    - **Do NOT return, finish, summarize, relay, or surface this to the parent.** Do NOT describe the child as "needing input", "awaiting approval", "asking for permission", or anything that would make the parent prompt the user — the parent already has its own dialog. Returning here is the bug this case exists to prevent.
    - **Do NOT read `child.pendingPermission` as a question to answer or forward.** It is for inspection/logging only; it is not your input prompt.
    - **Do NOT call any tool** (`spawn_agent`, `stop_agent`, `allow_agent`, `deny_agent`) to resolve it.
-   - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Just call `show_agent` (with `waitForTransitionMs`) again** — no other action; do NOT surface it or resolve it yourself. A later poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
-   - One exception to "no sleep between calls": a waited call returns **immediately** while the child sits in `permission-required`, so back-to-back calls would spin. When the returned status is `permission-required`, pause ~10 seconds before the next waited call.
-{% if platform == "claude" %}
-     Use exactly this foreground Bash pattern for the pause:
-
-     ```
-     until false; do sleep 10; break; done
-     ```
-
-     Bare `sleep 10` is blocked by the Bash tool, and NEVER use a sleep with `run_in_background: true` — it returns immediately (no real delay) and later wakes you again, emitting duplicate task-notifications to the parent. Only the `until ... break ... done` wrapper produces a real foreground delay.
-{% else %}
-     Use a plain foreground `sleep 10` in Bash for the pause — never a background sleep.
-{% endif %}
+   - Treat `permission-required` **like `in-progress`**: just call `show_agent` (with `waitForTransitionMs`) again — the parent's dialog resolves it. Only at a terminal state do you return, per the cases below.
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.

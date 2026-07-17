@@ -390,6 +390,7 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /backoff/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /fallback/i);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /sleep/i);
   assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
   assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });
