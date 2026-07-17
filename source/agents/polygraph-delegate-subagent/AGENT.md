@@ -54,7 +54,28 @@ spawn_agent(
 
 The call returns immediately — the child agent runs asynchronously.
 
-**Backoff schedule for polling:**
+**Polling with long-poll waits:**
+
+Call `show_agent` in a loop, passing `waitForTransitionMs: 50000` on every call, with **NO sleep between calls**:
+
+```
+show_agent(
+  sessionId: "<sessionId>",
+  repo: "<repo>",
+  waitForTransitionMs: 50000
+)
+```
+
+Each call blocks server-side until the watched child transitions away from `created`/`in-progress` — or until ~50 seconds elapse — and resolves within ~1 second of an actual state change. If the child is already terminal, `input-required`, or `permission-required`, the call returns immediately. The server-side wait replaces sleeping: back-to-back waited calls are correct and expected. Do not add `sleep` between them.
+
+### Fallback: backoff polling (older servers)
+
+Fall back to timed backoff polling if either:
+
+- `show_agent` errors in a way that suggests `waitForTransitionMs` is unsupported (e.g., an unknown-parameter or validation error), or
+- each waited call returns instantly without any state change — the long-poll is not actually blocking on an old server.
+
+Fallback cadence: poll immediately, then wait between polls with backoff:
 
 | Poll Attempt | Wait Before Poll |
 | ------------ | ---------------- |
@@ -63,10 +84,10 @@ The call returns immediately — the child agent runs asynchronously.
 | 3rd          | 30 seconds       |
 | 4th+         | 60 seconds (cap) |
 
-Use `sleep` in Bash between polls — this is mandatory, not aspirational. Without it you will hammer `show_agent` every 2-3s, which both wastes calls and floods your own context with repeated polling output. Always run sleep in the **foreground** (never background).
+In this fallback, use `sleep` in Bash between polls — this is mandatory, not aspirational. Without it you will hammer `show_agent` every 2-3s, which both wastes calls and floods your own context with repeated polling output. Always run sleep in the **foreground** (never background).
 
 {% if platform == "claude" %}
-### Sleeping between polls on Claude Code
+#### Sleeping between fallback polls on Claude Code
 
 **There is exactly one correct pattern. Use it verbatim:**
 
@@ -88,7 +109,7 @@ until false; do sleep 60; break; done   # 4th+ polls — substitute 10 / 30 for 
 If you ever see `Blocked: standalone sleep N`, the answer is **never** `run_in_background: true`. The answer is the `until` wrapper above.
 {% else %}
 ```
-sleep 60   # between 4th+ polls
+sleep 60   # between 4th+ fallback polls
 ```
 {% endif %}
 
@@ -100,7 +121,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Then poll `show_agent` on a backoff cadence. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+Then poll `show_agent` in a loop with `waitForTransitionMs: 50000` and no sleep between calls (fallback: backoff polling, per the fallback section above). **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
 For each child in the response (field: `children[]`), inspect:
 
@@ -111,7 +132,7 @@ For each child in the response (field: `children[]`), inspect:
 
 State machine:
 
-1. `child.status === 'created'` or `'in-progress'` — child is still executing. Continue polling.
+1. `child.status === 'created'` or `'in-progress'` — child is still executing. Call `show_agent` (with `waitForTransitionMs: 50000`) again.
 2. `child.status === 'input-required'` — child is paused waiting for parent input:
    - Read `child.inputRequiredQuestion`.
    - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
@@ -130,14 +151,15 @@ State machine:
 <!-- Claude and Codex parents handle permission gates via the native MCP elicitation dialog
      rendered by polygraph-mcp's show_agent handler. The dialog targets the parent's main
      thread, NOT this subagent. From this subagent's perspective the gate is transient: a
-     poll may observe permission-required briefly, but the parent's pick resolves it and the
-     next poll sees the child back in progress. Do nothing here. -->
+     waited show_agent call returns immediately while the gate is open, but the parent's pick
+     resolves it and a later poll sees the child back in progress. Do nothing here. -->
 3. `child.status === 'permission-required'` — the child opened a permission gate. **This is NOT `input-required`. Do not treat it like case 2.** The parent's native MCP elicitation dialog already renders the prompt in the parent's own UI and routes the decision back to the child through `polygraph-mcp`. Your only job is to stay out of the way and keep polling:
 
    - **Do NOT return, finish, summarize, relay, or surface this to the parent.** Do NOT describe the child as "needing input", "awaiting approval", "asking for permission", or anything that would make the parent prompt the user — the parent already has its own dialog. Returning here is the bug this case exists to prevent.
    - **Do NOT read `child.pendingPermission` as a question to answer or forward.** It is for inspection/logging only; it is not your input prompt.
    - **Do NOT call any tool** (`spawn_agent`, `stop_agent`, `allow_agent`, `deny_agent`) to resolve it.
-   - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Sleep through the backoff and resume polling** — no other action. The next poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
+   - Treat `permission-required` **exactly like `in-progress`**: this is a transient state. **Just call `show_agent` (with `waitForTransitionMs`) again** — no other action; do NOT surface it or resolve it yourself. A later poll observes the child back in `in-progress` (then `completed`), or `failed` / `cancelled` if the user denied or dismissed. Only at a terminal state do you return, per the cases below.
+   - One exception to "no sleep between calls": a waited call returns **immediately** while the child sits in `permission-required`, so back-to-back calls would spin. When the returned status is `permission-required`, wait ~10 seconds (using the fallback sleep pattern) before the next waited call.
 {% endif %}
 4. `child.status === 'completed'` — child finished successfully. Read `child.lastOutputLines` for the most recent log tail and report outcome.
 5. `child.status === 'failed'` — child failed. Read `child.lastOutputLines` for failure context and report the error.
