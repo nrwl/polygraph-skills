@@ -46,6 +46,7 @@ It detects your AI agent — Claude Code, Codex, OpenCode, and more — and inst
 
 - **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session
 - **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion
+- **session-debrief** — Analyzes the raw logs of past Polygraph sessions and returns a structured, rank-ordered debrief for the current task
 
 ## Development
 
