@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.release.outputs.should_publish }}
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Detect release version bump
+        id: release
+        run: |
+          before="${{ github.event.before }}"
+          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          before_version="$(git show "$before:package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+          after_version="$(node -p "require('./package.json').version")"
+
+          if [ "$before_version" = "$after_version" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Prerelease versions (X.Y.Z-next.N) go to the `next` dist-tag; stable
+          # versions go to `latest`. The merged version is the source of truth,
+          # so the publish job needs no inputs.
+          case "$after_version" in
+            *-next.*) channel="next" ;;
+            *) channel="latest" ;;
+          esac
+
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$after_version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    # The publish waits for approval from the release-approval environment
+    # reviewers before anything reaches the live registry.
+    environment: release-approval
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        # there is currently an issue installing latest npm on node 22, so we need to install a specific version.
+        # OIDC trusted publishing with provenance requires npm 11.5.1 or newer.
+        # https://github.com/npm/cli/issues/9151
+        run: npm install -g npm@11.15.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build dist artifacts
+        run: npm run build
+
+      - name: Publish Claude plugin on npm
+        run: npm publish --tag "${{ needs.detect.outputs.channel }}" --provenance --access public
+        working-directory: dist/claude
+
+      - name: Publish Codex plugin on npm
+        run: npm publish --tag "${{ needs.detect.outputs.channel }}" --provenance --access public
+        working-directory: dist/codex
+
+      - name: Publish OpenCode plugin on npm
+        run: npm publish --tag "${{ needs.detect.outputs.channel }}" --provenance --access public
+        working-directory: dist/opencode
+
+      - name: Create and push release tag
+        # Only stable `latest` releases get a git tag; `next` builds are
+        # identified by their prerelease version and npm dist-tag.
+        if: ${{ needs.detect.outputs.channel == 'latest' }}
+        run: |
+          version="${{ needs.detect.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          git tag "v$version"
+          git push origin "v$version"
