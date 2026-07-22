@@ -541,52 +541,16 @@ Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must
 
 ### 3. Get Current Polygraph Session
 
-Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including repositories, PRs, CI status, and the Polygraph session URL.
+Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state — basic metadata like id, url & description timeline, plus the connected repositories, `pullRequests[]`, per-PR `ciStatus`, and `session.linkedReferences`.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
 
-**Returns:**
+**CI status rules:**
 
-- `session.sessionId`: The session ID
-- `session.polygraphSessionUrl`: URL to the Polygraph session UI
-- `session.description`: DescriptionItem[] timeline describing the session.
-- `session.agentSessionId`: The agent CLI session ID — captured automatically by the MCP server (null if no agent has run yet).
-- `session.linkedReferences`: Array of references linked to this session
-- Session repository entries: Array of connected repositories, each with:
-  - `id`: Repository ID
-  - `name`: Repository name
-  - `defaultBranch`: Default branch (e.g., `main`)
-  - `vcsConfiguration.repositoryFullName`: Full repo name (e.g., `org/repo`)
-  - `vcsConfiguration.provider`: VCS provider (e.g., `GITHUB`)
-  - description field: AI-generated description of what this repository does (may be null)
-  - `initiator`: Whether this repository initiated the session
-- `session.dependencyGraph`: Graph of repository dependency `edges`
-- `session.pullRequests[]`: Array of PRs, each with:
-  - `url`: PR URL
-  - `branch`: Branch name
-  - `baseBranch`: Target branch
-  - `title`: PR title
-  - `status`: One of `DRAFT`, `OPEN`, `MERGED`, `CLOSED`
-  - `repoId`: Associated repository ID
-  - `relatedPRs`: Array of related PR URLs across repos
-- `session.ciStatus`: CI pipeline status keyed by PR ID, each containing:
-  - `status`: One of `SUCCEEDED`, `FAILED`, `IN_PROGRESS`, `NOT_STARTED` (null if no CIPE and no external CI)
-  - `cipeUrl`: URL to the CI pipeline execution details (null if no CIPE). This is a human-facing Nx Cloud web link — display it to the user, but never fetch, curl, or poll it directly; CIPE data is only accessible programmatically via the Nx MCP `ci_information` tool
-  - `completedAt`: Epoch millis timestamp, set only when the CIPE has completed (null otherwise)
-  - `selfHealingStatus`: The self-healing fix status string from Nx Cloud's AI fix feature (null if no AI fix exists)
-  - `externalCIRuns`: Array of external CI runs (present when no CIPE but external CI data exists, e.g., GitHub Actions). Each run contains:
-    - `runId`: GitHub Actions run ID
-    - `name`: Workflow name
-    - `status`: Run status (`completed`, `in_progress`, `queued`)
-    - `conclusion`: Run conclusion (`success`, `failure`, `cancelled`, `timed_out`, or null)
-    - `url`: GitHub Actions run URL
-    - `jobs`: Array of jobs in the run, each with:
-      - `jobId`: Job ID (use with `get_ci_logs`)
-      - `name`: Job name
-      - `status`: Job status
-      - `conclusion`: Job conclusion (or null)
+- `ciStatus[prId].cipeUrl` (null if no CIPE) is a human-facing Nx Cloud web link — display it to the user, but never fetch, curl, or poll it directly; CIPE data is only accessible programmatically via the Nx MCP `ci_information` tool.
+- When no CIPE exists, external CI data (e.g., GitHub Actions) appears in `ciStatus[prId].externalCIRuns[]` as runs with nested `jobs[]`; each job's `jobId` is the input for `get_ci_logs`.
 
 ```
 show_session(sessionId: "<session-id>")
