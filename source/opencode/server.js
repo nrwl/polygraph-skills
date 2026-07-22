@@ -166,6 +166,35 @@ function polygraphCompactionNote(agentSessionId, root) {
   );
 }
 
+// Scan the immediate subdirectories of `baseDir`; for each, `candidatePath`
+// maps the subdirectory name to a candidate parent-sidecar file. Returns the
+// sessionId of the first match, or undefined.
+function scanForParentSidecar(baseDir, candidatePath) {
+  if (!existsSync(baseDir)) {
+    return undefined;
+  }
+
+  let entries;
+  try {
+    entries = readdirSync(baseDir, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = candidatePath(entry.name);
+    if (existsSync(candidate)) {
+      try {
+        return JSON.parse(readFileSync(candidate, 'utf8')).sessionId;
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
 function readPolygraphSession(
   agentSessionId,
   root = path.join(homedir(), '.polygraph')
@@ -174,25 +203,20 @@ function readPolygraphSession(
     return undefined;
   }
 
-  const sidecarsDir = path.join(root, 'sidecars');
-  if (!existsSync(sidecarsDir)) {
-    return undefined;
-  }
-
   const fileName = `parent-${agentSessionId}.json`;
-  let polygraphSessionId;
-  for (const entry of readdirSync(sidecarsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const candidate = path.join(sidecarsDir, entry.name, fileName);
-    if (existsSync(candidate)) {
-      try {
-        polygraphSessionId = JSON.parse(readFileSync(candidate, 'utf8')).sessionId;
-      } catch {
-        polygraphSessionId = undefined;
-      }
-      break;
-    }
-  }
+
+  // New layout: <sessionsRoot>/<sessionId>/sidecars/parent-<agentSessionId>.json
+  // (sessionsRoot = $POLYGRAPH_ROOT or <root>/sessions), with a fallback to
+  // the legacy shared sidecars directory for sessions created by older CLIs.
+  const sessionsDir = process.env.POLYGRAPH_ROOT?.trim() || path.join(root, 'sessions');
+  const legacyDir = path.join(root, 'sidecars');
+  const polygraphSessionId =
+    scanForParentSidecar(sessionsDir, (sessionId) =>
+      path.join(sessionsDir, sessionId, 'sidecars', fileName)
+    ) ??
+    scanForParentSidecar(legacyDir, (sessionId) =>
+      path.join(legacyDir, sessionId, fileName)
+    );
   if (!polygraphSessionId) {
     return undefined;
   }
