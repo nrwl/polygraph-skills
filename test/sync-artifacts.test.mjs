@@ -119,17 +119,11 @@ test('rendered polygraph skill points at the session description reference file'
   const policySection = sectionBetween(
     rendered,
     '### Session Description Policy',
-    '### 3. Create Draft PRs'
+    '### 3. Get Current Polygraph Session'
   );
-  const createPrSection = sectionBetween(
-    rendered,
-    '### 3. Create Draft PRs',
-    '### 4. Get Current Polygraph Session'
-  );
-  const associatePrSection = sectionBetween(
-    rendered,
-    '### 6. Associate Existing PRs',
-    '### 7. Add Repositories to a Session'
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
   );
   const updateDescriptionSection = sectionBetween(
     rendered,
@@ -146,8 +140,8 @@ test('rendered polygraph skill points at the session description reference file'
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
   assert.match(policySection, /read \[`reference\/session-description\.md`\]\(reference\/session-description\.md\)/);
   assert.match(policySection, /That reference file holds the full policy/);
-  assert.match(createPrSection, /[Mm]ust follow the Session Description Policy/);
-  assert.match(associatePrSection, /[Mm]ust follow the Session Description Policy/);
+  assert.match(publishReference, /[Mm]ust follow the Session Description Policy/);
+  assert.match(publishReference, /read \[`session-description\.md`\]\(session-description\.md\)/);
   assert.match(updateDescriptionSection, /reference\/session-description\.md/);
   assert.match(updateDescriptionSection, /Then call `update_session` with the resulting summary as `description`\./);
 
@@ -219,6 +213,50 @@ test('session description reference ships to every platform dist skill folder', 
   }
 });
 
+test('publish changes reference ships to every platform dist skill folder', () => {
+  const platforms = ['claude', 'opencode', 'codex'];
+
+  for (const platform of platforms) {
+    const outputDir = mkdtempSync(join(tmpdir(), `polygraph-${platform}-skills-`));
+    processSkills(platform, {
+      outputDir,
+      skillsDir: 'skills',
+      skillsFile: 'SKILL.md',
+    });
+
+    const referencePath = join(
+      outputDir,
+      'skills',
+      'polygraph',
+      'reference',
+      'publish-changes.md'
+    );
+    const reference = readFileSync(referencePath, 'utf8');
+
+    // The full branch-to-PR flow lives in the reference file.
+    assert.match(reference, /^## Push Branches$/m);
+    assert.match(reference, /^## Create Draft PRs$/m);
+    assert.match(reference, /^## Mark PRs Ready$/m);
+    assert.match(reference, /^## Associate Existing PRs$/m);
+    assert.match(reference, /pushes from the local checkout/);
+    assert.match(reference, /PR titles become squash-merge commit messages/);
+    assert.match(reference, /transition PRs from DRAFT to OPEN status/);
+    assert.match(reference, /prUrls/);
+
+    // The skill keeps only a short on-demand pointer to the reference file.
+    const rendered = renderSkill('polygraph', platform);
+    assert.match(rendered, /### 2\. Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
+    assert.match(rendered, /read \[`reference\/publish-changes\.md`\]\(reference\/publish-changes\.md\)/);
+    assert.doesNotMatch(rendered, /^### \d+\. Push Branches$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Create Draft PRs$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Mark PRs Ready$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Associate Existing PRs$/m);
+    assert.doesNotMatch(rendered, /PR titles become squash-merge commit messages/);
+    assert.doesNotMatch(rendered, /prUrls/);
+    assert.doesNotMatch(rendered, /polygraph\/ad5fa-add-user-preferences/);
+  }
+});
+
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
   const rendered = renderSkill('polygraph');
 
@@ -233,9 +271,14 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
   assert.match(rendered, /- repo: "<org\/repo-name>"/);
-  assert.match(rendered, /repo: "org\/repo-name"/);
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
+  );
+  assert.match(publishReference, /repo: "org\/repo-name"/);
+  assert.doesNotMatch(publishReference, /target: "org\/repo-name"/);
   assertNoNonCodexDelegationText(rendered);
 });
 
@@ -274,18 +317,19 @@ test('rendered polygraph skill keeps session intro as hidden internal fallback',
   assert.doesNotMatch(toolsSection, /polygraph session intro/);
 });
 
-test('rendered polygraph skill documents PR repository semantics', () => {
-  const rendered = renderSkill('polygraph');
+test('publish changes reference documents PR repository semantics', () => {
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
+  );
   const createPrSection = sectionBetween(
-    rendered,
-    '### 3. Create Draft PRs',
-    '### 4. Get Current Polygraph Session'
+    publishReference,
+    '## Create Draft PRs',
+    '## Mark PRs Ready'
   );
-  const associatePrSection = sectionBetween(
-    rendered,
-    '### 6. Associate Existing PRs',
-    '### 7. Add Repositories to a Session'
-  );
+  const associateStart = publishReference.indexOf('## Associate Existing PRs');
+  assert.notEqual(associateStart, -1);
+  const associatePrSection = publishReference.slice(associateStart);
 
   assert.match(createPrSection, /`targetRepository` \(optional\): Target GitHub repository for fork PR creation or registration/);
   assert.match(createPrSection, /keep `owner` and `repo` set to the source repository/);

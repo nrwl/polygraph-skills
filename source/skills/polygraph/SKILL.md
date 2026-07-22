@@ -526,26 +526,11 @@ If you call `allow_agent` while the dialog is already open, you create a race: t
 The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do NOT advertise elicitation capability (opencode TUI today). They are not part of your flow.
 {% endif %}
 
-### 2. Push Branches
+### 2. Publish Changes (Push Branches, Create PRs, Mark Ready)
 
-Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
+Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), and `associate_pr` (link PRs created outside Polygraph).
 
-`push_branch` pushes from the local checkout: for the repo you are in, that is your current working directory with your commits; for delegated repos, it is the Polygraph-managed clone the child agent worked in. There is no separate session copy of the current repo.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `repo` (required): Repository name or repository ID to push from
-- `branch` (required): Branch name to push to remote
-- `description` (required): A session description is required. Must follow the Session Description Policy.
-
-```
-push_branch(
-  sessionId: "<session-id>",
-  repo: "org/repo-name",
-  branch: "polygraph/ad5fa-add-user-preferences"
-)
-```
+**Whenever you push a branch, create or associate a PR, or mark PRs ready, read [`reference/publish-changes.md`](reference/publish-changes.md) first.** That reference file holds the full flow: parameters and examples for each tool, `push_branch` local-checkout semantics, the PR title format rules, and the session-URL printing steps. `push_branch`, `create_pr`, and `associate_pr` all require a `description` following the Session Description Policy below.
 
 ### Session Description Policy
 
@@ -554,74 +539,7 @@ push_branch(
 **Whenever you write or update a session description, read [`reference/session-description.md`](reference/session-description.md) first.** That reference file holds the full policy: the canonical Markdown-heading template (`## Goal` / `## Current progress` / `## What worked` / `## Next steps`), the dual-audience guidance (humans in the web UI now, agents reconstructing history later), and the formatting building blocks the app renders (callouts, tables, mermaid, links, `link_reference`).
 
 
-### 3. Create Draft PRs
-
-Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first. For fork PR creation or registration, include `targetRepository` on the PR spec to identify the repository that should receive the PR.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prs` (required): Array of PR specifications, each containing:
-  - `owner` (required): GitHub repository owner
-  - `repo` (required): GitHub repository name
-  - `title` (required): PR title
-  - `body` (required): PR description (session metadata is appended automatically)
-  - `branch` (required): Branch name that was pushed
-  - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (required): Must follow the Session Description Policy.
-
-**PR title format (applies to parent and child agents):**
-
-- PR titles become squash-merge commit messages in most repos. They MUST follow the target repo's commit convention (e.g., Conventional Commits: `<type>(<scope>): <subject>`).
-- Do NOT add agent-identifier prefixes such as `[codex]`, `[claude]`, or `[opencode]` to PR titles. These prefixes violate commit-lint rules and pollute the git history.
-
-```
-create_pr(
-  sessionId: "<session-id>",
-  prs: [
-    {
-      owner: "org",
-      repo: "frontend",
-      title: "feat: Add user preferences UI",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    },
-    {
-      owner: "org",
-      repo: "backend",
-      title: "feat: Add user preferences API",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    }
-  ]
-)
-```
-
-For fork PR creation or registration, keep `owner` and `repo` set to the source repository that owns the pushed branch and set `targetRepository` to the target repository:
-
-```
-create_pr(
-  sessionId: "<session-id>",
-  prs: [
-    {
-      owner: "contributor",
-      repo: "frontend-fork",
-      targetRepository: "org/frontend",
-      title: "feat: Add user preferences UI",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    }
-  ]
-)
-```
-
-**After creating PRs**, always print the Polygraph session URL:
-
-```
-**Polygraph session:** POLYGRAPH_SESSION_URL
-```
-
-### 4. Get Current Polygraph Session
+### 3. Get Current Polygraph Session
 
 Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including repositories, PRs, CI status, and the Polygraph session URL.
 
@@ -715,67 +633,7 @@ link_reference({
 
 The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command.
 
-### 5. Mark PRs Ready
-
-Once all changes are verified and ready to merge, use `mark_pr_ready` to transition PRs from DRAFT to OPEN status.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prUrls` (required): Array of PR URLs to mark as ready for review
-
-```
-mark_pr_ready(
-  sessionId: "<session-id>",
-  prUrls: [
-    "https://github.com/org/frontend/pull/123",
-    "https://github.com/org/backend/pull/456"
-  ]
-)
-```
-
-**After marking PRs as ready**, always print the Polygraph session URL so the user can easily access the session overview. Call `show_session` and display:
-
-```
-**Polygraph session:** POLYGRAPH_SESSION_URL
-```
-
-Where `POLYGRAPH_SESSION_URL` is from `polygraphSessionUrl` in the response.
-
-### 6. Associate Existing PRs
-
-Use `associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
-
-Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `repo` to find and associate PRs for a source repository.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prUrl` (optional): URL of an existing pull request to associate
-- `branch` (optional): Branch name to find and associate PRs for
-- `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (required): Must follow the Session Description Policy.
-
-```
-associate_pr(
-  sessionId: "<session-id>",
-  prUrl: "https://github.com/org/repo/pull/123"
-)
-```
-
-Or by branch:
-
-```
-associate_pr(
-  sessionId: "<session-id>",
-  repo: "org/repo",
-  branch: "feature/my-changes"
-)
-```
-
-**Returns** the list of PRs now associated with the session.
-
-### 7. Add Repositories to a Session
+### 4. Add Repositories to a Session
 
 Use `add_repo` to add repositories to an existing Polygraph session after it has already started.
 
@@ -795,7 +653,7 @@ add_repo(
 )
 ```
 
-### 8. Archive Session
+### 5. Archive Session
 
 **IMPORTANT: Only call this tool when the user explicitly asks to archive or close the session.** Do not archive sessions automatically as part of the workflow.
 
