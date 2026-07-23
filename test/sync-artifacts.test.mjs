@@ -351,7 +351,6 @@ test('polygraph skill renders platform-specific sandboxing guidance', () => {
     assert.match(rendered, /## Sandboxing in Polygraph Sessions/);
     assert.match(rendered, /Recognize sandbox denials — do not retry or work around them\./);
     assert.match(rendered, /`!`-prefixed user commands — those run inside the same sandbox/);
-    assert.match(rendered, /\*\*Respect the sandbox\*\*/);
     assert.match(rendered, /Never blame the tooling\./);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
   }

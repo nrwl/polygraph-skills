@@ -720,31 +720,9 @@ If the session has a description timeline, also display:
 
 ## Best Practices
 
-{% if platform == "claude" %}
+These are cross-repo PR-coordination reminders; the operational rules live at their point of use in the sections above.
 
-1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
-   {% elsif platform == "opencode" %}
-1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
-   {% elsif platform == "codex" %}
-1. **MUST route through Codex Polygraph subagents** — Use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` to create new sessions and `agent_type: "polygraph-delegate-subagent"` for every routine Polygraph MCP `spawn_agent` / `show_agent` delegate-and-poll loop. Collect results with `wait_agent` when needed.
-   {% else %}
-1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately, then poll with `show_agent`.
-   {% endif %}
-1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) via `show_agent` before pushing branches or creating PRs
-1. **Link PRs in descriptions** - Reference related PRs in each PR body
-1. **Keep PRs as drafts** until all repos are ready
-1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session` — it is required and must follow the Session Description Policy
-1. **Test integration** before marking PRs ready
-1. **Coordinate merge order** if there are deployment dependencies
-   {% if platform == "claude" %}
-1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
-   {% elsif platform == "opencode" %}
-1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
-   {% elsif platform == "codex" %}
-1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
-   {% endif %}
-1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
-1. **Only archive sessions when asked** — Only call `archive_session` when the user explicitly requests it. Archiving hides the session from active lists; it can still be resumed later.
-   {% if platform == "claude" or platform == "codex" %}
-1. **Respect the sandbox** — When a command fails with a sandbox denial (`EPERM` binding a port, blocked host, denied write), stop instead of retrying and point the user to the options in "Sandboxing in Polygraph Sessions": commit harness sandbox settings to the repo, or toggle sandboxing via `polygraph config`.
-   {% endif %}
+1. **Link PRs in descriptions** — reference related PRs in each PR body.
+1. **Keep PRs as drafts** until all repos are ready.
+1. **Test integration** before marking PRs ready.
+1. **Coordinate merge order** if there are deployment dependencies.
