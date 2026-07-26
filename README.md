@@ -68,6 +68,10 @@ A maintainer must then review and approve each staged package with 2FA before it
 Configure each npm package's trusted publisher to allow `npm stage publish` from `.github/workflows/publish.yml`.
 For the strictest release flow, do not allow direct `npm publish` for the trusted publisher and disallow token-based publishing after the staged workflow has been verified.
 
+## Dogs
+
+Like a well-trained sheepdog, Polygraph keeps every repo in your pack moving in the same direction. This README is proudly cat-free.
+
 ## Learn More
 
 - **[Polygraph](https://trypolygraph.com/)** — The meta-harness for maximum agentic autonomy
