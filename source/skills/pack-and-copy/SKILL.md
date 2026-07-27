@@ -1,6 +1,6 @@
 ---
 name: pack-and-copy
-description: Validate a publisher package change against consumer repos by building + packing the publisher and installing the tarballs into each consumer, so consumer CI can run against the unmerged change. USE WHEN a publisher repo (e.g. a design system, shared library, SDK) has a pending change that needs to be tested in downstream repos before its version is merged and published. TRIGGER when user says "pack and copy", "pre-release test in consumers", "test this package change in <consumer>", "install the unreleased version into the apps", or "validate this change against <consumer repo>".
+description: Validate a publisher package change (design system, shared library, SDK) against consumer repos by building + packing the publisher and installing the tarballs into each consumer, so consumer CI runs against the unmerged change before its version is merged and published. Use when user says "pack and copy", "pre-release test in consumers", "test this package change in <consumer>", "install the unreleased version into the apps", or "validate this change against <consumer repo>".
 {% if platform == "claude" %}
 user-invocable: true
 allowed-tools:
