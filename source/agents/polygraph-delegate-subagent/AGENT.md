@@ -33,13 +33,14 @@ The main agent provides these parameters in the prompt:
 | `sessionId`   | The Polygraph session ID                                                     |
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
+| `role`        | (Optional) Agent slot within the repo; omit for the default role. Pass the SAME role on every `spawn_agent`/`show_agent`/`stop_agent` call for this delegation. |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
 
 ## Delegating work
 
-Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic: if the repo already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message; otherwise it starts a new child run.
+Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message rather than starting a second run; otherwise it starts a new child run. A repo therefore has at most one active child per role, though agents with different roles can run in the same repo concurrently.
 
-`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo. A repo has at most one active child: while one is active, any `spawn_agent` call for that repo is routed to it as a follow-up rather than starting a second run.
+`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo.
 
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
@@ -48,6 +49,7 @@ spawn_agent(
   sessionId: "<sessionId>",
   repo: "<repo>",
   instruction: "<instruction>",
+  role: "<role, if any>",
   context: "<context>"
 )
 ```
@@ -62,6 +64,7 @@ Call `show_agent` in a loop, passing `waitForTransitionMs: 50000` on every call:
 show_agent(
   sessionId: "<sessionId>",
   repo: "<repo>",
+  role: "<role, if any>",
   waitForTransitionMs: 50000
 )
 ```
@@ -78,7 +81,7 @@ After calling `spawn_agent`, parse the structured JSON response:
 
 Then poll `show_agent` in a loop with `waitForTransitionMs: 50000`. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
 
-The response's `children[]` array has a single entry — the child for your repo. On it, inspect:
+The response's `children[]` array has one entry per agent matching your query. Find YOUR delegation's entry (match on `role`; absent means the default role) and inspect:
 
 - `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`). Note `'permission-required'` and `'input-required'` are DIFFERENT states handled by different cases below — do not conflate them.
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
@@ -92,14 +95,14 @@ State machine:
    - Read `child.inputRequiredQuestion`.
    - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
    - Wait for the parent/user to supply an answer.
-   - Call `spawn_agent` again with the same `repo` and `instruction: <the answer>` — the orchestrator routes it to the active task automatically.
+   - Call `spawn_agent` again with the same `repo`, the same `role`, and `instruction: <the answer>` — the orchestrator routes it to that (repo, role)'s active task automatically.
    - Resume polling.
 {% if platform == "opencode" %}
 3. `child.status === 'permission-required'` — child is paused waiting for a permission grant decision:
    - Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, `scope`, `availableScopes`, and optional `reason`/`rawInput`.
    - Surface the request to the parent/user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
    - Wait for the parent/user to decide.
-   - Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }` — `allow_agent` also takes `scope` (`'one-time'` or `'session'`) and an optional `reason`; `deny_agent` takes only `{ sessionId, repo }` plus an optional `reason`.
+   - Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo, role? }` — `allow_agent` also takes `scope` (`'one-time'` or `'session'`) and an optional `reason`; `deny_agent` takes only an optional `reason` on top.
    - **Fail-closed:** When you see `permission-required`, you MUST call either `allow_agent` or `deny_agent`. Failing to call one leaves the gate held open until the child's idle timer fires; the child cannot make progress until you decide.
    - Resume polling.
 {% else %}
@@ -121,7 +124,7 @@ State machine:
 
 ## Cancelling a running child
 
-To cancel a running child mid-work, call `stop_agent` with the repo. Response:
+To cancel a running child mid-work, call `stop_agent` with the repo (and `role`, per the parameter rule above). Response:
 
 ```json
 {
@@ -143,6 +146,7 @@ When the child agent reaches a terminal status, return a structured summary:
 ## Polygraph Delegation Result
 
 **Repo:** <repo>
+**Role:** <role, or "default" when none was given>
 **Status:** <success | failed | cancelled>
 **Session ID:** <sessionId>
 

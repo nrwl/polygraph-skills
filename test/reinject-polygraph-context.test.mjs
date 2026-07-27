@@ -12,11 +12,19 @@ import {
 const CLAUDE_ID = '88b2ff2e-b146-458c-85fc-109c7bc12f26';
 const POLY_ID = 'chipped-twig-23a03-3dba703b';
 
-// Build a fake ~/.polygraph root with one session and its parent sidecar.
-function makeRoot() {
-  const root = mkdtempSync(path.join(tmpdir(), 'pg-root-'));
+// These tests exercise the default sessions root (<root>/sessions); make sure
+// an ambient POLYGRAPH_ROOT cannot redirect it.
+delete process.env.POLYGRAPH_ROOT;
 
-  const sidecarDir = path.join(root, 'sidecars', POLY_ID);
+// Directory holding the parent sidecar for the given layout.
+function sidecarDirFor(root, location) {
+  return location === 'legacy'
+    ? path.join(root, 'sidecars', POLY_ID) // legacy: <root>/sidecars/<sessionId>/
+    : path.join(root, 'sessions', POLY_ID, 'sidecars'); // new: <root>/sessions/<sessionId>/sidecars/
+}
+
+function writeParentSidecar(root, location, extra = {}) {
+  const sidecarDir = sidecarDirFor(root, location);
   mkdirSync(sidecarDir, { recursive: true });
   writeFileSync(
     path.join(sidecarDir, `parent-${CLAUDE_ID}.json`),
@@ -24,8 +32,16 @@ function makeRoot() {
       sessionId: POLY_ID,
       parentSessionId: CLAUDE_ID,
       parentAgentType: 'claude',
+      ...extra,
     })
   );
+}
+
+// Build a fake ~/.polygraph root with one session and its parent sidecar.
+function makeRoot(location = 'new') {
+  const root = mkdtempSync(path.join(tmpdir(), 'pg-root-'));
+
+  writeParentSidecar(root, location);
 
   const sessionDir = path.join(root, 'sessions', POLY_ID, 'session');
   mkdirSync(sessionDir, { recursive: true });
@@ -58,8 +74,8 @@ function makeRoot() {
   return root;
 }
 
-test('findSidecar resolves the Polygraph session id from a Claude session id', () => {
-  const root = makeRoot();
+test('findSidecar resolves the session id from the NEW per-session sidecars dir', () => {
+  const root = makeRoot('new');
   try {
     const sidecar = findSidecar(CLAUDE_ID, root);
     assert.ok(sidecar);
@@ -67,6 +83,56 @@ test('findSidecar resolves the Polygraph session id from a Claude session id', (
     assert.equal(sidecar.parentAgentType, 'claude');
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findSidecar falls back to the LEGACY sidecars dir', () => {
+  const root = makeRoot('legacy');
+  try {
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.ok(sidecar);
+    assert.equal(sidecar.sessionId, POLY_ID);
+    assert.equal(sidecar.parentAgentType, 'claude');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findSidecar prefers the new location when the sidecar exists in both', () => {
+  const root = makeRoot('new');
+  try {
+    writeParentSidecar(root, 'new', { marker: 'new-location' });
+    writeParentSidecar(root, 'legacy', { marker: 'legacy-location' });
+
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.ok(sidecar);
+    assert.equal(sidecar.marker, 'new-location');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findSidecar honours POLYGRAPH_ROOT as the sessions root', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pg-envroot-'));
+  const customRoot = mkdtempSync(path.join(tmpdir(), 'pg-envroot-custom-'));
+  const saved = process.env.POLYGRAPH_ROOT;
+  try {
+    const sidecarDir = path.join(customRoot, POLY_ID, 'sidecars');
+    mkdirSync(sidecarDir, { recursive: true });
+    writeFileSync(
+      path.join(sidecarDir, `parent-${CLAUDE_ID}.json`),
+      JSON.stringify({ sessionId: POLY_ID, parentAgentType: 'claude' })
+    );
+
+    process.env.POLYGRAPH_ROOT = customRoot;
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.ok(sidecar);
+    assert.equal(sidecar.sessionId, POLY_ID);
+  } finally {
+    if (saved === undefined) delete process.env.POLYGRAPH_ROOT;
+    else process.env.POLYGRAPH_ROOT = saved;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(customRoot, { recursive: true, force: true });
   }
 });
 
@@ -79,7 +145,7 @@ test('findSidecar returns null for an unknown Claude session id', () => {
   }
 });
 
-test('findSidecar returns null when there is no sidecars directory', () => {
+test('findSidecar returns null when neither sidecars location exists', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'pg-empty-'));
   try {
     assert.equal(findSidecar(CLAUDE_ID, root), null);
