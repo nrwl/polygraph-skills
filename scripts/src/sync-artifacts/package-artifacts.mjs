@@ -39,7 +39,7 @@ export function buildCodexPluginManifest(pkgJson) {
     version: pkgJson.version,
     description: pkgJson.description,
     author: pkgJson.author,
-    homepage: 'https://nx.dev/features/polygraph',
+    homepage: 'https://docs.trypolygraph.com/',
     repository: pkgJson.repository,
     license: pkgJson.license,
     keywords: pkgJson.keywords,
@@ -48,19 +48,21 @@ export function buildCodexPluginManifest(pkgJson) {
     hooks: './hooks/hooks.json',
     interface: {
       displayName: 'Polygraph',
-      shortDescription: 'Multi-repo coordination skills for Codex.',
+      shortDescription: 'Cross-repo visibility and persistent memory for Codex agents.',
       longDescription:
-        'Coordinate work across repositories with Polygraph session setup, delegation, and CI monitoring skills.',
+        'Give Codex the Polygraph meta-harness: repository graph context, resumable agent sessions, linked PR and CI state, and workflows for coordinating work across repo boundaries when needed.',
       developerName: pkgJson.author.name,
       category: 'Productivity',
       capabilities: ['Read', 'Write'],
-      websiteURL: 'https://nx.dev/features/polygraph',
+      websiteURL: 'https://docs.trypolygraph.com/',
       defaultPrompt: [
-        'Use Polygraph to start a multi-repo session for this change.',
-        'Use Polygraph to monitor CI across all repos in my Polygraph session.',
-        'Use Polygraph to delegate work to another repo in the session.',
+        'Start a Polygraph session for this work.',
+        'Start a Polygraph session and include the repos related to this change.',
+        'Resume or inspect my Polygraph session and summarize the current state.',
       ],
-      brandColor: '#0F172A',
+      brandColor: "#F59E0B",
+      composerIcon: "./assets/polygraph-icon.png",
+      logo: "./assets/polygraph-icon.png",
     },
   };
 }
@@ -152,6 +154,7 @@ export function finalizeCodexDist(pkgJson) {
       'skills/',
       'agents/',
       'hooks/',
+      'assets/',
       '.mcp.json',
       'README.md',
       'bin/',
@@ -182,6 +185,18 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
+  cpSync(
+    join(sourceDir, 'hooks', 'check-plugin-version.mjs'),
+    join(codexHooksDir, 'check-plugin-version.mjs')
+  );
+
+  cpSync(
+    join(sourceDir, 'assets'),
+    join(codexDir, 'assets'),
+    {
+      recursive: true
+    }
+  )
 
   copySharedDocs(codexDir);
 }

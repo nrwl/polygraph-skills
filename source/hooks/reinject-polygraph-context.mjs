@@ -8,9 +8,12 @@
 // into the model.
 //
 // Everything is read from local Polygraph state — no network calls:
+//   <sessionsRoot>/<polygraphSessionId>/sidecars/parent-<agentSessionId>.json
+//       (sessionsRoot = $POLYGRAPH_ROOT or ~/.polygraph/sessions) maps this
+//       agent session id -> Polygraph session id (the "parent log sidecar"
+//       the CLI uses to stream parent-agent activity to the UI). Falls back
+//       to the legacy location for sessions created by older CLIs:
 //   ~/.polygraph/sidecars/<polygraphSessionId>/parent-<agentSessionId>.json
-//       maps this agent session id -> Polygraph session id (the "parent log
-//       sidecar" the CLI uses to stream parent-agent activity to the UI).
 //   ~/.polygraph/sessions/<polygraphSessionId>/session/session.json
 //       holds the session's repos, agentType, and orgId.
 //   ~/.polygraph/config.json
@@ -83,30 +86,56 @@ function readJson(file) {
   }
 }
 
-// Find the sidecar that maps an agent session id to a Polygraph session.
-// Returns the parsed sidecar object, or null when none matches.
-export function findSidecar(agentSessionId, root = polygraphRoot()) {
-  if (!agentSessionId) return null;
+// Resolve the root directory that holds per-session folders. Overridable via
+// POLYGRAPH_ROOT (must match the Polygraph CLI's own resolution).
+function sessionsRoot(root) {
+  return process.env.POLYGRAPH_ROOT?.trim() || path.join(root, 'sessions');
+}
 
-  const sidecarsDir = path.join(root, 'sidecars');
-  if (!existsSync(sidecarsDir)) return null;
+// Scan the immediate subdirectories of `baseDir`; for each, `candidatePath`
+// maps the subdirectory name to a candidate sidecar file. Returns the first
+// parsed match, or null.
+function scanForSidecar(baseDir, candidatePath) {
+  if (!existsSync(baseDir)) return null;
 
-  const fileName = `parent-${agentSessionId}.json`;
   let entries;
   try {
-    entries = readdirSync(sidecarsDir, { withFileTypes: true });
+    entries = readdirSync(baseDir, { withFileTypes: true });
   } catch {
     return null;
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const candidate = path.join(sidecarsDir, entry.name, fileName);
+    const candidate = candidatePath(entry.name);
     if (existsSync(candidate)) {
       return readJson(candidate);
     }
   }
   return null;
+}
+
+// Find the sidecar that maps an agent session id to a Polygraph session.
+// Checks the new per-session layout first, then falls back to the legacy
+// shared sidecars directory. Returns the parsed sidecar object, or null when
+// none matches.
+export function findSidecar(agentSessionId, root = polygraphRoot()) {
+  if (!agentSessionId) return null;
+
+  const fileName = `parent-${agentSessionId}.json`;
+
+  // New layout: <sessionsRoot>/<sessionId>/sidecars/parent-<agentSessionId>.json
+  const sessionsDir = sessionsRoot(root);
+  const fromSessions = scanForSidecar(sessionsDir, (sessionId) =>
+    path.join(sessionsDir, sessionId, 'sidecars', fileName)
+  );
+  if (fromSessions) return fromSessions;
+
+  // Legacy layout: <root>/sidecars/<sessionId>/parent-<agentSessionId>.json
+  const legacyDir = path.join(root, 'sidecars');
+  return scanForSidecar(legacyDir, (sessionId) =>
+    path.join(legacyDir, sessionId, fileName)
+  );
 }
 
 // Build the context block for a Polygraph session, or null when the agent is

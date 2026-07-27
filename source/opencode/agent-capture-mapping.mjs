@@ -8,13 +8,25 @@
 // every session start and compaction; the CLI reader looks for mapping-*.json
 // files in the per-session sidecars directory.
 //
-// File contract:
+// File contract (must match the Polygraph CLI reader exactly):
+//   <sessionsRoot>/<POLYGRAPH_SESSION_ID>/sidecars/mapping-opencode-<sessionId>.json
+//     where sessionsRoot = $POLYGRAPH_ROOT, else `globalRoot` from
+//     ~/.polygraph/config.json, else ~/.polygraph/sessions
+//   Legacy fallback, used ONLY when <sessionsRoot>/<POLYGRAPH_SESSION_ID>
+//   does not exist (for real sessions nothing new is written here):
 //   ~/.polygraph/sidecars/<POLYGRAPH_SESSION_ID>/mapping-opencode-<sessionId>.json
+//
+// The session folder is a trustworthy location for this parent-transcript
+// binding because the Polygraph CLI's child-agent sandboxes exclude the
+// session root — children cannot write there. The CLI reads mappings from
+// the session folder first, with the flat dir as a read-only fallback.
 //
 // Behaviour:
 //   - Silent no-op when POLYGRAPH_SESSION_ID is unset or POLYGRAPH_CHILD_AGENT is set.
 //   - Atomic write via tmp-file rename.
-//   - Refresh: preserves firstSeenAt when a valid prior mapping exists.
+//   - Refresh: preserves firstSeenAt when a valid prior mapping exists
+//     (checked in the new location first, then the legacy flat dir — keeps
+//     firstSeenAt continuity when migrating a mapping from the legacy dir).
 //   - All failures are silently swallowed.
 
 import {
@@ -82,9 +94,34 @@ export function logHookFailure(
   }
 }
 
+// Resolve the root directory that holds per-session folders:
+// $POLYGRAPH_ROOT, else `globalRoot` from ~/.polygraph/config.json, else
+// ~/.polygraph/sessions. Must match the Polygraph CLI's own resolution.
+function sessionsRoot(home) {
+  const fromEnv = process.env.POLYGRAPH_ROOT?.trim();
+  if (fromEnv) return fromEnv;
+
+  try {
+    const config = JSON.parse(
+      readFileSync(path.join(home, '.polygraph', 'config.json'), 'utf8')
+    );
+    if (typeof config?.globalRoot === 'string' && config.globalRoot.trim()) {
+      return config.globalRoot.trim();
+    }
+  } catch {
+    // no config — use the default
+  }
+
+  return path.join(home, '.polygraph', 'sessions');
+}
+
 /**
  * Write (or refresh) the agent-capture mapping for an OpenCode session.
- * Reads POLYGRAPH_SESSION_ID and POLYGRAPH_CHILD_AGENT from process.env.
+ *
+ * Written into the session folder (`<sessionsRoot>/<sessionId>/sidecars/`)
+ * when the session directory exists; only when it does not exist does the
+ * write fall back to the legacy flat `~/.polygraph/sidecars/<sessionId>/`
+ * dir. Reads POLYGRAPH_SESSION_ID and POLYGRAPH_CHILD_AGENT from process.env.
  *
  * @param {string} agentSessionId  The OpenCode session id (input.sessionID).
  * @param {string} [home]          Override HOME for testing.
@@ -99,19 +136,34 @@ export function writeAgentCaptureMapping(
     if (process.env.POLYGRAPH_CHILD_AGENT) return;
     if (!agentSessionId) return;
 
-    const sidecarDir = path.join(home, '.polygraph', 'sidecars', polygraphSessionId);
-    mkdirSync(sidecarDir, { recursive: true });
-
     const filenamePart = sanitizeMappingFilename(`opencode-${agentSessionId}`);
-    const finalPath = path.join(sidecarDir, `mapping-${filenamePart}.json`);
+    const fileName = `mapping-${filenamePart}.json`;
+
+    const sessionDir = path.join(sessionsRoot(home), polygraphSessionId);
+    const sessionSidecarDir = path.join(sessionDir, 'sidecars');
+    const legacyDir = path.join(home, '.polygraph', 'sidecars', polygraphSessionId);
+
+    // New location when the session directory exists; legacy flat dir only
+    // when it does not.
+    const targetDir = existsSync(sessionDir) ? sessionSidecarDir : legacyDir;
+    mkdirSync(targetDir, { recursive: true });
+
+    const finalPath = path.join(targetDir, fileName);
     const tmpPath = `${finalPath}.tmp-${process.pid}`;
 
     const now = Date.now();
-    let firstSeenAt = now;
 
-    if (existsSync(finalPath)) {
+    // Refresh semantics: preserve firstSeenAt from a valid prior mapping.
+    // Check the new location first, then the legacy flat dir — this keeps
+    // firstSeenAt continuity when migrating a mapping from the legacy dir.
+    let firstSeenAt = now;
+    for (const candidate of [
+      path.join(sessionSidecarDir, fileName),
+      path.join(legacyDir, fileName),
+    ]) {
+      if (!existsSync(candidate)) continue;
       try {
-        const existing = JSON.parse(readFileSync(finalPath, 'utf8'));
+        const existing = JSON.parse(readFileSync(candidate, 'utf8'));
         if (
           existing.version === 1 &&
           existing.polygraphSessionId === polygraphSessionId &&
@@ -119,6 +171,7 @@ export function writeAgentCaptureMapping(
           Number.isFinite(existing.firstSeenAt)
         ) {
           firstSeenAt = existing.firstSeenAt;
+          break;
         }
       } catch {
         // ignore — treat as missing

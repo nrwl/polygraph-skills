@@ -16,6 +16,10 @@ import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
 import { writeAgentCaptureMapping } from '../source/opencode/agent-capture-mapping.mjs';
 
+// These tests exercise the default sessions root (<root>/sessions); make sure
+// an ambient POLYGRAPH_ROOT cannot redirect it.
+delete process.env.POLYGRAPH_ROOT;
+
 // The compaction-note helpers resolve Polygraph state under os.homedir(), so
 // these tests point HOME at a temp dir instead of injecting a root.
 async function withTempHome(fn) {
@@ -76,47 +80,59 @@ test('PolygraphPlugin exposes the experimental.session.compacting hook', async (
   assert.equal(typeof plugin['experimental.session.compacting'], 'function');
 });
 
-test('compacting hook pushes a preserve note built from local Polygraph state', async () => {
-  await withTempHome(async (root) => {
-    const agentSessionId = 'ses_opencode_demo';
-    const polygraphSessionId = 'demo-session-abc';
-    mkdirSync(join(root, 'sidecars', polygraphSessionId), { recursive: true });
-    writeFileSync(
-      join(root, 'sidecars', polygraphSessionId, `parent-${agentSessionId}.json`),
-      JSON.stringify({
-        sessionId: polygraphSessionId,
-        parentSessionId: agentSessionId,
-        parentAgentType: 'opencode',
-      })
-    );
-    mkdirSync(join(root, 'sessions', polygraphSessionId, 'session'), {
-      recursive: true,
-    });
-    writeFileSync(
-      join(root, 'sessions', polygraphSessionId, 'session', 'session.json'),
-      JSON.stringify({
-        sessionId: polygraphSessionId,
-        repos: [
-          { repoFullName: 'nrwl/polygraph-skills' },
-          { repoFullName: 'nrwl/ocean' },
-        ],
-      })
-    );
-
-    const plugin = await PolygraphPlugin();
-    const output = { context: [] };
-    await plugin['experimental.session.compacting'](
-      { sessionID: agentSessionId },
-      output
-    );
-
-    assert.equal(output.context.length, 1);
-    const note = output.context[0];
-    assert.match(note, /Polygraph session demo-session-abc/);
-    assert.match(note, /nrwl\/polygraph-skills, nrwl\/ocean/);
-    assert.match(note, /[Pp]reserve/);
+// Seed a parent sidecar + session.json under the fake root. `location`
+// selects the new per-session layout or the legacy shared sidecars dir.
+function seedPolygraphSession(root, agentSessionId, polygraphSessionId, location) {
+  const sidecarDir =
+    location === 'legacy'
+      ? join(root, 'sidecars', polygraphSessionId)
+      : join(root, 'sessions', polygraphSessionId, 'sidecars');
+  mkdirSync(sidecarDir, { recursive: true });
+  writeFileSync(
+    join(sidecarDir, `parent-${agentSessionId}.json`),
+    JSON.stringify({
+      sessionId: polygraphSessionId,
+      parentSessionId: agentSessionId,
+      parentAgentType: 'opencode',
+    })
+  );
+  mkdirSync(join(root, 'sessions', polygraphSessionId, 'session'), {
+    recursive: true,
   });
-});
+  writeFileSync(
+    join(root, 'sessions', polygraphSessionId, 'session', 'session.json'),
+    JSON.stringify({
+      sessionId: polygraphSessionId,
+      repos: [
+        { repoFullName: 'nrwl/polygraph-skills' },
+        { repoFullName: 'nrwl/ocean' },
+      ],
+    })
+  );
+}
+
+for (const location of ['new', 'legacy']) {
+  test(`compacting hook pushes a preserve note built from local Polygraph state (${location} sidecar location)`, async () => {
+    await withTempHome(async (root) => {
+      const agentSessionId = 'ses_opencode_demo';
+      const polygraphSessionId = 'demo-session-abc';
+      seedPolygraphSession(root, agentSessionId, polygraphSessionId, location);
+
+      const plugin = await PolygraphPlugin();
+      const output = { context: [] };
+      await plugin['experimental.session.compacting'](
+        { sessionID: agentSessionId },
+        output
+      );
+
+      assert.equal(output.context.length, 1);
+      const note = output.context[0];
+      assert.match(note, /Polygraph session demo-session-abc/);
+      assert.match(note, /nrwl\/polygraph-skills, nrwl\/ocean/);
+      assert.match(note, /[Pp]reserve/);
+    });
+  });
+}
 
 test('compacting hook pushes nothing outside a Polygraph session', async () => {
   await withTempHome(async () => {
@@ -173,35 +189,54 @@ function restorePgEnv(saved) {
   }
 }
 
-function readMappingFiles(home, polygraphSessionId) {
-  const dir = join(home, '.polygraph', 'sidecars', polygraphSessionId);
+// The session folder for a session, under the default sessions root.
+function ocSessionDir(home, polygraphSessionId) {
+  return join(home, '.polygraph', 'sessions', polygraphSessionId);
+}
+
+// New mapping location: the sidecars dir inside the session folder (used
+// when the session directory exists).
+function sessionSidecarDir(home, polygraphSessionId) {
+  return join(ocSessionDir(home, polygraphSessionId), 'sidecars');
+}
+
+// Legacy flat location, used only when the session directory does not exist.
+function legacyMappingDir(home, polygraphSessionId) {
+  return join(home, '.polygraph', 'sidecars', polygraphSessionId);
+}
+
+function readMappingFilesIn(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((f) => f.startsWith('mapping-'));
 }
 
-function readMappingJson(home, polygraphSessionId) {
-  const files = readMappingFiles(home, polygraphSessionId);
-  assert.equal(files.length, 1);
-  return JSON.parse(
-    readFileSync(
-      join(home, '.polygraph', 'sidecars', polygraphSessionId, files[0]),
-      'utf8'
-    )
-  );
+// All mapping files for a session across both possible locations.
+function readMappingFiles(home, polygraphSessionId) {
+  return [
+    ...readMappingFilesIn(sessionSidecarDir(home, polygraphSessionId)),
+    ...readMappingFilesIn(legacyMappingDir(home, polygraphSessionId)),
+  ];
 }
 
-test('writeAgentCaptureMapping writes a valid opencode mapping file', () => {
+function readMappingJsonIn(dir) {
+  const files = readMappingFilesIn(dir);
+  assert.equal(files.length, 1, `expected exactly one mapping file in ${dir}`);
+  return JSON.parse(readFileSync(join(dir, files[0]), 'utf8'));
+}
+
+test('writeAgentCaptureMapping writes into the session sidecars dir when the session directory exists', () => {
   const saved = savePgEnv();
   const home = mkdtempSync(join(tmpdir(), 'pg-oc-map-'));
   try {
     process.env.POLYGRAPH_SESSION_ID = 'poly-oc-1';
     delete process.env.POLYGRAPH_CHILD_AGENT;
+    mkdirSync(ocSessionDir(home, 'poly-oc-1'), { recursive: true });
 
     const before = Date.now();
     writeAgentCaptureMapping('ses_oc_abc', home);
     const after = Date.now();
 
-    const mapping = readMappingJson(home, 'poly-oc-1');
+    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-1'));
 
     assert.equal(mapping.version, 1);
     assert.equal(mapping.polygraphSessionId, 'poly-oc-1');
@@ -215,6 +250,68 @@ test('writeAgentCaptureMapping writes a valid opencode mapping file', () => {
     assert.ok(Number.isFinite(mapping.lastSeenAt));
     assert.ok(mapping.firstSeenAt >= before && mapping.firstSeenAt <= after);
     assert.equal(Object.hasOwn(mapping, 'transcriptPath'), false);
+
+    // Nothing new lands under the legacy flat dir.
+    assert.equal(existsSync(legacyMappingDir(home, 'poly-oc-1')), false);
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping falls back to the legacy flat dir only when the session directory does not exist', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-legacy-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-legacy';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    writeAgentCaptureMapping('ses_oc_legacy', home);
+
+    const mapping = readMappingJsonIn(legacyMappingDir(home, 'poly-oc-legacy'));
+    assert.equal(mapping.agentSessionId, 'ses_oc_legacy');
+    assert.equal(existsSync(ocSessionDir(home, 'poly-oc-legacy')), false);
+  } finally {
+    restorePgEnv(saved);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writeAgentCaptureMapping keeps firstSeenAt continuity when migrating a mapping from the legacy dir', () => {
+  const saved = savePgEnv();
+  const home = mkdtempSync(join(tmpdir(), 'pg-oc-migrate-'));
+  try {
+    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-migrate';
+    delete process.env.POLYGRAPH_CHILD_AGENT;
+
+    // Prior state from an older install: mapping in the legacy flat dir.
+    const legacy = legacyMappingDir(home, 'poly-oc-migrate');
+    mkdirSync(legacy, { recursive: true });
+    const legacyPath = join(legacy, 'mapping-opencode-ses_oc_migrate.json');
+    const legacyContent = JSON.stringify({
+      version: 1,
+      polygraphSessionId: 'poly-oc-migrate',
+      agentType: 'opencode',
+      agentSessionId: 'ses_oc_migrate',
+      cwd: '/old-cwd',
+      pid: 1,
+      source: 'hook',
+      firstSeenAt: 1000,
+      lastSeenAt: 1000,
+    });
+    writeFileSync(legacyPath, legacyContent);
+
+    // The session directory now exists, so the write routes to it.
+    mkdirSync(ocSessionDir(home, 'poly-oc-migrate'), { recursive: true });
+
+    writeAgentCaptureMapping('ses_oc_migrate', home);
+
+    const migrated = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-migrate'));
+    assert.equal(migrated.firstSeenAt, 1000, 'firstSeenAt carried over from the legacy mapping');
+    assert.ok(migrated.lastSeenAt > 1000);
+
+    // The legacy copy is a read-only fallback: untouched, and not rewritten.
+    assert.equal(readFileSync(legacyPath, 'utf8'), legacyContent);
   } finally {
     restorePgEnv(saved);
     rmSync(home, { recursive: true, force: true });
@@ -279,15 +376,16 @@ test('writeAgentCaptureMapping preserves firstSeenAt and bumps lastSeenAt on ref
   try {
     process.env.POLYGRAPH_SESSION_ID = 'poly-oc-refresh';
     delete process.env.POLYGRAPH_CHILD_AGENT;
+    mkdirSync(ocSessionDir(home, 'poly-oc-refresh'), { recursive: true });
 
     writeAgentCaptureMapping('ses_oc_refresh', home);
-    const first = readMappingJson(home, 'poly-oc-refresh');
+    const first = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-refresh'));
 
     const end = Date.now() + 2;
     while (Date.now() < end) { /* busy-wait one tick */ }
 
     writeAgentCaptureMapping('ses_oc_refresh', home);
-    const second = readMappingJson(home, 'poly-oc-refresh');
+    const second = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-refresh'));
 
     assert.equal(second.firstSeenAt, first.firstSeenAt, 'firstSeenAt preserved');
     assert.ok(second.lastSeenAt >= first.lastSeenAt, 'lastSeenAt updated');
@@ -317,8 +415,9 @@ test('shell.env writes a mapping file when POLYGRAPH_SESSION_ID is set', async (
       assert.equal(output.env.POLYGRAPH_AGENT_SESSION_ID, 'ses_shell_env_test');
       assert.equal(output.env.POLYGRAPH_AGENT_TYPE, 'opencode');
 
-      // and the mapping must be on disk
-      const mapping = readMappingJson(home, 'poly-shell-env');
+      // and the mapping must be on disk — no session dir exists in this
+      // fixture, so it lands in the legacy flat dir
+      const mapping = readMappingJsonIn(legacyMappingDir(home, 'poly-shell-env'));
       assert.equal(mapping.agentType, 'opencode');
       assert.equal(mapping.agentSessionId, 'ses_shell_env_test');
     } finally {

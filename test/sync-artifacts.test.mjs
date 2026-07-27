@@ -119,17 +119,11 @@ test('rendered polygraph skill points at the session description reference file'
   const policySection = sectionBetween(
     rendered,
     '### Session Description Policy',
-    '### 3. Create Draft PRs'
+    '### 3. Get Current Polygraph Session'
   );
-  const createPrSection = sectionBetween(
-    rendered,
-    '### 3. Create Draft PRs',
-    '### 4. Get Current Polygraph Session'
-  );
-  const associatePrSection = sectionBetween(
-    rendered,
-    '### 6. Associate Existing PRs',
-    '### 7. Add Repositories to a Session'
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
   );
   const updateDescriptionSection = sectionBetween(
     rendered,
@@ -146,8 +140,8 @@ test('rendered polygraph skill points at the session description reference file'
   assert.match(policySection, /`description` is user-facing Polygraph session context/);
   assert.match(policySection, /read \[`reference\/session-description\.md`\]\(reference\/session-description\.md\)/);
   assert.match(policySection, /That reference file holds the full policy/);
-  assert.match(createPrSection, /[Mm]ust follow the Session Description Policy/);
-  assert.match(associatePrSection, /[Mm]ust follow the Session Description Policy/);
+  assert.match(publishReference, /[Mm]ust follow the Session Description Policy/);
+  assert.match(publishReference, /read \[`session-description\.md`\]\(session-description\.md\)/);
   assert.match(updateDescriptionSection, /reference\/session-description\.md/);
   assert.match(updateDescriptionSection, /Then call `update_session` with the resulting summary as `description`\./);
 
@@ -207,7 +201,6 @@ test('session description reference ships to every platform dist skill folder', 
     assert.match(reference, /> \[!NOTE\]/);
     assert.match(reference, /> \[!IMPORTANT\]/);
     assert.match(reference, /> \[!TIP\]/);
-    assert.match(reference, /newly supported by the app renderer/i);
     assert.match(reference, /Tables \(GFM\)/);
     assert.match(reference, /mermaid/);
     assert.match(reference, /Do NOT redraw the cross-repo dependency \/ repository graph/);
@@ -220,6 +213,50 @@ test('session description reference ships to every platform dist skill folder', 
   }
 });
 
+test('publish changes reference ships to every platform dist skill folder', () => {
+  const platforms = ['claude', 'opencode', 'codex'];
+
+  for (const platform of platforms) {
+    const outputDir = mkdtempSync(join(tmpdir(), `polygraph-${platform}-skills-`));
+    processSkills(platform, {
+      outputDir,
+      skillsDir: 'skills',
+      skillsFile: 'SKILL.md',
+    });
+
+    const referencePath = join(
+      outputDir,
+      'skills',
+      'polygraph',
+      'reference',
+      'publish-changes.md'
+    );
+    const reference = readFileSync(referencePath, 'utf8');
+
+    // The full branch-to-PR flow lives in the reference file.
+    assert.match(reference, /^## Push Branches$/m);
+    assert.match(reference, /^## Create Draft PRs$/m);
+    assert.match(reference, /^## Mark PRs Ready$/m);
+    assert.match(reference, /^## Associate Existing PRs$/m);
+    assert.match(reference, /pushes from the local checkout/);
+    assert.match(reference, /PR titles become squash-merge commit messages/);
+    assert.match(reference, /transition PRs from DRAFT to OPEN status/);
+    assert.match(reference, /prUrls/);
+
+    // The skill keeps only a short on-demand pointer to the reference file.
+    const rendered = renderSkill('polygraph', platform);
+    assert.match(rendered, /### 2\. Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
+    assert.match(rendered, /read \[`reference\/publish-changes\.md`\]\(reference\/publish-changes\.md\)/);
+    assert.doesNotMatch(rendered, /^### \d+\. Push Branches$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Create Draft PRs$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Mark PRs Ready$/m);
+    assert.doesNotMatch(rendered, /^### \d+\. Associate Existing PRs$/m);
+    assert.doesNotMatch(rendered, /PR titles become squash-merge commit messages/);
+    assert.doesNotMatch(rendered, /prUrls/);
+    assert.doesNotMatch(rendered, /polygraph\/ad5fa-add-user-preferences/);
+  }
+});
+
 test('codex polygraph skill uses custom Codex subagent guidance', () => {
   const rendered = renderSkill('polygraph');
 
@@ -227,12 +264,46 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(rendered, /Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`/);
   assert.match(rendered, /`wait_agent`/);
+  assert.match(rendered, /stop session work/i);
+  assert.match(rendered, /Re-run `polygraph whoami`/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing session ID/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
   assert.match(rendered, /- repo: "<org\/repo-name>"/);
-  assert.match(rendered, /repo: "org\/repo-name"/);
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
+  );
+  assert.match(publishReference, /repo: "org\/repo-name"/);
+  assert.doesNotMatch(publishReference, /target: "org\/repo-name"/);
+  assertNoNonCodexDelegationText(rendered);
+});
+
+test('codex session-start skill routes session creation through init subagent', () => {
+  const rendered = renderSkill('session-start');
+
+  assert.match(rendered, /^---\n[\s\S]*?name: session-start[\s\S]*?\n---\n/);
+  assert.match(rendered, /Start or reconnect a Polygraph session/);
+  assert.match(rendered, /Check Authentication First/);
+  assert.match(rendered, /If auth is missing, expired, or no organization is selected, stop session work/);
+  assert.match(rendered, /Facilitate user reauth through the browser-based flow/);
+  assert.match(rendered, /Re-run `whoami` after reauth/);
+  assert.match(rendered, /Parent Session Detection/);
+  assert.match(rendered, /parent conversation is responsible for detecting an existing Polygraph session ID/);
+  assert.match(rendered, /init subagent cannot infer the parent's current session context by itself/);
+  assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
+  assert.match(rendered, /agent_type: "polygraph-init-subagent"/);
+  assert.match(rendered, /Do NOT call the Polygraph MCP `list_repos` or `start_session` tools directly/);
+  assert.match(rendered, /Direct `add_repo` is allowed only when the user gives exact repository refs/);
+  assert.match(rendered, /If sessionId is provided, reuse that session and use add_repo/);
+  assert.match(rendered, /The parent conversation detected any existing sessionId/);
+  assert.match(rendered, /this is a fresh session-start flow; create a new session via start_session/);
+  assert.match(rendered, /If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos/);
+  assert.match(rendered, /Collect the result with `wait_agent`/);
+  assert.match(rendered, /`session_intro` MCP tool/);
   assertNoNonCodexDelegationText(rendered);
 });
 
@@ -246,18 +317,19 @@ test('rendered polygraph skill keeps session intro as hidden internal fallback',
   assert.doesNotMatch(toolsSection, /polygraph session intro/);
 });
 
-test('rendered polygraph skill documents PR repository semantics', () => {
-  const rendered = renderSkill('polygraph');
+test('publish changes reference documents PR repository semantics', () => {
+  const publishReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
+    'utf8'
+  );
   const createPrSection = sectionBetween(
-    rendered,
-    '### 3. Create Draft PRs',
-    '### 4. Get Current Polygraph Session'
+    publishReference,
+    '## Create Draft PRs',
+    '## Mark PRs Ready'
   );
-  const associatePrSection = sectionBetween(
-    rendered,
-    '### 6. Associate Existing PRs',
-    '### 7. Add Repositories to a Session'
-  );
+  const associateStart = publishReference.indexOf('## Associate Existing PRs');
+  assert.notEqual(associateStart, -1);
+  const associatePrSection = publishReference.slice(associateStart);
 
   assert.match(createPrSection, /`targetRepository` \(optional\): Target GitHub repository for fork PR creation or registration/);
   assert.match(createPrSection, /keep `owner` and `repo` set to the source repository/);
@@ -268,6 +340,38 @@ test('rendered polygraph skill documents PR repository semantics', () => {
   assert.match(associatePrSection, /repo: "org\/repo"/);
   assert.doesNotMatch(associatePrSection, /URL-based association infers|Branch-based association uses/);
   assert.doesNotMatch(associatePrSection, /targetRepo|targetRepository/);
+});
+
+test('polygraph skill renders platform-specific sandboxing guidance', () => {
+  const claude = renderSkill('polygraph', 'claude');
+  const codex = renderSkill('polygraph', 'codex');
+  const opencode = renderSkill('polygraph', 'opencode');
+
+  for (const rendered of [claude, codex]) {
+    assert.match(rendered, /## Sandboxing in Polygraph Sessions/);
+    assert.match(rendered, /Recognize sandbox denials — do not retry or work around them\./);
+    assert.match(rendered, /`!`-prefixed user commands — those run inside the same sandbox/);
+    assert.match(rendered, /\*\*Respect the sandbox\*\*/);
+    assert.match(rendered, /Never blame the tooling\./);
+    assert.doesNotMatch(rendered, /\{%|\{\{/);
+  }
+
+  assert.match(claude, /\.claude\/settings\.json/);
+  assert.match(claude, /"allowWrite"/);
+  assert.match(claude, /Agent Options → Claude → sandbox/);
+  assert.match(claude, /agentOptions\.claude\.sandbox: false/);
+  assert.doesNotMatch(claude, /\.codex\/config\.toml/);
+  assert.doesNotMatch(claude, /sandbox_workspace_write/);
+
+  assert.match(codex, /\.codex\/config\.toml/);
+  assert.match(codex, /\[sandbox_workspace_write\]/);
+  assert.match(codex, /network_access = true/);
+  assert.match(codex, /Agent Options → Codex → sandbox/);
+  assert.match(codex, /agentOptions\.codex\.sandbox: false/);
+  assert.doesNotMatch(codex, /\.claude\/settings\.json/);
+  assert.doesNotMatch(codex, /"allowWrite"/);
+
+  assert.doesNotMatch(opencode, /sandbox/i);
 });
 
 test('codex CI skills include built-in subagent guidance', () => {
@@ -326,7 +430,11 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.equal(delegateAgent.name, 'polygraph-delegate-subagent');
   assert.match(delegateAgent.description, /Delegates work to a child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
-  assert.match(delegateAgent.developer_instructions, /Backoff schedule for polling/);
+  assert.match(delegateAgent.developer_instructions, /Polling with long-poll waits/);
+  assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /backoff/i);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /fallback/i);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /sleep/i);
   assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
   assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
 });
@@ -380,6 +488,24 @@ test('codex plugin manifest registers the bundled SessionStart hooks file', () =
   const manifest = buildCodexPluginManifest(readRootPackageJson());
 
   assert.equal(manifest.hooks, './hooks/hooks.json');
+});
+
+test('codex plugin manifest describes Polygraph beyond multi-repo coordination', () => {
+  const manifest = buildCodexPluginManifest(readRootPackageJson());
+
+  assert.equal(
+    manifest.interface.shortDescription,
+    'Cross-repo visibility and persistent memory for Codex agents.'
+  );
+  assert.equal(
+    manifest.interface.longDescription,
+    'Give Codex the Polygraph meta-harness: repository graph context, resumable agent sessions, linked PR and CI state, and workflows for coordinating work across repo boundaries when needed.'
+  );
+  assert.deepEqual(manifest.interface.defaultPrompt, [
+    'Start a Polygraph session for this work.',
+    'Start a Polygraph session and include the repos related to this change.',
+    'Resume or inspect my Polygraph session and summarize the current state.',
+  ]);
 });
 
 test('opencode package is published as a native plugin package', () => {

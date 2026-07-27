@@ -1,6 +1,6 @@
 {
   "name": "polygraph-plugins",
-  "description": "Nx Polygraph plugins for Claude Code — multi-repo coordination, delegation, and CI monitoring",
+  "description": "Polygraph skills for agent sessions, repository context, delegation, and CI visibility",
   "owner": {
     "name": "Nx",
     "email": "hello@nrwl.io"
@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "polygraph",
-      "description": "Coordinate changes across multiple repositories using Polygraph - delegate work to child agents, monitor CI across repos, and manage multi-repo sessions",
+      "description": "Share and resume agent work with Polygraph sessions, link repos and PRs, monitor CI, and coordinate across repository boundaries when needed.",
       "source": {
         "source": "npm",
         "package": "@polygraph/claude-plugin"

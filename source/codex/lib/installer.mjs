@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -39,11 +40,33 @@ export function resolveUserHome(env = process.env) {
   return resolve(expandHome(userHome, env));
 }
 
-export function getMarketplacePath(userHome) {
+/**
+ * Root of the marketplace Polygraph owns outright.
+ *
+ * Polygraph must not publish into ~/.agents/plugins/marketplace.json: that file is
+ * shared, codex-discovered, and may already have been created by another tool. Codex
+ * derives plugin ids from the manifest's `name`, so adopting a foreign name there
+ * silently republishes this plugin as polygraph@<their-name> and every documented
+ * `codex plugin add polygraph@polygraph-plugins` fails.
+ */
+export function getMarketplaceRoot(userHome) {
+  return join(userHome, ".polygraph", "codex-marketplace");
+}
+
+export function getMarketplacePath(marketplaceRoot) {
+  return join(marketplaceRoot, ".agents", "plugins", "marketplace.json");
+}
+
+export function getPluginInstallPath(marketplaceRoot) {
+  return join(marketplaceRoot, "plugins", PLUGIN_NAME);
+}
+
+/** The shared file older versions published into. Only ever cleaned up, never written. */
+export function getLegacyMarketplacePath(userHome) {
   return join(userHome, ".agents", "plugins", "marketplace.json");
 }
 
-export function getPluginInstallPath(userHome) {
+export function getLegacyPluginInstallPath(userHome) {
   return join(userHome, ".agents", "plugins", PLUGIN_NAME);
 }
 
@@ -92,19 +115,28 @@ export function loadPackageMetadata(packageRoot) {
  * Materialize the plugin payload so codex's official `codex plugin add` can pick it up.
  *
  * This command:
- *   a. Copies the plugin payload to ~/.agents/plugins/polygraph (version-refresh aware).
- *   b. Ensures the `polygraph` entry in the personal marketplace at
- *      ~/.agents/plugins/marketplace.json (codex auto-discovers this file).
- *   c. Copies agents/*.toml to $CODEX_HOME/agents (official `codex plugin add` does
+ *   a. Copies the plugin payload to <marketplaceRoot>/plugins/polygraph (version-refresh aware).
+ *   b. Writes the marketplace manifest Polygraph owns at
+ *      <marketplaceRoot>/.agents/plugins/marketplace.json, always named `polygraph-plugins`.
+ *   c. Registers that root with codex (`codex plugin marketplace add`), which is idempotent.
+ *   d. Removes any entry an older version published into the shared
+ *      ~/.agents/plugins/marketplace.json, so the name cannot resolve ambiguously.
+ *   e. Copies agents/*.toml to $CODEX_HOME/agents (official `codex plugin add` does
  *      not surface plugin agents; this step keeps them available).
  *
  * It does NOT touch ~/.codex/config.toml — that is codex's job when the consumer
  * subsequently runs `codex plugin add polygraph@polygraph-plugins`.
+ *
+ * Step (c) exists because codex only auto-discovers the *shared* file. A dedicated root
+ * is invisible until registered, so registering here keeps `codex plugin add
+ * polygraph@polygraph-plugins` working for consumers that predate this change.
  */
 export function installPlugin({
   packageRoot,
   env = process.env,
   force = false,
+  // Injectable so tests do not have to shell out to a real codex binary.
+  register = registerMarketplace,
 } = {}) {
   if (!packageRoot) {
     throw new Error("packageRoot is required");
@@ -114,8 +146,9 @@ export function installPlugin({
   const codexHome = resolveCodexHome(env);
   const userHome = resolveUserHome(env);
   const agentsPath = getAgentsPath(codexHome);
-  const marketplacePath = getMarketplacePath(userHome);
-  const pluginPath = getPluginInstallPath(userHome);
+  const marketplaceRoot = getMarketplaceRoot(userHome);
+  const marketplacePath = getMarketplacePath(marketplaceRoot);
+  const pluginPath = getPluginInstallPath(marketplaceRoot);
   const installAlreadyPresent = existsSync(pluginPath);
 
   let previousVersion = null;
@@ -159,16 +192,21 @@ export function installPlugin({
   }
 
   const agentsChanged = installCodexAgents({ packageRoot, agentsPath });
-  const marketplaceChanged = enablePluginInMarketplace({
+  const marketplaceChanged = writeMarketplaceManifest({
     marketplacePath,
+    marketplaceRoot,
     pluginPath,
-    userHome,
   });
+  const legacyCleanup = cleanLegacyMarketplaceEntry({ userHome });
+  const registration = register({ marketplaceRoot, env });
 
   return {
     ok: true,
     action: "install",
     plugin: PLUGIN_ID,
+    marketplaceName: MARKETPLACE_NAME,
+    marketplaceRoot,
+    marketplaceRegistered: registration.registered,
     version,
     codexHome,
     agentsPath,
@@ -180,7 +218,95 @@ export function installPlugin({
     previousVersion,
     agentsChanged,
     marketplaceChanged,
+    legacyEntryRemoved: legacyCleanup.entryRemoved,
+    legacyMarketplaceRemoved: legacyCleanup.fileRemoved,
+    ...(registration.error ? { marketplaceRegistrationError: registration.error } : {}),
   };
+}
+
+/**
+ * Register the dedicated root with codex. Idempotent: codex reports `alreadyAdded` and
+ * exits 0 when the source is already configured, so this is safe on every update run.
+ */
+export function registerMarketplace({ marketplaceRoot, env = process.env }) {
+  const result = spawnSync(
+    "codex",
+    ["plugin", "marketplace", "add", marketplaceRoot, "--json"],
+    { encoding: "utf8", env },
+  );
+
+  if (result.error) {
+    // codex not on PATH: materialization still succeeded, but the marketplace is not
+    // discoverable until someone registers it. Surface it rather than failing the install.
+    return {
+      registered: false,
+      error: `Could not run \`codex\`: ${result.error.message}. Run \`codex plugin marketplace add ${marketplaceRoot}\` once codex is available.`,
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      registered: false,
+      error: `\`codex plugin marketplace add\` failed: ${(result.stderr || "").trim()}`,
+    };
+  }
+
+  return { registered: true };
+}
+
+/**
+ * Remove the entry older versions injected into the shared marketplace.
+ *
+ * Two reasons this is not merely cosmetic:
+ *  - If that file is foreign-named, it publishes this plugin as polygraph@<their-name>,
+ *    which is the bug being fixed.
+ *  - If that file is one we created (name `polygraph-plugins`), it collides by name with
+ *    the dedicated root. Codex accepts duplicate names and resolves them silently, so a
+ *    stale payload could win. Drop the file when nothing else uses it.
+ */
+export function cleanLegacyMarketplaceEntry({ userHome }) {
+  const legacyPath = getLegacyMarketplacePath(userHome);
+  const unchanged = { entryRemoved: false, fileRemoved: false };
+  if (!existsSync(legacyPath)) {
+    return unchanged;
+  }
+
+  let marketplace;
+  try {
+    marketplace = readJsonFile(legacyPath);
+  } catch {
+    return unchanged; // not ours to repair
+  }
+
+  if (!isPlainObject(marketplace) || !Array.isArray(marketplace.plugins)) {
+    return unchanged;
+  }
+
+  const remaining = marketplace.plugins.filter(
+    (plugin) => plugin?.name !== PLUGIN_NAME,
+  );
+  if (remaining.length === marketplace.plugins.length) {
+    return unchanged;
+  }
+
+  // A file we authored: our name, and nothing else left in it. Remove it outright so it
+  // cannot shadow the dedicated marketplace of the same name.
+  if (remaining.length === 0 && marketplace.name === MARKETPLACE_NAME) {
+    rmSync(legacyPath, { force: true });
+    rmSync(getLegacyPluginInstallPath(userHome), {
+      recursive: true,
+      force: true,
+    });
+    return { entryRemoved: true, fileRemoved: true };
+  }
+
+  // Someone else's file: take our entry back out and leave everything else untouched.
+  writeJsonFile(legacyPath, { ...marketplace, plugins: remaining });
+  rmSync(getLegacyPluginInstallPath(userHome), {
+    recursive: true,
+    force: true,
+  });
+  return { entryRemoved: true, fileRemoved: false };
 }
 
 export function checkInstall({ packageRoot, env = process.env } = {}) {
@@ -192,23 +318,31 @@ export function checkInstall({ packageRoot, env = process.env } = {}) {
   const codexHome = resolveCodexHome(env);
   const userHome = resolveUserHome(env);
   const agentsPath = getAgentsPath(codexHome);
-  const marketplacePath = getMarketplacePath(userHome);
-  const pluginPath = getPluginInstallPath(userHome);
+  const marketplaceRoot = getMarketplaceRoot(userHome);
+  const marketplacePath = getMarketplacePath(marketplaceRoot);
+  const pluginPath = getPluginInstallPath(marketplaceRoot);
   const pluginInstalled = isValidInstalledPluginDir(pluginPath);
   const agentsInstalled = packageRoot
     ? areCodexAgentsInstalled({ packageRoot, agentsPath })
     : hasDefaultCodexAgents(agentsPath);
   const marketplaceConfigured = isPluginConfiguredInMarketplace({
     marketplacePath,
-    userHome,
+    marketplaceRoot,
     pluginPath,
   });
-  const ok = pluginInstalled && agentsInstalled && marketplaceConfigured;
+  const legacyMarketplacePresent = hasLegacyPluginEntry({ userHome });
+  const ok =
+    pluginInstalled &&
+    agentsInstalled &&
+    marketplaceConfigured &&
+    !legacyMarketplacePresent;
 
   return {
     ok,
     action: "check",
     plugin: PLUGIN_ID,
+    marketplaceName: MARKETPLACE_NAME,
+    marketplaceRoot,
     codexHome,
     agentsPath,
     pluginPath,
@@ -216,7 +350,26 @@ export function checkInstall({ packageRoot, env = process.env } = {}) {
     pluginInstalled,
     agentsInstalled,
     marketplaceConfigured,
+    legacyMarketplacePresent,
   };
+}
+
+/** True when an older install still publishes this plugin from the shared file. */
+export function hasLegacyPluginEntry({ userHome }) {
+  const legacyPath = getLegacyMarketplacePath(userHome);
+  if (!existsSync(legacyPath)) {
+    return false;
+  }
+
+  try {
+    const marketplace = readJsonFile(legacyPath);
+    return (
+      Array.isArray(marketplace?.plugins) &&
+      marketplace.plugins.some((plugin) => plugin?.name === PLUGIN_NAME)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function getPackagePayloadPaths(packageRoot, packageJson) {
@@ -307,58 +460,38 @@ function hasDefaultCodexAgents(agentsPath) {
   );
 }
 
-export function enablePluginInMarketplace({
+/**
+ * Write the manifest for the marketplace Polygraph owns.
+ *
+ * The name is set unconditionally. The previous implementation preserved an existing
+ * `name` here, which is what let a foreign marketplace rename this plugin. Nothing else
+ * publishes into this root, so there is no third-party state to preserve.
+ */
+export function writeMarketplaceManifest({
   marketplacePath,
+  marketplaceRoot,
   pluginPath,
-  userHome,
 }) {
-  const marketplace = readJsonFile(marketplacePath, {});
-
-  if (
-    marketplace.plugins !== undefined &&
-    !Array.isArray(marketplace.plugins)
-  ) {
-    throw new Error(`Expected plugins array in ${marketplacePath}`);
-  }
-
-  const marketplacePluginPath = toMarketplaceSourcePath(userHome, pluginPath);
-  const nextPluginEntry = {
-    name: PLUGIN_NAME,
-    source: {
-      source: "local",
-      path: marketplacePluginPath,
-    },
-    policy: {
-      installation: "AVAILABLE",
-      authentication: "ON_INSTALL",
-    },
-    category: "Productivity",
-  };
-
-  const plugins = marketplace.plugins ?? [];
-  const existingIndex = plugins.findIndex(
-    (plugin) => plugin?.name === PLUGIN_NAME,
-  );
-  const nextPlugins =
-    existingIndex === -1
-      ? [...plugins, nextPluginEntry]
-      : plugins.map((plugin, index) =>
-          index === existingIndex ? nextPluginEntry : plugin,
-        );
-
   const nextMarketplace = {
-    ...marketplace,
-    name: marketplace.name ?? MARKETPLACE_NAME,
-    interface: isPlainObject(marketplace.interface)
-      ? {
-          ...marketplace.interface,
-          displayName:
-            marketplace.interface.displayName ?? MARKETPLACE_DISPLAY_NAME,
-        }
-      : { displayName: MARKETPLACE_DISPLAY_NAME },
-    plugins: nextPlugins,
+    name: MARKETPLACE_NAME,
+    interface: { displayName: MARKETPLACE_DISPLAY_NAME },
+    plugins: [
+      {
+        name: PLUGIN_NAME,
+        source: {
+          source: "local",
+          path: toMarketplaceSourcePath(marketplaceRoot, pluginPath),
+        },
+        policy: {
+          installation: "AVAILABLE",
+          authentication: "ON_INSTALL",
+        },
+        category: "Productivity",
+      },
+    ],
   };
 
+  const marketplace = readJsonFile(marketplacePath, null);
   const changed =
     JSON.stringify(nextMarketplace) !== JSON.stringify(marketplace);
   if (changed) {
@@ -370,14 +503,27 @@ export function enablePluginInMarketplace({
 
 export function isPluginConfiguredInMarketplace({
   marketplacePath,
-  userHome,
+  marketplaceRoot,
   pluginPath,
 }) {
   if (!existsSync(marketplacePath)) {
     return false;
   }
 
-  const marketplace = readJsonFile(marketplacePath);
+  let marketplace;
+  try {
+    marketplace = readJsonFile(marketplacePath);
+  } catch {
+    return false;
+  }
+
+  // The name is what codex builds the plugin id from, so a manifest that resolves the
+  // payload correctly but carries the wrong name is still broken. Validating only the
+  // source path is what previously let `check` pass on a broken install.
+  if (marketplace?.name !== MARKETPLACE_NAME) {
+    return false;
+  }
+
   if (!Array.isArray(marketplace.plugins)) {
     return false;
   }
@@ -392,7 +538,7 @@ export function isPluginConfiguredInMarketplace({
     return false;
   }
 
-  const configuredPath = resolve(userHome, pluginEntry.source.path);
+  const configuredPath = resolve(marketplaceRoot, pluginEntry.source.path);
   return configuredPath === resolve(pluginPath);
 }
 
@@ -451,8 +597,8 @@ function expandHome(inputPath, env) {
   return inputPath;
 }
 
-function toMarketplaceSourcePath(userHome, targetPath) {
-  const relativePath = relative(userHome, targetPath);
+function toMarketplaceSourcePath(marketplaceRoot, targetPath) {
+  const relativePath = relative(marketplaceRoot, targetPath);
   if (
     relativePath === "" ||
     relativePath === "." ||
@@ -460,7 +606,7 @@ function toMarketplaceSourcePath(userHome, targetPath) {
     relativePath === ".."
   ) {
     throw new Error(
-      `Expected plugin install path ${targetPath} to be inside ${userHome} so it can be referenced from the personal marketplace`,
+      `Expected plugin install path ${targetPath} to be inside ${marketplaceRoot} so it can be referenced from the marketplace manifest`,
     );
   }
 

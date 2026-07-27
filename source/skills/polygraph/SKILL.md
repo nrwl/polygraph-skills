@@ -1,6 +1,6 @@
 ---
 name: polygraph
-description: Guidance for working with Polygraph — repositories, sessions, child agents, PRs, and CI. Use when discovering repositories or how code is consumed across them, starting, joining, resuming, or sharing a Polygraph session, handing off progress, coordinating changes/branches/PRs across repos, delegating tasks to child agents in different repos, or checking CI status and logs. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", or asks about what other repos are doing with shared code/APIs/endpoints.
+description: Guidance for working with Polygraph sessions, shared/resumable agent context, repository graph visibility, linked PR/CI state, and cross-repo expansion when needed. Use when starting, joining, resuming, inspecting, or sharing a Polygraph session; handing off progress; discovering related repositories; coordinating changes/branches/PRs across repos; delegating tasks to child agents in different repos; checking CI status and logs; fetching missing git history in a shallow session clone; or tracing a commit or line of code back to the session that produced it. TRIGGER when user mentions "polygraph", resuming or sharing a session, "other repos", "other repositories", "who uses this", "what uses this", "cross-repo", "multi-repo", "consuming this API/endpoint", "dependent repositories", asks about what other repos are doing with shared code/APIs/endpoints, or asks about a "commit sha", "session behind this commit", "which session changed this line", "find session by sha", "git blame", "shallow clone", "missing commit", "bad object", "unshallow", "fetch history".
 {% if platform == "claude" %}
 allowed-tools:
   - mcp__plugin_polygraph_polygraph-mcp
@@ -33,6 +33,40 @@ Polygraph connects repositories and the agent work happening across them. Its ce
 
 **Polygraph operates on the current repo in place.** Starting or joining a session never clones or modifies the repository you are in — you keep working in your real working directory, and `push_branch` pushes your local commits from that checkout. Only *other* repositories are worked on in separate Polygraph-managed clones via `spawn_agent`.
 
+{% if platform == "claude" or platform == "codex" %}
+
+## Sandboxing in Polygraph Sessions
+
+Polygraph launches agent sessions inside an OS-level sandbox by default. Writes are limited to the repository working tree, the session root (`~/.polygraph/sessions/<session-id>/`), the system temp directory, and a few allowlisted directories; network access is restricted to allowlisted hosts. In practice: binding a listening socket is denied (dev servers fail with `EPERM`), localhost servers are unreachable, and writes outside the allowlist are rejected. The user may not know the session is sandboxed.
+
+**Recognize sandbox denials — do not retry or work around them.** When a command fails in a sandbox-shaped way (`EPERM` binding a port, a blocked network host, a denied write to an ordinary path), the sandbox blocked it. Do NOT retry variations, escalate through workarounds, or route the command through `!`-prefixed user commands — those run inside the same sandbox. One failure is enough evidence; stop and inform the user.
+
+**Warn before attempting known-blocked operations.** Before starting a dev server, anything else that listens on a port, or an operation that needs writes or network access outside the allowlist, tell the user up front that it will not work while sandboxing is on and offer the options below instead of attempting it.
+
+**What to tell the user.** Explain that Polygraph runs this session in a sandbox, then present both options. Each takes effect on the next agent launch, so the Polygraph session must be relaunched afterwards:
+
+1. **Keep the sandbox on and allow the specific operation** (preferred). The sandbox belongs to the agent harness, so exceptions live in harness settings committed to the repository; array settings merge with Polygraph's generated allowlist rather than replacing it.{% if platform == "claude" %} Add writable paths to `.claude/settings.json` (or `.claude/settings.local.json`):
+
+   ```json
+   { "sandbox": { "filesystem": { "allowWrite": ["<path>"] } } }
+   ```
+
+   The `.claude/` directory is read-only inside the sandbox, so give the user the exact snippet to commit — you cannot apply it yourself.{% elsif platform == "codex" %} Add writable roots or network access to `.codex/config.toml`:
+
+   ```toml
+   [sandbox_workspace_write]
+   network_access = true
+   writable_roots = ["<path>"]
+   ```
+
+   The `.codex/` directory is read-only inside the sandbox, so give the user the exact snippet to commit — you cannot apply it yourself.{% endif %}
+
+2. **Turn sandboxing off.** The user quits the agent, runs `polygraph config`, toggles **Agent Options → {% if platform == "claude" %}Claude{% else %}Codex{% endif %} → sandbox** off (or per-repo under **Repo Options**), and relaunches the Polygraph session. Non-interactive alternative: set `agentOptions.{{ platform }}.sandbox: false` (or `repoOptions."org/repo".sandbox: false`) in `~/.polygraph/config.json`. Warn that this removes filesystem isolation — the agent can then write anywhere the OS user can.
+
+**Never blame the tooling.** A sandbox denial means the environment blocked the operation — not that the repo, tool, or framework is broken. Do not record conclusions like "X is unusable" in memory, session descriptions, or messages based on sandboxed failures.
+
+{% endif %}
+
 ## Available Tools
 
 Polygraph functionality is available via both MCP tools and CLI commands. Use whichever is available in your current environment.
@@ -41,9 +75,9 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
-| `spawn_agent` | — | Start a new child task or send a follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, context? }`. Output: `{ taskId, message, status: 'delegated' }`. Follow-up routing is automatic: if the repo already has an active child task, the instruction is delivered to it as a follow-up message; otherwise a new child run starts. A repo has at most one active child at a time. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
-| `show_agent` | — | Poll flat per-child status for the session. Output: `{ children: PolygraphChildStatusItem[] }` where each item exposes `repositoryId`, `repoFullName`, `status`, `lastOutputLines`, `durationMs`, `instruction`, `agentType?`, `inputRequiredQuestion?`. `status` is an AcpRunStatus: `'created' \| 'in-progress' \| 'input-required' \| 'permission-required' \| 'completed' \| 'failed' \| 'cancelled'` (British double-L on `'cancelled'`). `inputRequiredQuestion` is populated only when `status === 'input-required'`. |
-| `stop_agent` | — | Cancel an in-progress child. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
+| `spawn_agent` | — | Start a new child task or send a follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, role?, context? }`. Output: `{ taskId, message, status: 'delegated' }`. `role` selects the agent slot within the repo (see "Agent roles"). Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task, the instruction is delivered to it as a follow-up message; otherwise a new child run starts. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
+| `show_agent` | — | Poll one repo's child status (`repo` required — one repo per call; pass `role` to narrow to that role's agent). Returns `{ children: [...] }` with one self-describing entry per matching agent, exposing `status`, `lastOutputLines`, `role` (absent for the default role), `inputRequiredQuestion`, etc. Full status enum and the poll/state-machine flow are under "Multi-turn tasks". |
+| `stop_agent` | — | Cancel an in-progress child. Input: `{ sessionId, repo, role? }`. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
@@ -54,9 +88,11 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
 | `archive_session` | `polygraph session archive <id>` | Archive a session, hiding it from active lists (it can still be resumed) |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
+| `git_fetch` | `polygraph git fetch` | Fetch additional git history for a shallow session clone. Use when git operations fail with "bad object" or missing-commit errors; by default fetches the full history of the default branch. Input: `{ sessionId, repo, depth?, refs? }`. See "Fetching Git History for Shallow Clones". |
 | `login` | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | `logout` | `polygraph auth logout` | Log out of Polygraph |
 | `list_sessions` | `polygraph session list` | List sessions. By default only active sessions created by the current git user; pass `recommendedFilters: false` for all sessions. |
+| `search_sessions` | `polygraph session search` | Find sessions by free-text `query` OR by commit `sha` — pass EXACTLY ONE of the two (they are mutually exclusive). `sha` (CLI: `--sha <sha>`) is an exact lookup of the session(s) linked to a commit, full or partial, 7-40 hex chars; it returns matching sessions newest first, org-scoped, and explicit sessions only (implicit sessions are never returned). Supports `--json` and `--limit` (1-50). See "Finding the Session Behind a Commit or Line". |
 | `list_accounts` | `polygraph account list` | List available organizations |
 | `select_account` | `polygraph account select` | Select the organization that future commands run against |
 | `whoami` | `polygraph whoami` | Show current auth status and org |
@@ -79,10 +115,13 @@ Before using Polygraph tools, ensure the CLI is authenticated and an organizatio
 
 ### Check Authentication
 
-Use `polygraph whoami` (or the `whoami` MCP tool) to check if the user is currently logged in and which organization is active.
+Use `polygraph whoami` (or the `whoami` MCP tool) before session work to check if the user is currently logged in and which organization is active.
 
 - If the user **is logged in** and an org is selected → proceed to the workflow.
-- If the user **is not logged in** → use `polygraph auth login` (or the `login` MCP tool) to authenticate. After login, an organization must be selected.
+- If auth is **missing, expired, or no org is selected** → stop session work. Do not keep trying session creation, repository discovery, delegation, or CI checks.
+- Facilitate user reauth through the browser-based login flow, such as `polygraph auth login` (or the `login` MCP tool). In interactive desktop clients, browser reauth is usually user-driven; surface the need clearly and wait for the user to complete it.
+- After login, an organization must be selected. Use `polygraph account select` (or the MCP equivalent) when needed.
+- Re-run `polygraph whoami` (or `whoami`) after reauth and org selection. Continue only after it confirms a valid login and selected organization.
 
 ### Select Organization
 
@@ -95,13 +134,13 @@ The delegate/monitor/stop steps apply only when working across repos. A single-r
 {% if has_subagents %}
 
 0. **Initialize or join Polygraph session** - If you were spawned inside an existing session (the startup banner names a session ID), reuse it. Call `show_session` first; if it already has repos and the user did not ask to add more, you're done. If the user asks to add exact repo refs, call `add_repo` directly with those refs and skip candidate discovery. If the session has no repos and no exact refs were provided, launch the `polygraph-init-subagent` with that `sessionId` so it discovers candidates and uses `add_repo` (NOT `start_session`). Only when there is no session ID at all should the init subagent create a new session.
-1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories. Delegate only to *other* repos — never to the repo you are in; work on it directly (your regular subagents are fine for local work — only Polygraph delegation is reserved for other repos). Parallel delegation across repos is encouraged, but only one active child per repo. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below based on whether the child may need clarification.
+1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents in other repositories. Delegate only to *other* repos — never to the repo you are in; work on it directly (your regular subagents are fine for local work — only Polygraph delegation is reserved for other repos). Parallel delegation across repos is encouraged; a repo can also host multiple concurrent agents under distinct roles (see "Agent roles"). Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below based on whether the child may need clarification.
    {% else %}
 2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. If the user asks to add exact repo refs, call `add_repo` directly with those refs and skip candidate discovery. Otherwise, discover candidate repos, select relevant repositories, and create a new session via `list_repos` and `start_session`.
-3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately). Delegate only to *other* repos — never to the repo you are in; work on it directly. Parallel delegation across repos is encouraged, but only one active child per repo. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below.
+3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately). Delegate only to *other* repos — never to the repo you are in; work on it directly. Parallel delegation across repos is encouraged; a repo can also host multiple concurrent agents under distinct roles (see "Agent roles"). Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below.
    {% endif %}
-4. **Monitor child agents** - Use `show_agent` to poll progress and read the flat `children[]` array for each child's `status` and `lastOutputLines`.
-5. **Stop child agents** (if needed) - Use `stop_agent` to cancel an in-progress child agent. The underlying agent session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
+4. **Monitor child agents** - Use `show_agent` to poll one repo's children (`repo` is required; pass `role` to narrow to one agent) and read each entry's `status` and `lastOutputLines` from the `children[]` array.
+5. **Stop child agents** (if needed) - Use `stop_agent` (with `role` when targeting a non-default agent) to cancel an in-progress child agent. The agent's session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits. A required `description` must follow the Session Description Policy.
 7. **Update session description** - Use `update_session` to update the session description; must follow the Session Description Policy. Independent of PR creation or mark-ready.
 8. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Always pass `description` following the Session Description Policy.
@@ -136,6 +175,8 @@ In case B, direct exact repo refs go straight to `add_repo`; use `list_repos` on
 
 - For a new session (case C), `start_session` auto-generates a unique session ID. You do NOT need to pass one.
 - For cases A and B, the session ID already exists; reuse it everywhere — never let `start_session` run in this conversation.
+- The parent conversation is responsible for detecting an existing session ID from current context, the startup banner, or a user-provided session URL/ID, then passing it explicitly to `polygraph-init-subagent`. The init subagent cannot infer parent session context by itself.
+- For a fresh Codex Desktop conversation started with `/polygraph:session-start`, no `sessionId` is expected; launch `polygraph-init-subagent` without `sessionId` so it creates a new session.
 {% if platform == "claude" %}
 
 **Launch the init subagent** (cases B and C — skip in case A):
@@ -259,6 +300,40 @@ Description:
 Inspect the PR commits/diff and investigate the requested behavior. Report findings with file paths and concrete evidence.
 ```
 
+### Finding the Session Behind a Commit or Line
+
+Use this workflow when the user asks which Polygraph session produced, is behind, or changed a particular commit — or a particular line of code.
+
+**Given a commit sha.** When the user names a sha, or asks what session is behind a commit, resolve it with `search_sessions` using the `sha` parameter (CLI: `polygraph session search --sha <sha>`):
+
+- Pass **exactly one** of `query` or `sha` — they are mutually exclusive.
+- `sha` accepts a full or partial sha, 7-40 hex chars.
+- The lookup is exact and one-shot: it returns the session(s) linked to that commit, newest first, scoped to the current org, and only explicit sessions.
+
+```
+search_sessions(sha: "a1b2c3d")
+# CLI equivalent:
+polygraph session search --sha a1b2c3d
+```
+
+**Given a line number.** There is no line-number lookup — a line MUST first be resolved to a commit sha with `git blame`, then that sha is fed into the sha lookup:
+
+1. `git blame -L <line>,<line> -- <file>` to get the commit that last touched the line.
+2. Pass that sha to `search_sessions(sha: ...)` (or `polygraph session search --sha <sha>`).
+
+**Reading the results.**
+
+- Multiple sessions may match a sha. They come back newest first — pick the most relevant one and report the others if they matter.
+- **A "no match" result does NOT prove the commit had no work behind it.** Not every commit is linked to an explicit session: commits pushed directly (rather than via an ingested PR) and gaps in ingestion metadata mean the sha may simply not be recorded, and implicit sessions are never returned. Report "no linked session found for that sha" — never assert that no work exists behind the commit.
+
+## Agent roles
+
+A repository in a session can host multiple child agents at once, distinguished by **role**:
+
+- **Purpose.** Roles let independent streams of work run concurrently in one repo — e.g. a default agent implementing a feature while a `reviewer` or `ci-investigator` runs alongside. Each (repo, role) pair has at most one active child.
+- **Default role.** An omitted `role` means the default role: `spawn_agent` without `role` starts or follows up with the repo's default-role agent.
+- **Logs.** Only default-role agents upload logs to the cloud and appear in the multiplexed log stream (`polygraph session logs`). Inspect non-default agents locally with `polygraph agent attach --role <role>`.
+
 ## Simple tasks (fire-and-forget)
 
 Use this pattern when the task is well-defined and the child is not expected to need clarification. It is a single-round delegation: kick it off, poll until terminal, then push branch + create PR.
@@ -267,7 +342,7 @@ Use this pattern when the task is well-defined and the child is not expected to 
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
+1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
 
 {% raw %}
 
@@ -281,6 +356,7 @@ Task(
     - sessionId: "<session-id>"
     - repo: "<org/repo-name>"
     - instruction: "<the task instruction>"
+    - role: "<optional role>"
     - context: "<optional context>"
 
     Delegate the work, poll for completion, and return a structured summary.
@@ -290,8 +366,8 @@ Task(
 
 {% endraw %}
 
-2. Delegate to multiple repos in parallel by launching multiple background Task subagents at the same time — one delegation per repo at a time. Read the output files later to check progress.
-3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+2. Delegate to multiple repos in parallel by launching multiple background Task subagents at the same time — one delegation per (repo, role) at a time. Read the output files later to check progress.
+3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Once all background subagents report a terminal status, continue to `push_branch` + `create_pr`.
 
 In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `show_agent` as a one-off tool call. Do NOT use this for regular polling — that MUST happen in background subagents.
@@ -300,9 +376,9 @@ In rare cases where you need to check the raw child agent status directly (e.g.,
 
 **CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
 
-1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` on backoff until terminal.
-2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations — one delegation per repo at a time.
-3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, optional `role`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
+2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations — one delegation per (repo, role) at a time.
+3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Once all subagents report a terminal status, continue to `push_branch` + `create_pr`.
 
 {% elsif platform == "codex" %}
@@ -321,25 +397,26 @@ spawn_agent(
     - sessionId: "<session-id>"
     - repo: "<org/repo-name>"
     - instruction: "<the task instruction>"
+    - role: "<optional role>"
     - context: "<optional context>"
 
-    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent on backoff until terminal. Return a structured summary with repo, status, session ID, and result text.
+    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent via chained waitForTransitionMs long-poll calls until terminal. Return a structured summary with repo, status, session ID, and result text.
   """
 )
 ```
 
 {% endraw %}
 
-2. Delegate to multiple repos in parallel by launching multiple `polygraph-delegate-subagent` instances before waiting for results — one delegation per repo at a time.
-3. For each child, the subagent watches `child.status` in the flat `children[]` response and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+2. Delegate to multiple repos in parallel by launching multiple `polygraph-delegate-subagent` instances before waiting for results — one delegation per (repo, role) at a time.
+3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 4. Collect completed results with `wait_agent` when the main flow needs them, then continue to `push_branch` + `create_pr`.
 
 In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call the Polygraph MCP `show_agent` as a one-off tool call. Do NOT use this for regular polling — that belongs inside `polygraph-delegate-subagent`.
 
 {% else %}
 
-1. Call `spawn_agent` with `sessionId`, `repo`, and `instruction` for each repo. The call returns immediately.
-2. Poll `show_agent` on backoff; for each child, watch `child.status` in the flat `children[]` response until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+1. Call `spawn_agent` with `sessionId`, `repo`, `instruction`, and optionally `role` for each repo. The call returns immediately.
+2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (one call per repo — `repo` is required; pass `role` to narrow to one agent); watch `child.status` on the `children[]` entry for your delegation until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
 3. Review `child.lastOutputLines` for the final log tail.
 4. Continue to `push_branch` + `create_pr`.
 
@@ -351,13 +428,13 @@ Use Simple when the task is well-defined and the child will not need clarificati
 
 Use this pattern when the child may need clarification, the task is exploratory, or interactive collaboration is desired. The orchestrator exposes paused children via the `'input-required'` status.
 
-1. Call `spawn_agent` with the initial `instruction`. Parse the response:
+1. Call `spawn_agent` with the initial `instruction` (and optionally `role`). Parse the response:
 
    ```json
    { "taskId": "…", "message": "…", "status": "delegated" }
    ```
 
-2. Poll `show_agent`. The response shape is `{ children: PolygraphChildStatusItem[] }`. For each child, inspect:
+2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (`repo` is required; pass the same `role` you spawned with to narrow to that agent). The response shape is `{ children: PolygraphChildStatusItem[] }` with one entry per matching agent in that repo. On your delegation's entry, inspect:
 
    - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
    - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`.
@@ -367,13 +444,13 @@ Use this pattern when the child may need clarification, the task is exploratory,
    Drive the state machine:
 
    - `child.status === 'in-progress'` or `'created'` — continue polling.
-   - `child.status === 'input-required'` — read `child.inputRequiredQuestion`, surface it to the user verbatim (e.g. "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}"), get the answer, then call `spawn_agent` again with the same `repo` and `instruction: <answer>` — it is routed to the active task automatically. Continue polling.
+   - `child.status === 'input-required'` — read `child.inputRequiredQuestion`, surface it to the user verbatim (e.g. "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}"), get the answer, then call `spawn_agent` again with the same `repo`, the same `role`, and `instruction: <answer>` — it is routed to that (repo, role)'s active task automatically. Continue polling.
    - `child.status === 'completed'` — read `child.lastOutputLines`, proceed to `push_branch` + `create_pr`.
    - `child.status === 'failed'` — read `child.lastOutputLines`, surface the failure.
    - `child.status === 'cancelled'` — the child was stopped via `stop_agent`; see below.
    - `child.status === 'permission-required'` — the child is waiting on a permission decision; see "Handling permission requests" below.
 
-3. To abort mid-flight, call `stop_agent` with `{ sessionId, repo }`. The response is:
+3. To abort mid-flight, call `stop_agent` with `{ sessionId, repo, role? }`. The response is:
 
    ```json
    {
@@ -385,7 +462,7 @@ Use this pattern when the child may need clarification, the task is exploratory,
    }
    ```
 
-   Because `sessionPreserved: true`, the preserved agent session can be restored later for context. After resuming, do not make changes or continue prior work until the user explicitly asks for changes.
+   Because `sessionPreserved: true`, the stopped agent's session can be restored later for context. After resuming, do not make changes or continue prior work until the user explicitly asks for changes.
 
 Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
 
@@ -400,7 +477,7 @@ Child agents running in other repositories may pause and ask the parent agent wh
 
 **Native path (MCP permission dialog):** If your MCP client supports the permission dialog UI, the user picks directly in that dialog — you (the agent) won't see `permission-required` tasks in that flow.
 
-**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `allow_agent` (to grant the requested action) or `deny_agent` (to refuse it) with the `{sessionId, repo}` of the child agent.
+**Structured fallback path:** When `cloud_polygraph_child_status` reports a task in `permission-required` state, read the `pendingPermission` object on that task (carries `harness`, `action`, `target`, `repositoryId`, `repoFullName`, `scope`, `availableScopes`, optional `reason`, optional `rawInput`), then call `allow_agent` (to grant the requested action) or `deny_agent` (to refuse it) with the `{sessionId, repo, role?}` of the child agent.
 
 ### Answering a permission request
 
@@ -409,6 +486,7 @@ Child agents running in other repositories may pause and ask the parent agent wh
 {
   "sessionId": "...",
   "repo": "org/repo-name",
+  "role": "reviewer",              // optional
   "scope": "session",              // or "one-time"
   "reason": "Trusted local repo"   // optional
 }
@@ -418,6 +496,7 @@ Child agents running in other repositories may pause and ask the parent agent wh
 {
   "sessionId": "...",
   "repo": "org/repo-name",
+  "role": "reviewer",              // optional
   "reason": "Action looks risky"   // optional
 }
 // — call `deny_agent` with this payload.
@@ -440,7 +519,7 @@ When polling `cloud_polygraph_child_status` (or `show_agent`), treat `permission
 1. Read `child.pendingPermission` — inspect `harness`, `action`, `target`, `repoFullName`, and `scope`.
 2. Surface the request to the user: "Child agent in `{repoFullName}` requests `{scope}` permission to run `{action}` on `{target}`."
 3. Obtain the user's decision.
-4. Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo }`.
+4. Call `allow_agent` (to grant) or `deny_agent` (to refuse) with `{ sessionId, repo, role? }`.
 5. Resume polling.
 {% else %}
 <!-- Claude and Codex parents handle permission gates via the native MCP elicitation dialog
@@ -459,26 +538,11 @@ If you call `allow_agent` while the dialog is already open, you create a race: t
 The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do NOT advertise elicitation capability (opencode TUI today). They are not part of your flow.
 {% endif %}
 
-### 2. Push Branches
+### 2. Publish Changes (Push Branches, Create PRs, Mark Ready)
 
-Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
+Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), and `associate_pr` (link PRs created outside Polygraph).
 
-`push_branch` pushes from the local checkout: for the repo you are in, that is your current working directory with your commits; for delegated repos, it is the Polygraph-managed clone the child agent worked in. There is no separate session copy of the current repo.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `repo` (required): Repository name or repository ID to push from
-- `branch` (required): Branch name to push to remote
-- `description` (required): A session description is required. Must follow the Session Description Policy.
-
-```
-push_branch(
-  sessionId: "<session-id>",
-  repo: "org/repo-name",
-  branch: "polygraph/ad5fa-add-user-preferences"
-)
-```
+**Whenever you push a branch, create or associate a PR, or mark PRs ready, read [`reference/publish-changes.md`](reference/publish-changes.md) first.** That reference file holds the full flow: parameters and examples for each tool, `push_branch` local-checkout semantics, the PR title format rules, and the session-URL printing steps. `push_branch`, `create_pr`, and `associate_pr` all require a `description` following the Session Description Policy below.
 
 ### Session Description Policy
 
@@ -487,121 +551,18 @@ push_branch(
 **Whenever you write or update a session description, read [`reference/session-description.md`](reference/session-description.md) first.** That reference file holds the full policy: the canonical Markdown-heading template (`## Goal` / `## Current progress` / `## What worked` / `## Next steps`), the dual-audience guidance (humans in the web UI now, agents reconstructing history later), and the formatting building blocks the app renders (callouts, tables, mermaid, links, `link_reference`).
 
 
-### 3. Create Draft PRs
+### 3. Get Current Polygraph Session
 
-Create PRs for all repositories at once using `create_pr`. PRs are created as drafts with session metadata that links related PRs across repos. Branches must be pushed first. For fork PR creation or registration, include `targetRepository` on the PR spec to identify the repository that should receive the PR.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prs` (required): Array of PR specifications, each containing:
-  - `owner` (required): GitHub repository owner
-  - `repo` (required): GitHub repository name
-  - `title` (required): PR title
-  - `body` (required): PR description (session metadata is appended automatically)
-  - `branch` (required): Branch name that was pushed
-  - `targetRepository` (optional): Target GitHub repository for fork PR creation or registration, as `owner/repo`. Omit for same-repository PRs.
-- `description` (required): Must follow the Session Description Policy.
-
-**PR title format (applies to parent and child agents):**
-
-- PR titles become squash-merge commit messages in most repos. They MUST follow the target repo's commit convention (e.g., Conventional Commits: `<type>(<scope>): <subject>`).
-- Do NOT add agent-identifier prefixes such as `[codex]`, `[claude]`, or `[opencode]` to PR titles. These prefixes violate commit-lint rules and pollute the git history.
-
-```
-create_pr(
-  sessionId: "<session-id>",
-  prs: [
-    {
-      owner: "org",
-      repo: "frontend",
-      title: "feat: Add user preferences UI",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    },
-    {
-      owner: "org",
-      repo: "backend",
-      title: "feat: Add user preferences API",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    }
-  ]
-)
-```
-
-For fork PR creation or registration, keep `owner` and `repo` set to the source repository that owns the pushed branch and set `targetRepository` to the target repository:
-
-```
-create_pr(
-  sessionId: "<session-id>",
-  prs: [
-    {
-      owner: "contributor",
-      repo: "frontend-fork",
-      targetRepository: "org/frontend",
-      title: "feat: Add user preferences UI",
-      body: "Part of multi-repo user preferences feature",
-      branch: "polygraph/ad5fa-add-user-preferences"
-    }
-  ]
-)
-```
-
-**After creating PRs**, always print the Polygraph session URL:
-
-```
-**Polygraph session:** POLYGRAPH_SESSION_URL
-```
-
-### 4. Get Current Polygraph Session
-
-Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state including repositories, PRs, CI status, and the Polygraph session URL.
+Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state — basic metadata like id, url & description timeline, plus the connected repositories, `pullRequests[]`, per-PR `ciStatus`, and `session.linkedReferences`.
 
 **Parameters:**
 
 - `sessionId` (required): The Polygraph session ID
 
-**Returns:**
+**CI status rules:**
 
-- `session.sessionId`: The session ID
-- `session.polygraphSessionUrl`: URL to the Polygraph session UI
-- `session.description`: DescriptionItem[] timeline describing the session.
-- `session.agentSessionId`: The agent CLI session ID — captured automatically by the MCP server (null if no agent has run yet).
-- `session.linkedReferences`: Array of references linked to this session
-- Session repository entries: Array of connected repositories, each with:
-  - `id`: Repository ID
-  - `name`: Repository name
-  - `defaultBranch`: Default branch (e.g., `main`)
-  - `vcsConfiguration.repositoryFullName`: Full repo name (e.g., `org/repo`)
-  - `vcsConfiguration.provider`: VCS provider (e.g., `GITHUB`)
-  - description field: AI-generated description of what this repository does (may be null)
-  - `initiator`: Whether this repository initiated the session
-- `session.dependencyGraph`: Graph of repository dependency `edges`
-- `session.pullRequests[]`: Array of PRs, each with:
-  - `url`: PR URL
-  - `branch`: Branch name
-  - `baseBranch`: Target branch
-  - `title`: PR title
-  - `status`: One of `DRAFT`, `OPEN`, `MERGED`, `CLOSED`
-  - `repoId`: Associated repository ID
-  - `relatedPRs`: Array of related PR URLs across repos
-- `session.ciStatus`: CI pipeline status keyed by PR ID, each containing:
-  - `status`: One of `SUCCEEDED`, `FAILED`, `IN_PROGRESS`, `NOT_STARTED` (null if no CIPE and no external CI)
-  - `cipeUrl`: URL to the CI pipeline execution details (null if no CIPE)
-  - `completedAt`: Epoch millis timestamp, set only when the CIPE has completed (null otherwise)
-  - `selfHealingStatus`: The self-healing fix status string from Nx Cloud's AI fix feature (null if no AI fix exists)
-  - `externalCIRuns`: Array of external CI runs (present when no CIPE but external CI data exists, e.g., GitHub Actions). Each run contains:
-    - `runId`: GitHub Actions run ID
-    - `name`: Workflow name
-    - `status`: Run status (`completed`, `in_progress`, `queued`)
-    - `conclusion`: Run conclusion (`success`, `failure`, `cancelled`, `timed_out`, or null)
-    - `url`: GitHub Actions run URL
-    - `jobs`: Array of jobs in the run, each with:
-      - `jobId`: Job ID (use with `get_ci_logs`)
-      - `name`: Job name
-      - `status`: Job status
-      - `conclusion`: Job conclusion (or null)
+- `ciStatus[prId].cipeUrl` (null if no CIPE) is a human-facing Nx Cloud web link — display it to the user, but never fetch, curl, or poll it directly; CIPE data is only accessible programmatically via the Nx MCP `ci_information` tool.
+- When no CIPE exists, external CI data (e.g., GitHub Actions) appears in `ciStatus[prId].externalCIRuns[]` as runs with nested `jobs[]`; each job's `jobId` is the input for `get_ci_logs`.
 
 ```
 show_session(sessionId: "<session-id>")
@@ -648,67 +609,7 @@ link_reference({
 
 The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command.
 
-### 5. Mark PRs Ready
-
-Once all changes are verified and ready to merge, use `mark_pr_ready` to transition PRs from DRAFT to OPEN status.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prUrls` (required): Array of PR URLs to mark as ready for review
-
-```
-mark_pr_ready(
-  sessionId: "<session-id>",
-  prUrls: [
-    "https://github.com/org/frontend/pull/123",
-    "https://github.com/org/backend/pull/456"
-  ]
-)
-```
-
-**After marking PRs as ready**, always print the Polygraph session URL so the user can easily access the session overview. Call `show_session` and display:
-
-```
-**Polygraph session:** POLYGRAPH_SESSION_URL
-```
-
-Where `POLYGRAPH_SESSION_URL` is from `polygraphSessionUrl` in the response.
-
-### 6. Associate Existing PRs
-
-Use `associate_pr` to link pull requests that were created outside of Polygraph (e.g., manually or by CI) to the current session. This is useful when PRs already exist for the branches in the session and you want Polygraph to track them.
-
-Provide either a `prUrl` to associate a specific PR, or a `branch` name plus `repo` to find and associate PRs for a source repository.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `prUrl` (optional): URL of an existing pull request to associate
-- `branch` (optional): Branch name to find and associate PRs for
-- `repo` (optional): Source repository for branch-based association. Required when using `branch` in a multi-repo session.
-- `description` (required): Must follow the Session Description Policy.
-
-```
-associate_pr(
-  sessionId: "<session-id>",
-  prUrl: "https://github.com/org/repo/pull/123"
-)
-```
-
-Or by branch:
-
-```
-associate_pr(
-  sessionId: "<session-id>",
-  repo: "org/repo",
-  branch: "feature/my-changes"
-)
-```
-
-**Returns** the list of PRs now associated with the session.
-
-### 7. Add Repositories to a Session
+### 4. Add Repositories to a Session
 
 Use `add_repo` to add repositories to an existing Polygraph session after it has already started.
 
@@ -728,7 +629,7 @@ add_repo(
 )
 ```
 
-### 8. Archive Session
+### 5. Archive Session
 
 **IMPORTANT: Only call this tool when the user explicitly asks to archive or close the session.** Do not archive sessions automatically as part of the workflow.
 
@@ -758,7 +659,7 @@ archive_session(
 
 Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. This is the drill-in tool for investigating CI failures after identifying a failed job from the session's CI status.
 
-**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via `ci_information` — do NOT call `get_ci_logs`. This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
+**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via the Nx MCP `ci_information` tool — do NOT call `get_ci_logs`, and do NOT fetch or poll the `cipeUrl` over HTTP (it is a browser link for the user, not an API). This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
 
 **Parameters:**
 
@@ -792,6 +693,10 @@ get_ci_logs(
 5. Use `Read(logFile)` to examine the log content — use `offset`/`limit` for large files
 
 **Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
+
+### Fetching Git History for Shallow Clones
+
+Session repos are shallow (`--depth 1`) clones and plain `git fetch --unshallow` fails on private repos (the clone-time credential is not retained). When git fails on missing history (`bad object` from `git revert`, `git log`, `git blame`, etc.), call `git_fetch({ sessionId, repo })` (CLI: `polygraph git fetch <repo> --session <id> --json`), then retry. Defaults fetch the default branch's full history; pass `depth` for a bounded fetch or `refs` for extra branches. Safe to call redundantly (`alreadyComplete: true`).
 
 ### Update Session Description
 
@@ -850,5 +755,8 @@ If the session has a description timeline, also display:
    {% elsif platform == "codex" %}
 1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
-1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed. The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
+1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed (pass `role` to target a non-default agent). The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
 1. **Only archive sessions when asked** — Only call `archive_session` when the user explicitly requests it. Archiving hides the session from active lists; it can still be resumed later.
+   {% if platform == "claude" or platform == "codex" %}
+1. **Respect the sandbox** — When a command fails with a sandbox denial (`EPERM` binding a port, blocked host, denied write), stop instead of retrying and point the user to the options in "Sandboxing in Polygraph Sessions": commit harness sandbox settings to the repo, or toggle sandboxing via `polygraph config`.
+   {% endif %}

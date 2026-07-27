@@ -5,15 +5,27 @@
 // same script ships in both plugin artifacts.
 //
 // File contract (must match the Polygraph CLI reader exactly):
+//   <sessionsRoot>/<POLYGRAPH_SESSION_ID>/sidecars/mapping-<agentType>-<agentSessionId>.json
+//     where sessionsRoot = $POLYGRAPH_ROOT, else `globalRoot` from
+//     ~/.polygraph/config.json, else ~/.polygraph/sessions
+//   Legacy fallback, used ONLY when <sessionsRoot>/<POLYGRAPH_SESSION_ID>
+//   does not exist (for real sessions nothing new is written here):
 //   ~/.polygraph/sidecars/<POLYGRAPH_SESSION_ID>/mapping-<agentType>-<agentSessionId>.json
+//
+// The session folder is a trustworthy location for this parent-transcript
+// binding because the Polygraph CLI's child-agent sandboxes exclude the
+// session root — children cannot write there. The CLI reads mappings from
+// the session folder first, with the flat dir as a read-only fallback.
 //
 // Behaviour:
 //   - Silent no-op when POLYGRAPH_SESSION_ID is unset.
 //   - Silent no-op when POLYGRAPH_CHILD_AGENT is set (child agents must not
 //     register themselves as parents).
 //   - Atomic write: write to <path>.tmp-<pid>, then rename over final path.
-//   - Refresh: when a valid prior mapping for the same session already exists,
-//     preserve its firstSeenAt and only update lastSeenAt + mutable fields.
+//   - Refresh: when a valid prior mapping for the same session already exists
+//     (checked in the new location first, then the legacy flat dir), preserve
+//     its firstSeenAt and only update lastSeenAt + mutable fields — so
+//     migrating a mapping from the legacy dir keeps firstSeenAt continuity.
 //   - All failures are silently swallowed; never writes to stdout (Claude Code
 //     injects hook stdout into the model context); never exits non-zero.
 
@@ -90,8 +102,34 @@ function sanitizeFilename(str) {
   return str.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
+// Resolve the root directory that holds per-session folders:
+// $POLYGRAPH_ROOT, else `globalRoot` from ~/.polygraph/config.json, else
+// ~/.polygraph/sessions. Must match the Polygraph CLI's own resolution.
+export function sessionsRoot(home = process.env.HOME?.trim() || homedir()) {
+  const fromEnv = process.env.POLYGRAPH_ROOT?.trim();
+  if (fromEnv) return fromEnv;
+
+  try {
+    const config = tryParseJson(
+      readFileSync(join(home, '.polygraph', 'config.json'), 'utf8')
+    );
+    if (typeof config?.globalRoot === 'string' && config.globalRoot.trim()) {
+      return config.globalRoot.trim();
+    }
+  } catch {
+    // no config — use the default
+  }
+
+  return join(home, '.polygraph', 'sessions');
+}
+
 /**
  * Write (or refresh) the agent-capture mapping file.
+ *
+ * Written into the session folder (`<sessionsRoot>/<sessionId>/sidecars/`)
+ * when the session directory exists; only when it does not exist does the
+ * write fall back to the legacy flat `~/.polygraph/sidecars/<sessionId>/`
+ * dir — for real sessions nothing new lands under the flat dir.
  *
  * @param {object} opts
  * @param {string} opts.agentType         'claude' | 'codex'
@@ -106,19 +144,33 @@ export function writeCaptureMapping(
   { agentType, agentSessionId, polygraphSessionId, cwd, transcriptPath, pid },
   home = process.env.HOME?.trim() || homedir()
 ) {
-  const sidecarDir = join(home, '.polygraph', 'sidecars', polygraphSessionId);
-  mkdirSync(sidecarDir, { recursive: true });
-
   const filenamePart = sanitizeFilename(`${agentType}-${agentSessionId}`);
-  const finalPath = join(sidecarDir, `mapping-${filenamePart}.json`);
+  const fileName = `mapping-${filenamePart}.json`;
+
+  const sessionDir = join(sessionsRoot(home), polygraphSessionId);
+  const sessionSidecarDir = join(sessionDir, 'sidecars');
+  const legacyDir = join(home, '.polygraph', 'sidecars', polygraphSessionId);
+
+  // New location when the session directory exists; legacy flat dir only
+  // when it does not.
+  const targetDir = existsSync(sessionDir) ? sessionSidecarDir : legacyDir;
+  mkdirSync(targetDir, { recursive: true });
+
+  const finalPath = join(targetDir, fileName);
   const tmpPath = `${finalPath}.tmp-${process.pid}`;
 
   const now = Date.now();
 
   // Refresh semantics: preserve firstSeenAt from a valid prior mapping.
+  // Check the new location first, then the legacy flat dir — this keeps
+  // firstSeenAt continuity when migrating a mapping from the legacy dir.
   let firstSeenAt = now;
-  if (existsSync(finalPath)) {
-    const existing = tryParseJson(readFileSync(finalPath, 'utf8'));
+  for (const candidate of [
+    join(sessionSidecarDir, fileName),
+    join(legacyDir, fileName),
+  ]) {
+    if (!existsSync(candidate)) continue;
+    const existing = tryParseJson(readFileSync(candidate, 'utf8'));
     if (
       existing !== null &&
       existing.version === 1 &&
@@ -127,6 +179,7 @@ export function writeCaptureMapping(
       Number.isFinite(existing.firstSeenAt)
     ) {
       firstSeenAt = existing.firstSeenAt;
+      break;
     }
   }
 
