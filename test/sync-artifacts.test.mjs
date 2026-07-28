@@ -393,6 +393,58 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
+test('adversarial-review skill stays the seven requested steps', () => {
+  const claude = renderSkill('adversarial-review', 'claude');
+  const codex = renderSkill('adversarial-review', 'codex');
+  const opencode = renderSkill('adversarial-review', 'opencode');
+
+  for (const rendered of [claude, codex, opencode]) {
+    assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
+    assert.doesNotMatch(rendered, /\{%|\{\{/);
+
+    // Density guard: the user's numbered steps and nothing else. Several
+    // rounds of elaboration grew this back; keep it pinned.
+    // Measured on the body, so the claude allowed-tools block does not count.
+    const body = rendered.replace(/^---\n[\s\S]*?\n---\n/, '');
+    assert.ok(body.split(/\s+/).filter(Boolean).length < 200);
+
+    // Steps 1-6 are bolded and in order; step 7 is not bolded.
+    assert.deepEqual(rendered.match(/^\d\. \*\*[^*]+\*\*/gm), [
+      '1. **Pick the agent.**',
+      '2. **Get the session description.**',
+      '3. **Get each repo\'s plan.**',
+      '4. **Delegate one reviewer per repo**',
+      '5. **Summarize.**',
+      '6. **Ask what next.**',
+    ]);
+    assert.match(rendered, /^7\. If the user selects "address the feedback"/m);
+    assert.deepEqual(rendered.match(/^#+ .*/gm), ['# Adversarial Review']);
+
+    // Tool names and parameters needed to execute the steps.
+    assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
+    assert.match(rendered, /`role: "reviewer"`/);
+    assert.match(rendered, /`upload_artifact`/);
+
+    // Both skip conditions.
+    assert.match(rendered, /Skip if the user already named one\./);
+    assert.match(rendered, /Skip if the user already said\./);
+
+    // The initiator repo is reviewed by a delegated reviewer like any other,
+    // but fixes route to each repo's default agent and the initiator fixes
+    // itself. A future edit must not silently flip these back.
+    assert.match(rendered, /Do the delegation even for the "initiator" repo\./);
+    assert.match(rendered, /pass each repo's feedback to the repo default agent \(not the reviewer\)/);
+    assert.match(rendered, /The initiator should fix things itself without delegating\./);
+  }
+
+  // The claude frontmatter block is the only platform gating left.
+  assert.match(claude, /\nuser-invocable: true\n/);
+  assert.match(claude, /- AskUserQuestion\n/);
+  assert.doesNotMatch(opencode, /user-invocable/);
+  assert.doesNotMatch(codex, /user-invocable/);
+  assertNoNonCodexDelegationText(codex);
+});
+
 test('pack-and-copy skill keeps consumer CI installable', () => {
   const rendered = renderSkill('pack-and-copy');
 
