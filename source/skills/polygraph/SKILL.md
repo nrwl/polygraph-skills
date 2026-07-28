@@ -611,23 +611,7 @@ add_repo(
 
 **IMPORTANT: Only call this tool when the user explicitly asks to archive or close the session.** Do not archive sessions automatically as part of the workflow.
 
-Use `archive_session` (CLI: `polygraph session archive <id>`) to archive the session. Archiving only hides the session from active lists — it can still be resumed and interacted with afterwards. It is idempotent — archiving an already-archived session returns success.
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `clean` (optional): Remove the local clones Polygraph created for delegated repos after archiving
-
-**Returns:**
-
-- `sessionId`: The session ID
-- `completed`: Boolean indicating the session is archived
-
-```
-archive_session(
-  sessionId: "<session-id>"
-)
-```
+Use `archive_session` (CLI: `polygraph session archive <id>`) to archive the session. Archiving only hides the session from active lists — it can still be resumed and interacted with afterwards. It is idempotent — archiving an already-archived session returns success. Pass the optional `clean` flag to also remove the local clones Polygraph created for delegated repos.
 
 **When to call:** all work is finished, PRs are created and marked ready, and the user explicitly confirms they are done with the session.
 
