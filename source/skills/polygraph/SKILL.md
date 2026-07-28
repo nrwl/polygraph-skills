@@ -37,33 +37,9 @@ Polygraph connects repositories and the agent work happening across them. Its ce
 
 ## Sandboxing in Polygraph Sessions
 
-Polygraph launches agent sessions inside an OS-level sandbox by default. Writes are limited to the repository working tree, the session root (`~/.polygraph/sessions/<session-id>/`), the system temp directory, and a few allowlisted directories; network access is restricted to allowlisted hosts. In practice: binding a listening socket is denied (dev servers fail with `EPERM`), localhost servers are unreachable, and writes outside the allowlist are rejected. The user may not know the session is sandboxed.
+Polygraph runs agent sessions inside an OS-level sandbox by default: writes are limited to the repository working tree and session root, network access is restricted to allowlisted hosts, and binding a listening socket (dev servers) fails with `EPERM`. The user may not know the session is sandboxed.
 
-**Recognize sandbox denials — do not retry or work around them.** When a command fails in a sandbox-shaped way (`EPERM` binding a port, a blocked network host, a denied write to an ordinary path), the sandbox blocked it. Do NOT retry variations, escalate through workarounds, or route the command through `!`-prefixed user commands — those run inside the same sandbox. One failure is enough evidence; stop and inform the user.
-
-**Warn before attempting known-blocked operations.** Before starting a dev server, anything else that listens on a port, or an operation that needs writes or network access outside the allowlist, tell the user up front that it will not work while sandboxing is on and offer the options below instead of attempting it.
-
-**What to tell the user.** Explain that Polygraph runs this session in a sandbox, then present both options. Each takes effect on the next agent launch, so the Polygraph session must be relaunched afterwards:
-
-1. **Keep the sandbox on and allow the specific operation** (preferred). The sandbox belongs to the agent harness, so exceptions live in harness settings committed to the repository; array settings merge with Polygraph's generated allowlist rather than replacing it.{% if platform == "claude" %} Add writable paths to `.claude/settings.json` (or `.claude/settings.local.json`):
-
-   ```json
-   { "sandbox": { "filesystem": { "allowWrite": ["<path>"] } } }
-   ```
-
-   The `.claude/` directory is read-only inside the sandbox, so give the user the exact snippet to commit — you cannot apply it yourself.{% elsif platform == "codex" %} Add writable roots or network access to `.codex/config.toml`:
-
-   ```toml
-   [sandbox_workspace_write]
-   network_access = true
-   writable_roots = ["<path>"]
-   ```
-
-   The `.codex/` directory is read-only inside the sandbox, so give the user the exact snippet to commit — you cannot apply it yourself.{% endif %}
-
-2. **Turn sandboxing off.** The user quits the agent, runs `polygraph config`, toggles **Agent Options → {% if platform == "claude" %}Claude{% else %}Codex{% endif %} → sandbox** off (or per-repo under **Repo Options**), and relaunches the Polygraph session. Non-interactive alternative: set `agentOptions.{{ platform }}.sandbox: false` (or `repoOptions."org/repo".sandbox: false`) in `~/.polygraph/config.json`. Warn that this removes filesystem isolation — the agent can then write anywhere the OS user can.
-
-**Never blame the tooling.** A sandbox denial means the environment blocked the operation — not that the repo, tool, or framework is broken. Do not record conclusions like "X is unusable" in memory, session descriptions, or messages based on sandboxed failures.
+**When something fails in a sandbox-shaped way** — `EPERM` binding a port, a blocked network host, a denied write to an ordinary path — the sandbox blocked it. Do NOT retry variations, work around it, or route the command through `!`-prefixed user commands (those run in the same sandbox); one failure is enough evidence. Stop, and read [`reference/sandboxing.md`](reference/sandboxing.md) for how to warn the user, the two remediation options (allow the specific operation via committed harness settings, or turn sandboxing off), and the exact per-harness config snippets. Never conclude the repo, tool, or framework is broken based on a sandboxed failure.
 
 {% endif %}
 
@@ -538,6 +514,8 @@ If you call `allow_agent` while the dialog is already open, you create a race: t
 The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do NOT advertise elicitation capability (opencode TUI today). They are not part of your flow.
 {% endif %}
 
+## Publishing and Session Management
+
 ### 2. Publish Changes (Push Branches, Create PRs, Mark Ready)
 
 Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), and `associate_pr` (link PRs created outside Polygraph).
@@ -657,46 +635,13 @@ archive_session(
 
 ### Retrieving CI Job Logs
 
-Use `get_ci_logs` to retrieve the full plain-text log for a specific CI job. This is the drill-in tool for investigating CI failures after identifying a failed job from the session's CI status.
+`get_ci_logs` retrieves the full plain-text log for a specific CI job — the drill-in tool for investigating a failed job. **ONLY use it when NO CIPE (CI Pipeline Execution) exists for the PR** (`ciStatus[prId].cipeUrl` is null); when a CIPE exists, use the Nx MCP `ci_information` tool instead, and do NOT fetch or poll the `cipeUrl` over HTTP.
 
-**ONLY use this tool when NO CIPE (CI Pipeline Execution) exists for the PR.** When a CIPE exists (`ciStatus[prId].cipeUrl` is non-null), logs and failure data are available through the CIPE system (Nx Cloud) via the Nx MCP `ci_information` tool — do NOT call `get_ci_logs`, and do NOT fetch or poll the `cipeUrl` over HTTP (it is a browser link for the user, not an API). This tool is specifically for PRs where only external CI runs exist (e.g., GitHub Actions runs without an Nx Cloud CIPE).
-
-**Parameters:**
-
-- `sessionId` (required): The Polygraph session ID
-- `repoId` (required): Repository ID (MongoDB ObjectId hex string, from the session repository entry)
-- `jobId` (required): GitHub Actions job ID (from `ciStatus[prId].externalCIRuns[].jobs[].jobId` in the `show_session` response)
-
-**Returns:**
-
-- On success: `{ success: true, jobId: number, logFile: string, sizeBytes: number }`
-- On failure: `{ success: false, error: string }`
-
-The tool saves the log to a local temp file and returns the path in `logFile`. Use the `Read` tool to examine the file contents. For large logs, use `offset` and `limit` parameters to read specific sections.
-
-```
-get_ci_logs(
-  sessionId: "<session-id>",
-  repoId: "<repo-id>",
-  jobId: 12345678
-)
-// Returns: { success: true, jobId: 12345678, logFile: "/tmp/ci-logs/job-12345678.log", sizeBytes: 152340 }
-// Then: Read(logFile) to examine the log
-```
-
-**Typical flow:**
-
-1. Use `show_session` to see PR CI status
-2. Check `ciStatus[prId].cipeUrl` — if a CIPE exists, use `ci_information` for logs and skip this tool
-3. If NO CIPE exists, check `ciStatus[prId].externalCIRuns` — examine runs and jobs directly from the session data
-4. For a failed job, call `get_ci_logs(sessionId, repoId, jobId)` to save the log to a file
-5. Use `Read(logFile)` to examine the log content — use `offset`/`limit` for large files
-
-**Important:** Logs can be large (100KB+). Only fetch logs for failed or relevant jobs, and read only the sections you need.
+When you need to fetch and read a failed job's log, read [`reference/ci-job-logs.md`](reference/ci-job-logs.md) for the parameters, return shape, and the full flow (identify the job from `externalCIRuns`, call `get_ci_logs`, then `Read` the saved log file).
 
 ### Fetching Git History for Shallow Clones
 
-Session repos are shallow (`--depth 1`) clones and plain `git fetch --unshallow` fails on private repos (the clone-time credential is not retained). When git fails on missing history (`bad object` from `git revert`, `git log`, `git blame`, etc.), call `git_fetch({ sessionId, repo })` (CLI: `polygraph git fetch <repo> --session <id> --json`), then retry. Defaults fetch the default branch's full history; pass `depth` for a bounded fetch or `refs` for extra branches. Safe to call redundantly (`alreadyComplete: true`).
+Session repos are shallow (`--depth 1`) clones. When git fails on missing history (`bad object` from `git revert`, `git log`, `git blame`, etc.), call `git_fetch({ sessionId, repo })` and retry. Read [`reference/shallow-clone-history.md`](reference/shallow-clone-history.md) for the CLI form, the `depth`/`refs` options, and the redundant-call behavior.
 
 ### Update Session Description
 
