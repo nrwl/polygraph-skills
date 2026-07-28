@@ -402,65 +402,65 @@ test('adversarial-review skill keeps reviewers read-only under a non-default rol
     assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
 
-    // Invocation surfaces: slash command and the CLI entry point.
+    // Invocation surfaces. The CLI launches a FRESH agent, not a resumed
+    // conversation — a reviewer reading the implementer's own transcript is not
+    // an independent second opinion.
     assert.match(rendered, /`\/polygraph:adversarial-review`/);
-    assert.match(rendered, /fall back to the bare `adversarial-review`/);
+    assert.match(rendered, /bare `adversarial-review` as fallback/);
     assert.match(rendered, /polygraph session review --adversarial/);
+    assert.match(rendered, /launches a fresh agent/);
+    assert.doesNotMatch(rendered, /resumes the session|resumed session|resumed conversation/);
+    assert.match(rendered, /session id from that startup context or the user/);
 
     // Reviewers run under a non-default role whose logs stay local.
-    assert.match(rendered, /Default role → `reviewer`/);
-    assert.match(rendered, /`reviewer-claude`, `reviewer-codex`, `reviewer-opencode`/);
-    assert.match(rendered, /do NOT upload their logs to the cloud/);
+    assert.match(rendered, /non-default role `reviewer`/);
+    assert.match(rendered, /`reviewer-<agent>`/);
+    assert.match(rendered, /logs stay local/);
     assert.match(rendered, /polygraph agent attach <repo> --role reviewer/);
-    assert.match(rendered, /Never spawn a reviewer under the default role/);
 
     // Reviewing agent choice maps onto the spawn_agent `agent` parameter.
-    assert.match(rendered, /passed as the `agent` parameter of `spawn_agent`/);
-    assert.match(rendered, /`claude`, `opencode`, and `codex`/);
+    assert.match(rendered, /`agent` parameter of `spawn_agent`/);
+    assert.match(rendered, /`claude`, `opencode`, `codex`/);
+    // Step 1 is skipped when the agent was already named.
+    assert.match(rendered, /\*\*Skip the question\*\* when the user already named one/);
 
     // Session context, per-repo plan, and the no-plan fallback.
     assert.match(rendered, /`show_session` with `details: true`/);
     assert.match(rendered, /`list_artifacts`/);
-    assert.match(rendered, /do NOT skip the repo/);
-    assert.match(rendered, /intent derived from the diff, not from a stated plan/);
+    assert.match(rendered, /neither a PR nor a plan artifact, do not skip it/);
+    assert.match(rendered, /intent derived from the diff/);
 
-    // Every repo is reviewed; the parent's own repo is never delegated to.
-    assert.match(rendered, /Review \*\*every\*\* repository in the session/);
+    // The parent's own repo is reviewed directly, never delegated to.
+    assert.match(rendered, /review it yourself, locally/);
     assert.match(rendered, /never delegate into your own/);
 
     // Reviewer instruction contract.
-    assert.match(rendered, /You are a REVIEWER/);
-    assert.match(rendered, /do NOT edit files, do NOT commit, do NOT push/);
-    assert.match(rendered, /severity of\n\s*critical, high, medium, or low/);
+    assert.match(rendered, /It is a REVIEWER and read-only/);
     assert.match(rendered, /CONFIRMED/);
     assert.match(rendered, /SPECULATIVE/);
-    assert.match(rendered, /compact structured summary, not a conversational reply/);
+    assert.match(rendered, /compact structured summary rather than a conversational reply/);
+    assert.match(rendered, /divergence from the plan/);
+    assert.match(rendered, /terminal status before synthesizing/);
 
-    // Terminal status before synthesis, then dedupe/rank/report gaps.
-    assert.match(rendered, /terminal status\*\* \(`completed`, `failed`, or `cancelled`\)/);
-    assert.match(rendered, /\*\*Deduplicate\.\*\*/);
-    assert.match(rendered, /\*\*Rank by severity\*\*/);
-    assert.match(rendered, /\*\*Report the gaps\.\*\*/);
-
-    // Follow-up actions, including the read-only guarantee on the reviewer role.
+    // Step 6 is skipped when the user already said, and fixes route to the
+    // DEFAULT-role agent — never back into a reviewer role.
+    assert.match(rendered, /Unless the user already said, ask/);
     assert.match(rendered, /`upload_artifact`/);
-    assert.match(rendered, /`name` such as `adversarial-review`/);
+    assert.match(rendered, /stable `name` like `adversarial-review`/);
     assert.match(rendered, /\*\*DEFAULT-role\*\* agent/);
-    assert.match(rendered, /never send a fix instruction to a `reviewer\*` role/);
+    assert.match(rendered, /Never send a fix instruction to a `reviewer\*` role/);
   }
 
-  // Claude gets the user-invocable slash command and background Task delegation.
+  // Only the delegation call shape is platform-gated; the prose is shared.
   assert.match(claude, /\nuser-invocable: true\n/);
   assert.match(claude, /- AskUserQuestion\n/);
-  assert.match(claude, /subagent_type: "polygraph:polygraph-delegate-subagent"/);
-  assert.match(claude, /run_in_background: true/);
+  assert.match(claude, /`polygraph:polygraph-delegate-subagent` Tasks, `run_in_background: true`/);
 
   assert.match(opencode, /@polygraph-delegate-subagent/);
   assert.doesNotMatch(opencode, /user-invocable/);
 
   assert.match(codex, /agent_type: "polygraph-delegate-subagent"/);
   assert.match(codex, /`wait_agent`/);
-  assert.match(codex, /Do NOT pass `fork_context: true`/);
   assertNoNonCodexDelegationText(codex);
 });
 
