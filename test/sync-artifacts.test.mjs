@@ -393,7 +393,7 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
-test('adversarial-review skill stays the six requested steps', () => {
+test('adversarial-review skill stays the seven requested steps', () => {
   const claude = renderSkill('adversarial-review', 'claude');
   const codex = renderSkill('adversarial-review', 'codex');
   const opencode = renderSkill('adversarial-review', 'opencode');
@@ -402,13 +402,13 @@ test('adversarial-review skill stays the six requested steps', () => {
     assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
 
-    // Density guard: six numbered steps plus the tool names needed to run
-    // them. Three rounds of elaboration grew this back; keep it pinned.
+    // Density guard: the user's numbered steps and nothing else. Several
+    // rounds of elaboration grew this back; keep it pinned.
     // Measured on the body, so the claude allowed-tools block does not count.
     const body = rendered.replace(/^---\n[\s\S]*?\n---\n/, '');
     assert.ok(body.split(/\s+/).filter(Boolean).length < 200);
 
-    // The body is the user's six steps, in order, and nothing else.
+    // Steps 1-6 are bolded and in order; step 7 is not bolded.
     assert.deepEqual(rendered.match(/^\d\. \*\*[^*]+\*\*/gm), [
       '1. **Pick the agent.**',
       '2. **Get the session description.**',
@@ -417,22 +417,24 @@ test('adversarial-review skill stays the six requested steps', () => {
       '5. **Summarize.**',
       '6. **Ask what next.**',
     ]);
+    assert.match(rendered, /^7\. If the user selects "address the feedback"/m);
     assert.deepEqual(rendered.match(/^#+ .*/gm), ['# Adversarial Review']);
-
-    // Delegation rules live in the hub skill, not here.
-    assert.match(rendered, /See the `polygraph` skill for the tool table and delegation rules\./);
 
     // Tool names and parameters needed to execute the steps.
     assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
-    assert.match(rendered, /`show_session` with `details: true`/);
-    assert.match(rendered, /`list_artifacts`/);
     assert.match(rendered, /`role: "reviewer"`/);
     assert.match(rendered, /`upload_artifact`/);
 
-    // Both skip conditions, and the parent reviewing its own repo directly.
+    // Both skip conditions.
     assert.match(rendered, /Skip if the user already named one\./);
     assert.match(rendered, /Skip if the user already said\./);
-    assert.match(rendered, /Review the repo you are running in yourself\./);
+
+    // The initiator repo is reviewed by a delegated reviewer like any other,
+    // but fixes route to each repo's default agent and the initiator fixes
+    // itself. A future edit must not silently flip these back.
+    assert.match(rendered, /Do the delegation even for the "initiator" repo\./);
+    assert.match(rendered, /pass each repo's feedback to the repo default agent \(not the reviewer\)/);
+    assert.match(rendered, /The initiator should fix things itself without delegating\./);
   }
 
   // The claude frontmatter block is the only platform gating left.
