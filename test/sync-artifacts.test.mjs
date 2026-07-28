@@ -393,6 +393,77 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
+test('adversarial-review skill keeps reviewers read-only under a non-default role', () => {
+  const claude = renderSkill('adversarial-review', 'claude');
+  const codex = renderSkill('adversarial-review', 'codex');
+  const opencode = renderSkill('adversarial-review', 'opencode');
+
+  for (const rendered of [claude, codex, opencode]) {
+    assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
+    assert.doesNotMatch(rendered, /\{%|\{\{/);
+
+    // Invocation surfaces: slash command and the CLI entry point.
+    assert.match(rendered, /`\/polygraph:adversarial-review`/);
+    assert.match(rendered, /fall back to the bare `adversarial-review`/);
+    assert.match(rendered, /polygraph session review --adversarial/);
+
+    // Reviewers run under a non-default role whose logs stay local.
+    assert.match(rendered, /Default role → `reviewer`/);
+    assert.match(rendered, /`reviewer-claude`, `reviewer-codex`, `reviewer-opencode`/);
+    assert.match(rendered, /do NOT upload their logs to the cloud/);
+    assert.match(rendered, /polygraph agent attach <repo> --role reviewer/);
+    assert.match(rendered, /Never spawn a reviewer under the default role/);
+
+    // Reviewing agent choice maps onto the spawn_agent `agent` parameter.
+    assert.match(rendered, /passed as the `agent` parameter of `spawn_agent`/);
+    assert.match(rendered, /`claude`, `opencode`, and `codex`/);
+
+    // Session context, per-repo plan, and the no-plan fallback.
+    assert.match(rendered, /`show_session` with `details: true`/);
+    assert.match(rendered, /`list_artifacts`/);
+    assert.match(rendered, /do NOT skip the repo/);
+    assert.match(rendered, /intent derived from the diff, not from a stated plan/);
+
+    // Every repo is reviewed; the parent's own repo is never delegated to.
+    assert.match(rendered, /Review \*\*every\*\* repository in the session/);
+    assert.match(rendered, /never delegate into your own/);
+
+    // Reviewer instruction contract.
+    assert.match(rendered, /You are a REVIEWER/);
+    assert.match(rendered, /do NOT edit files, do NOT commit, do NOT push/);
+    assert.match(rendered, /severity of\n\s*critical, high, medium, or low/);
+    assert.match(rendered, /CONFIRMED/);
+    assert.match(rendered, /SPECULATIVE/);
+    assert.match(rendered, /compact structured summary, not a conversational reply/);
+
+    // Terminal status before synthesis, then dedupe/rank/report gaps.
+    assert.match(rendered, /terminal status\*\* \(`completed`, `failed`, or `cancelled`\)/);
+    assert.match(rendered, /\*\*Deduplicate\.\*\*/);
+    assert.match(rendered, /\*\*Rank by severity\*\*/);
+    assert.match(rendered, /\*\*Report the gaps\.\*\*/);
+
+    // Follow-up actions, including the read-only guarantee on the reviewer role.
+    assert.match(rendered, /`upload_artifact`/);
+    assert.match(rendered, /`name` such as `adversarial-review`/);
+    assert.match(rendered, /\*\*DEFAULT-role\*\* agent/);
+    assert.match(rendered, /never send a fix instruction to a `reviewer\*` role/);
+  }
+
+  // Claude gets the user-invocable slash command and background Task delegation.
+  assert.match(claude, /\nuser-invocable: true\n/);
+  assert.match(claude, /- AskUserQuestion\n/);
+  assert.match(claude, /subagent_type: "polygraph:polygraph-delegate-subagent"/);
+  assert.match(claude, /run_in_background: true/);
+
+  assert.match(opencode, /@polygraph-delegate-subagent/);
+  assert.doesNotMatch(opencode, /user-invocable/);
+
+  assert.match(codex, /agent_type: "polygraph-delegate-subagent"/);
+  assert.match(codex, /`wait_agent`/);
+  assert.match(codex, /Do NOT pass `fork_context: true`/);
+  assertNoNonCodexDelegationText(codex);
+});
+
 test('pack-and-copy skill keeps consumer CI installable', () => {
   const rendered = renderSkill('pack-and-copy');
 
