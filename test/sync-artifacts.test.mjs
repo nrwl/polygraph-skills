@@ -393,7 +393,7 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
-test('adversarial-review skill keeps reviewers read-only under a non-default role', () => {
+test('adversarial-review skill stays the six requested steps', () => {
   const claude = renderSkill('adversarial-review', 'claude');
   const codex = renderSkill('adversarial-review', 'codex');
   const opencode = renderSkill('adversarial-review', 'opencode');
