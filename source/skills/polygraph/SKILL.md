@@ -37,7 +37,7 @@ Polygraph connects repositories and the agent work happening across them. Its ce
 
 ## Sandboxing in Polygraph Sessions
 
-Polygraph runs agent sessions inside an OS-level sandbox by default: writes are limited to the repository working tree and session root, network access is restricted to allowlisted hosts, and binding a listening socket (dev servers) fails with `EPERM`. The user may not know the session is sandboxed.
+Polygraph **may** run an agent session inside an OS-level sandbox, but not every session is sandboxed — whether it is on depends on the user's config. When it is on, writes are limited to the repository working tree and session root, network access is restricted to allowlisted hosts, and binding a listening socket (dev servers) fails with `EPERM`. The user may not know whether this session is sandboxed.
 
 **When something fails in a sandbox-shaped way** — `EPERM` binding a port, a blocked network host, a denied write to an ordinary path — the sandbox blocked it. Do NOT retry variations, work around it, or route the command through `!`-prefixed user commands (those run in the same sandbox); one failure is enough evidence. Stop, and read [`reference/sandboxing.md`](reference/sandboxing.md) for how to warn the user, the two remediation options (allow the specific operation via committed harness settings, or turn sandboxing off), and the exact per-harness config snippets. Never conclude the repo, tool, or framework is broken based on a sandboxed failure.
 
