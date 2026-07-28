@@ -402,80 +402,44 @@ test('adversarial-review skill keeps reviewers read-only under a non-default rol
     assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
 
-    // Density guard: this is a procedure for a capable agent, not a manual.
-    // Stay inside the session-start / get-latest-ci band.
-    assert.ok(rendered.split(/\s+/).filter(Boolean).length < 700);
+    // Density guard: six numbered steps plus the tool names needed to run
+    // them. Three rounds of elaboration grew this back; keep it pinned.
+    // Measured on the body, so the claude allowed-tools block does not count.
+    const body = rendered.replace(/^---\n[\s\S]*?\n---\n/, '');
+    assert.ok(body.split(/\s+/).filter(Boolean).length < 200);
 
-    // All six steps, in order.
-    assert.deepEqual(rendered.match(/^## Step \d[^\n]*/gm), [
-      '## Step 1: Pick the reviewing agent',
-      '## Step 2: Session context',
-      '## Step 3: Per-repo plan',
-      '## Step 4: One reviewer per repo',
-      '## Step 5: Synthesize',
-      '## Step 6: What next',
+    // The body is the user's six steps, in order, and nothing else.
+    assert.deepEqual(rendered.match(/^\d\. \*\*[^*]+\*\*/gm), [
+      '1. **Pick the agent.**',
+      '2. **Get the session description.**',
+      '3. **Get each repo\'s plan.**',
+      '4. **Delegate one reviewer per repo**',
+      '5. **Summarize.**',
+      '6. **Ask what next.**',
     ]);
+    assert.deepEqual(rendered.match(/^#+ .*/gm), ['# Adversarial Review']);
 
-    // Invocation surfaces. The CLI launches a FRESH agent, not a resumed
-    // conversation — a reviewer reading the implementer's own transcript is not
-    // an independent second opinion.
-    assert.match(rendered, /`\/polygraph:adversarial-review`/);
-    assert.match(rendered, /bare `adversarial-review` as fallback/);
-    assert.match(rendered, /polygraph session review --adversarial/);
-    assert.match(rendered, /launches a fresh agent/);
-    assert.doesNotMatch(rendered, /resumes the session|resumed session|resumed conversation/);
-    assert.match(rendered, /session id from there or from the user/);
+    // Delegation rules live in the hub skill, not here.
+    assert.match(rendered, /See the `polygraph` skill for the tool table and delegation rules\./);
 
-    // Reviewers run under a non-default role whose logs stay local. Stated once.
-    assert.match(rendered, /non-default role `reviewer`/);
-    assert.match(rendered, /`reviewer-<agent>`/);
-    assert.match(rendered, /logs stay local/);
-    assert.equal(
-      rendered.match(/polygraph agent attach <repo> --role reviewer/g).length,
-      1
-    );
-
-    // Reviewing agent choice maps onto the spawn_agent `agent` parameter.
-    assert.match(rendered, /`claude`, `opencode`, or `codex`/);
-    assert.match(rendered, /`spawn_agent`'s `agent` parameter/);
-    // Step 1 is skipped when the agent was already named.
-    assert.match(rendered, /Skip the question if the user or the CLI instruction already named one/);
-
-    // Session context, per-repo plan, and the no-plan fallback.
+    // Tool names and parameters needed to execute the steps.
+    assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
     assert.match(rendered, /`show_session` with `details: true`/);
     assert.match(rendered, /`list_artifacts`/);
-    assert.match(rendered, /neither PR nor plan artifact is still reviewed/);
-    assert.match(rendered, /derive intent from the diff/);
-
-    // The parent's own repo is reviewed directly, never delegated to.
-    assert.match(rendered, /review the repo you are running in yourself/);
-    assert.match(rendered, /delegation is only for other repos/);
-
-    // Reviewer instruction contract.
-    assert.match(rendered, /it is a read-only reviewer/);
-    assert.match(rendered, /confirmed or speculative/);
-    assert.match(rendered, /divergence from the plan/);
-    assert.match(rendered, /terminal status/);
-
-    // Step 6 is skipped when the user already said, and fixes route to the
-    // DEFAULT-role agent — never back into a reviewer role.
-    assert.match(rendered, /Unless the user already said, ask/);
+    assert.match(rendered, /`role: "reviewer"`/);
     assert.match(rendered, /`upload_artifact`/);
-    assert.match(rendered, /stable `name` like `adversarial-review`/);
-    assert.match(rendered, /DEFAULT-role agent — `spawn_agent` with `role` omitted/);
-    assert.match(rendered, /Never send fixes to a `reviewer\*` role/);
+
+    // Both skip conditions, and the parent reviewing its own repo directly.
+    assert.match(rendered, /Skip if the user already named one\./);
+    assert.match(rendered, /Skip if the user already said\./);
+    assert.match(rendered, /Review the repo you are running in yourself\./);
   }
 
-  // Only the delegation call shape is platform-gated; the prose is shared.
+  // The claude frontmatter block is the only platform gating left.
   assert.match(claude, /\nuser-invocable: true\n/);
   assert.match(claude, /- AskUserQuestion\n/);
-  assert.match(claude, /`polygraph:polygraph-delegate-subagent` Tasks, `run_in_background: true`/);
-
-  assert.match(opencode, /@polygraph-delegate-subagent/);
   assert.doesNotMatch(opencode, /user-invocable/);
-
-  assert.match(codex, /agent_type: "polygraph-delegate-subagent"/);
-  assert.match(codex, /`wait_agent`/);
+  assert.doesNotMatch(codex, /user-invocable/);
   assertNoNonCodexDelegationText(codex);
 });
 
