@@ -119,7 +119,7 @@ test('rendered polygraph skill points at the session description reference file'
   const policySection = sectionBetween(
     rendered,
     '### Session Description Policy',
-    '### 3. Get Current Polygraph Session'
+    '### Get Current Polygraph Session'
   );
   const publishReference = readFileSync(
     join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
@@ -245,7 +245,7 @@ test('publish changes reference ships to every platform dist skill folder', () =
 
     // The skill keeps only a short on-demand pointer to the reference file.
     const rendered = renderSkill('polygraph', platform);
-    assert.match(rendered, /### 2\. Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
+    assert.match(rendered, /### Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
     assert.match(rendered, /read \[`reference\/publish-changes\.md`\]\(reference\/publish-changes\.md\)/);
     assert.doesNotMatch(rendered, /^### \d+\. Push Branches$/m);
     assert.doesNotMatch(rendered, /^### \d+\. Create Draft PRs$/m);

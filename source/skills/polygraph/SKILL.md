@@ -75,7 +75,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 {% if platform == "claude" or platform == "opencode" %}
 
-**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in step 0. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` and `show_agent` MUST ALWAYS be called via {% if platform == "claude" %}background Task subagents (`run_in_background: true`){% else %}`@polygraph-delegate-subagent`{% endif %} as described in the delegation sections below — NEVER call them directly in the main conversation.{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}
+**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in the "Initialize or Join Polygraph Session" section. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` and `show_agent` MUST ALWAYS be called via {% if platform == "claude" %}background Task subagents (`run_in_background: true`){% else %}`@polygraph-delegate-subagent`{% endif %} as described in the delegation sections below — NEVER call them directly in the main conversation.{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}
 {% elsif platform == "codex" %}
 
 **Routing reminder:** Per the Critical Routing Rule above, the parent conversation must use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` for new sessions and `agent_type: "polygraph-delegate-subagent"` for repo work — not the Polygraph MCP tools shown in the table. `wait_agent` collects results when needed.
@@ -127,7 +127,7 @@ The delegate/monitor/stop steps apply only when working across repos. A single-r
 
 ## Step-by-Step Guide
 
-### 0. Initialize or Join Polygraph Session
+### Initialize or Join Polygraph Session
 
 There are three cases. Pick exactly one before calling any tool. The case labels are internal routing shorthand — never mention them in anything you show the user.
 
@@ -516,7 +516,7 @@ The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do 
 
 ## Publishing and Session Management
 
-### 2. Publish Changes (Push Branches, Create PRs, Mark Ready)
+### Publish Changes (Push Branches, Create PRs, Mark Ready)
 
 Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), and `associate_pr` (link PRs created outside Polygraph).
 
@@ -529,7 +529,7 @@ Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must
 **Whenever you write or update a session description, read [`reference/session-description.md`](reference/session-description.md) first.** That reference file holds the full policy: the canonical Markdown-heading template (`## Goal` / `## Current progress` / `## What worked` / `## Next steps`), the dual-audience guidance (humans in the web UI now, agents reconstructing history later), and the formatting building blocks the app renders (callouts, tables, mermaid, links, `link_reference`).
 
 
-### 3. Get Current Polygraph Session
+### Get Current Polygraph Session
 
 Check the details of a session using `show_session` or `polygraph session show --details <session-id>`. Returns the full session state — basic metadata like id, url & description timeline, plus the connected repositories, `pullRequests[]`, per-PR `ciStatus`, and `session.linkedReferences`.
 
@@ -587,7 +587,7 @@ link_reference({
 
 The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command.
 
-### 4. Add Repositories to a Session
+### Add Repositories to a Session
 
 Use `add_repo` to add repositories to an existing Polygraph session after it has already started.
 
@@ -607,7 +607,7 @@ add_repo(
 )
 ```
 
-### 5. Archive Session
+### Archive Session
 
 **IMPORTANT: Only call this tool when the user explicitly asks to archive or close the session.** Do not archive sessions automatically as part of the workflow.
 
