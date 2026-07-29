@@ -51,24 +51,24 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
-| `spawn_agent` | — | Start a new child task or send a follow-up to an active task in another repository. Input: `{ sessionId, repo, instruction, role?, context? }`. Output: `{ taskId, message, status: 'delegated' }`. `role` selects the agent slot within the repo (see "Agent roles"). Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task, the instruction is delivered to it as a follow-up message; otherwise a new child run starts. A session resume or reconstruction is read-only context restoration; after resuming, do not use `spawn_agent` to continue changes unless the user explicitly asks for changes. |
-| `show_agent` | — | Poll one repo's child status (`repo` required — one repo per call; pass `role` to narrow to that role's agent). Returns `{ children: [...] }` with one self-describing entry per matching agent, exposing `status`, `lastOutputLines`, `role` (absent for the default role), `inputRequiredQuestion`, etc. Full status enum and the poll/state-machine flow are under "Multi-turn tasks". |
-| `stop_agent` | — | Cancel an in-progress child. Input: `{ sessionId, repo, role? }`. Output: `{ taskId, state: 'cancelled', sessionPreserved: true, output, message }`. Because `sessionPreserved: true`, the preserved agent session can be restored later for context, but resume must wait for explicit user instructions before making changes. |
+| `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository. Routing, roles, and resume behavior are under "Multi-turn tasks". |
+| `show_agent` | — | Poll one repo's child status (one repo per call; `role` narrows to that agent). Status enum and the poll/state-machine flow are under "Multi-turn tasks". |
+| `stop_agent` | — | Cancel an in-progress child; its session is preserved for later read-only context restoration. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
-| `update_session` | `polygraph session update --session <id> [--title] [--description]` | Update the session title and/or description (at least one required). Set the description from a synthesized progress summary or user-provided text. This updates session metadata only; it does not require PR creation or mark-ready. |
+| `update_session` | `polygraph session update --session <id> [--title] [--description]` | Update the session title and/or description (at least one required); metadata only, independent of PR creation or mark-ready. |
 | `link_reference` | — | Link an external reference to a session. |
 | `mark_pr_ready` | — | Mark draft PRs as ready for review |
 | `associate_pr` | — | Associate an existing PR with a session |
-| `add_repo` | — | Add repositories to a running Polygraph session. For explicit refs, pass the refs directly and skip `list_repos`. |
+| `add_repo` | — | Add repositories to a running session (pass exact refs directly, skipping `list_repos`). See "Add Repositories to a Session". |
 | `archive_session` | `polygraph session archive <id>` | Archive a session, hiding it from active lists (it can still be resumed) |
 | `get_ci_logs` | — | Retrieve full plain-text log for a specific CI job |
-| `git_fetch` | `polygraph git fetch` | Fetch additional git history for a shallow session clone. Use when git operations fail with "bad object" or missing-commit errors; by default fetches the full history of the default branch. Input: `{ sessionId, repo, depth?, refs? }`. See "Fetching Git History for Shallow Clones". |
+| `git_fetch` | `polygraph git fetch` | Fetch git history for a shallow session clone when git fails with "bad object" or missing-commit errors. See "Fetching Git History for Shallow Clones". |
 | `login` | `polygraph auth login [--token]` | Authenticate with Polygraph (use `--token` for headless/CI) |
 | `logout` | `polygraph auth logout` | Log out of Polygraph |
 | `list_sessions` | `polygraph session list` | List sessions. By default only active sessions created by the current git user; pass `recommendedFilters: false` for all sessions. |
-| `search_sessions` | `polygraph session search` | Find sessions by free-text `query` OR by commit `sha` — pass EXACTLY ONE of the two (they are mutually exclusive). `sha` (CLI: `--sha <sha>`) is an exact lookup of the session(s) linked to a commit, full or partial, 7-40 hex chars; it returns matching sessions newest first, org-scoped, and explicit sessions only (implicit sessions are never returned). Supports `--json` and `--limit` (1-50). See "Finding the Session Behind a Commit or Line". |
+| `search_sessions` | `polygraph session search` | Find sessions by free-text `query` OR by commit `sha` — pass exactly one. See "Finding the Session Behind a Commit or Line". |
 | `list_accounts` | `polygraph account list` | List available organizations |
 | `select_account` | `polygraph account select` | Select the organization that future commands run against |
 | `whoami` | `polygraph whoami` | Show current auth status and org |
