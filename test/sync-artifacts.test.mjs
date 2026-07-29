@@ -119,7 +119,7 @@ test('rendered polygraph skill points at the session description reference file'
   const policySection = sectionBetween(
     rendered,
     '### Session Description Policy',
-    '### 3. Get Current Polygraph Session'
+    '### Get Current Polygraph Session'
   );
   const publishReference = readFileSync(
     join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
@@ -245,7 +245,7 @@ test('publish changes reference ships to every platform dist skill folder', () =
 
     // The skill keeps only a short on-demand pointer to the reference file.
     const rendered = renderSkill('polygraph', platform);
-    assert.match(rendered, /### 2\. Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
+    assert.match(rendered, /### Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
     assert.match(rendered, /read \[`reference\/publish-changes\.md`\]\(reference\/publish-changes\.md\)/);
     assert.doesNotMatch(rendered, /^### \d+\. Push Branches$/m);
     assert.doesNotMatch(rendered, /^### \d+\. Create Draft PRs$/m);
@@ -342,36 +342,43 @@ test('publish changes reference documents PR repository semantics', () => {
   assert.doesNotMatch(associatePrSection, /targetRepo|targetRepository/);
 });
 
-test('polygraph skill renders platform-specific sandboxing guidance', () => {
+test('polygraph skill points to the sandboxing reference and stays platform-clean', () => {
   const claude = renderSkill('polygraph', 'claude');
   const codex = renderSkill('polygraph', 'codex');
   const opencode = renderSkill('polygraph', 'opencode');
 
+  // Claude/Codex keep the recognize-and-stop rule and a pointer inline; the detailed
+  // per-harness remediation moved to reference/sandboxing.md.
   for (const rendered of [claude, codex]) {
     assert.match(rendered, /## Sandboxing in Polygraph Sessions/);
-    assert.match(rendered, /Recognize sandbox denials — do not retry or work around them\./);
-    assert.match(rendered, /`!`-prefixed user commands — those run inside the same sandbox/);
-    assert.match(rendered, /\*\*Respect the sandbox\*\*/);
-    assert.match(rendered, /Never blame the tooling\./);
+    assert.match(rendered, /`!`-prefixed user commands \(those run in the same sandbox\)/);
+    assert.match(rendered, /\[`reference\/sandboxing\.md`\]\(reference\/sandboxing\.md\)/);
+    assert.match(rendered, /Never conclude the repo, tool, or framework is broken/);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
+    // detailed snippets no longer live in the skill body
+    assert.doesNotMatch(rendered, /\.claude\/settings\.json/);
+    assert.doesNotMatch(rendered, /\.codex\/config\.toml/);
+    assert.doesNotMatch(rendered, /sandbox_workspace_write/);
   }
 
-  assert.match(claude, /\.claude\/settings\.json/);
-  assert.match(claude, /"allowWrite"/);
-  assert.match(claude, /Agent Options → Claude → sandbox/);
-  assert.match(claude, /agentOptions\.claude\.sandbox: false/);
-  assert.doesNotMatch(claude, /\.codex\/config\.toml/);
-  assert.doesNotMatch(claude, /sandbox_workspace_write/);
-
-  assert.match(codex, /\.codex\/config\.toml/);
-  assert.match(codex, /\[sandbox_workspace_write\]/);
-  assert.match(codex, /network_access = true/);
-  assert.match(codex, /Agent Options → Codex → sandbox/);
-  assert.match(codex, /agentOptions\.codex\.sandbox: false/);
-  assert.doesNotMatch(codex, /\.claude\/settings\.json/);
-  assert.doesNotMatch(codex, /"allowWrite"/);
-
+  // OpenCode is not sandboxed: no sandboxing section or pointer in its skill.
   assert.doesNotMatch(opencode, /sandbox/i);
+
+  // The full policy — both harness variants — lives in the reference file, verbatim (no liquid).
+  const sandboxingReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'sandboxing.md'),
+    'utf8'
+  );
+  assert.doesNotMatch(sandboxingReference, /\{%|\{\{/);
+  assert.match(sandboxingReference, /Recognize sandbox denials — do not retry or work around them\./);
+  assert.match(sandboxingReference, /Never blame the tooling\./);
+  assert.match(sandboxingReference, /\.claude\/settings\.json/);
+  assert.match(sandboxingReference, /"allowWrite"/);
+  assert.match(sandboxingReference, /agentOptions\.claude\.sandbox: false/);
+  assert.match(sandboxingReference, /\.codex\/config\.toml/);
+  assert.match(sandboxingReference, /\[sandbox_workspace_write\]/);
+  assert.match(sandboxingReference, /network_access = true/);
+  assert.match(sandboxingReference, /agentOptions\.codex\.sandbox: false/);
 });
 
 test('codex CI skills include built-in subagent guidance', () => {
