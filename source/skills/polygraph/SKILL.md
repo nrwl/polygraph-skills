@@ -51,7 +51,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
-| `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository. Routing, roles, and resume behavior are under "Multi-turn tasks". |
+| `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository. A repeat call for the same (repo, role) is delivered to that task as a follow-up; otherwise a new child starts. Roles and resume behavior are under "Multi-turn tasks". |
 | `show_agent` | — | Poll one repo's child status (one repo per call; `role` narrows to that agent). Status enum and the poll/state-machine flow are under "Multi-turn tasks". |
 | `stop_agent` | — | Cancel an in-progress child; its session is preserved for later read-only context restoration. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
