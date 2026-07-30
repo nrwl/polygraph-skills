@@ -155,27 +155,7 @@ In case B, direct exact repo refs go straight to `add_repo`; use `list_repos` on
 - For a fresh Codex Desktop conversation started with `/polygraph:session-start`, no `sessionId` is expected; launch `polygraph-init-subagent` without `sessionId` so it creates a new session.
 {% if platform == "claude" %}
 
-**Launch the init subagent** (cases B and C — skip in case A):
-
-{% raw %}
-
-```
-Task(
-  subagent_type: "polygraph:polygraph-init-subagent",
-  description: "Init Polygraph session",
-  prompt: """
-    Parameters:
-    - sessionId: "<existing-session-id-or-omit-for-new-session>"
-    - userContext: "<description of what the user wants to do>"
-
-    If sessionId is provided, reuse that session and use add_repo to attach repositories — do NOT call start_session. If exact repo refs were provided, pass them directly to add_repo and do NOT call list_repos. If discovery is needed, discover candidates and select relevant repos. If sessionId is omitted, create a new session via start_session. Return a structured summary.
-  """
-)
-```
-
-{% endraw %}
-
-Omit the `sessionId` line for case C. Include it (with the existing session ID) for case B.
+**Launch the init subagent** (cases B and C — skip in case A) as a `Task` with `subagent_type: "polygraph:polygraph-init-subagent"`. Pass `userContext` (what the user wants to do); for case B also pass the existing `sessionId`. Instruct it: with a `sessionId`, reuse that session and attach repos via `add_repo`, never `start_session`; if exact repo refs were given, pass them straight to `add_repo` without `list_repos`; if discovery is needed, discover and select candidates; with no `sessionId`, create the session via `start_session`. It returns a structured summary.
 {% elsif platform == "opencode" %}
 
 **Launch the init subagent** using `@polygraph-init-subagent` (cases B and C — skip in case A):
@@ -316,37 +296,14 @@ Use this pattern when the task is well-defined and the child is not expected to 
 
 {% if platform == "claude" %}
 
-**CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via background Task subagents (`run_in_background: true`), NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
+Delegate through a background `Task` subagent rather than calling `spawn_agent`/`show_agent` in the main conversation — direct calls flood the context with polling noise. This is a hard requirement, not a suggestion.
 
-1. Launch a background `Task` subagent per repo using `polygraph-delegate-subagent`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
+1. Launch one background `Task` per repo with `subagent_type: "polygraph:polygraph-delegate-subagent"` and `run_in_background: true`, passing `sessionId`, `repo`, `instruction`, and optional `role`/`context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
+2. Delegate to several repos in parallel by launching multiple background Tasks at once — one delegation per (repo, role). Read their output files later for progress.
+3. Each subagent watches `child.status` on its `children[]` entry (matching its repo and role) and exits at a terminal status — `'completed'`, `'failed'`, or `'cancelled'`.
+4. Once all report terminal, continue to `push_branch` + `create_pr`.
 
-{% raw %}
-
-```
-Task(
-  subagent_type: "polygraph:polygraph-delegate-subagent",
-  run_in_background: true,
-  description: "Delegate to <repo-name>",
-  prompt: """
-    Parameters:
-    - sessionId: "<session-id>"
-    - repo: "<org/repo-name>"
-    - instruction: "<the task instruction>"
-    - role: "<optional role>"
-    - context: "<optional context>"
-
-    Delegate the work, poll for completion, and return a structured summary.
-  """
-)
-```
-
-{% endraw %}
-
-2. Delegate to multiple repos in parallel by launching multiple background Task subagents at the same time — one delegation per (repo, role) at a time. Read the output files later to check progress.
-3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
-4. Once all background subagents report a terminal status, continue to `push_branch` + `create_pr`.
-
-In rare cases where you need to check the raw child agent status directly (e.g., debugging a stuck subagent), you may call `show_agent` as a one-off tool call. Do NOT use this for regular polling — that MUST happen in background subagents.
+To debug a stuck subagent you can call `show_agent` as a one-off, but routine polling belongs in the background subagents.
 
 {% elsif platform == "opencode" %}
 
@@ -663,7 +620,7 @@ If the session has a description timeline, also display:
 
 {% if platform == "claude" %}
 
-1. **MUST delegate via background subagents** — You MUST use `Task(run_in_background: true)` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
+1. **Delegate via background subagents** — run every `spawn_agent`/`show_agent` through `Task(run_in_background: true)`; direct calls flood the context with polling noise.
    {% elsif platform == "opencode" %}
 1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
    {% elsif platform == "codex" %}
@@ -677,9 +634,7 @@ If the session has a description timeline, also display:
 1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session` — it is required and must follow the Session Description Policy
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
-   {% if platform == "claude" %}
-1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through background Task subagents (`run_in_background: true`).
-   {% elsif platform == "opencode" %}
+   {% if platform == "opencode" %}
 1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
    {% elsif platform == "codex" %}
 1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
