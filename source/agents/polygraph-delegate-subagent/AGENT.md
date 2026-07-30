@@ -33,12 +33,12 @@ The main agent provides these parameters in the prompt:
 | `sessionId`   | The Polygraph session ID                                                     |
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
-| `role`        | (Optional) Agent slot within the repo; omit for the default role. Pass the SAME role on every `spawn_agent`/`show_agent`/`stop_agent` call for this delegation. |
+| `role`        | (Optional) Agent slot within the repo; omit for the default role and never invent one. Pass the SAME role on every `spawn_agent`/`show_agent`/`stop_agent` call for this delegation. |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
 
 ## Delegating work
 
-Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message rather than starting a second run; otherwise it starts a new child run. A repo therefore has at most one active child per role, though agents with different roles can run in the same repo concurrently.
+Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message rather than starting a second run; otherwise it starts a new child run. A repo therefore has at most one active child per role.
 
 `repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo.
 
