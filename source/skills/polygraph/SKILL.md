@@ -296,7 +296,7 @@ Use this pattern when the task is well-defined and the child is not expected to 
 
 {% if platform == "claude" %}
 
-Delegate through a background `Task` subagent rather than calling `spawn_agent`/`show_agent` in the main conversation — direct calls flood the context with polling noise.
+Delegate through a background `Task` subagent rather than calling `spawn_agent`/`show_agent` in the main conversation — direct calls flood the context with polling noise. This is a hard requirement, not a suggestion.
 
 1. Launch one background `Task` per repo with `subagent_type: "polygraph:polygraph-delegate-subagent"` and `run_in_background: true`, passing `sessionId`, `repo`, `instruction`, and optional `role`/`context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
 2. Delegate to several repos in parallel by launching multiple background Tasks at once — one delegation per (repo, role). Read their output files later for progress.
