@@ -185,10 +185,6 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
-  cpSync(
-    join(sourceDir, 'hooks', 'check-plugin-version.mjs'),
-    join(codexHooksDir, 'check-plugin-version.mjs')
-  );
 
   cpSync(
     join(sourceDir, 'assets'),
