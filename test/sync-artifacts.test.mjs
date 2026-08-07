@@ -3,10 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { load as parseYaml } from 'js-yaml';
 import { parse } from 'smol-toml';
 
 import { renderArtifact, rootDir } from '../scripts/src/sync-artifacts/common.mjs';
-import { processAgents, processSkills } from '../scripts/src/sync-artifacts/processors.mjs';
+import {
+  processAgents,
+  processSkills,
+  renderCodexAgentToml,
+} from '../scripts/src/sync-artifacts/processors.mjs';
 import {
   buildCodexPluginManifest,
   buildMcpConfig,
@@ -22,6 +27,12 @@ function renderSkill(skillName, platform = 'codex') {
 function renderAgent(agentName, platform = 'codex') {
   const raw = readFileSync(join(rootDir, 'source', 'agents', agentName, 'AGENT.md'), 'utf8');
   return renderArtifact(raw, platform);
+}
+
+function parseFrontmatter(content) {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
+  assert.ok(match, 'expected rendered artifact to contain leading frontmatter');
+  return parseYaml(match[1]) ?? {};
 }
 
 function assertNoNonCodexDelegationText(rendered) {
@@ -649,19 +660,32 @@ test('codex agents render as valid custom agent TOML', () => {
     agentsFormat: 'toml',
   });
 
-  const initAgent = parse(
-    readFileSync(join(outputDir, 'agents', 'polygraph-init-subagent.toml'), 'utf8')
-  );
-  const delegateAgent = parse(
-    readFileSync(join(outputDir, 'agents', 'polygraph-delegate-subagent.toml'), 'utf8')
-  );
+  const agentsDir = join(outputDir, 'agents');
+  const agents = new Map();
+  for (const file of readdirSync(agentsDir).filter((entry) => entry.endsWith('.toml'))) {
+    const content = readFileSync(join(agentsDir, file), 'utf8');
+    assert.doesNotThrow(() => agents.set(file, parse(content)), `${file} should contain valid TOML`);
+  }
+
+  const initAgent = agents.get('polygraph-init-subagent.toml');
+  const delegateAgent = agents.get('polygraph-delegate-subagent.toml');
+  const sessionDebriefAgent = agents.get('session-debrief.toml');
+
+  assert.ok(initAgent);
+  assert.ok(delegateAgent);
+  assert.ok(sessionDebriefAgent);
 
   assert.equal(initAgent.name, 'polygraph-init-subagent');
+  assert.deepEqual(Object.keys(initAgent).sort(), ['description', 'developer_instructions', 'name']);
   assert.match(initAgent.description, /initializes a Polygraph session/);
   assert.match(initAgent.developer_instructions, /# Polygraph Init Subagent/);
   assert.match(initAgent.developer_instructions, /Do NOT call `spawn_agent`/);
 
   assert.equal(delegateAgent.name, 'polygraph-delegate-subagent');
+  assert.deepEqual(Object.keys(delegateAgent).sort(), ['description', 'developer_instructions', 'name']);
+  assert.equal(delegateAgent.model, undefined);
+  assert.equal(delegateAgent.mode, undefined);
+  assert.equal(delegateAgent.tools, undefined);
   assert.match(delegateAgent.description, /Waits for one Polygraph child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /^## Loop$/m);
@@ -682,6 +706,74 @@ test('codex agents render as valid custom agent TOML', () => {
     reference,
     /do not continue the prior work or make further changes until the user explicitly asks for them/
   );
+
+  assert.equal(sessionDebriefAgent.name, 'session-debrief');
+  assert.deepEqual(Object.keys(sessionDebriefAgent).sort(), [
+    'description',
+    'developer_instructions',
+    'model',
+    'model_reasoning_effort',
+    'name',
+  ]);
+  assert.equal(sessionDebriefAgent.model, 'gpt-5.6-luna');
+  assert.equal(sessionDebriefAgent.model_reasoning_effort, 'medium');
+  assert.match(sessionDebriefAgent.developer_instructions, /# Session Debrief Subagent/);
+});
+
+test('codex agent model settings must be non-empty strings', () => {
+  const render = (frontmatter) =>
+    renderCodexAgentToml(
+      'test-agent',
+      `---\ndescription: Test agent\n${frontmatter}\n---\n\nInstructions`,
+      'codex',
+      'source/agents/test-agent/AGENT.md'
+    );
+
+  assert.throws(() => render('model:'), /"model".*non-empty string/);
+  assert.throws(
+    () => render('model_reasoning_effort: 3'),
+    /"model_reasoning_effort".*non-empty string/
+  );
+  assert.throws(() => render('model: 2025-01-01'), /"model".*non-empty string/);
+});
+
+test('codex agent frontmatter errors include the source path', () => {
+  assert.throws(
+    () =>
+      renderCodexAgentToml(
+        'test-agent',
+        '---\ndescription: "unterminated\n---\n\nInstructions',
+        'codex',
+        'source/agents/test-agent/AGENT.md'
+      ),
+    /Failed to parse frontmatter in source\/agents\/test-agent\/AGENT\.md/
+  );
+});
+
+test('codex agent descriptions preserve the raw source description', () => {
+  const rendered = renderCodexAgentToml(
+    'test-agent',
+    `---
+{% if platform == "claude" %}
+description: Runs inside Claude Code.
+{% elsif platform == "codex" %}
+description: Codex-specific description.
+model: gpt-5.6-luna
+{% endif %}
+---
+
+Instructions`,
+    'codex',
+    'source/agents/test-agent/AGENT.md'
+  );
+
+  assert.equal(parse(rendered).description, 'Runs inside Claude Code.');
+});
+
+test('claude session debrief agent uses haiku', () => {
+  const rendered = renderAgent('session-debrief', 'claude');
+
+  assert.equal(parseFrontmatter(rendered).model, 'haiku');
 });
 
 test('opencode agents render as markdown subagents for plugin registration', () => {
