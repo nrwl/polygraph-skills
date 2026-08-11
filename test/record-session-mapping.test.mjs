@@ -178,6 +178,33 @@ test('identity-only links strip ambient session and capture-token evidence', () 
   assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
 });
 
+test('managed-child environments never invoke the shared link command', () => {
+  let spawnCount = 0;
+  const spawn = () => {
+    spawnCount += 1;
+    return { status: 0, stderr: '' };
+  };
+  const env = { POLYGRAPH_CHILD_AGENT: '' };
+
+  for (const claim of [
+    {
+      polygraphSessionId: 'poly-session',
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      source: 'hook',
+    },
+    {
+      agentType: 'codex',
+      agentSessionId: 'codex-session',
+      source: 'hook',
+    },
+  ]) {
+    assert.equal(linkAgentSession(claim, spawn, env), false);
+  }
+
+  assert.equal(spawnCount, 0);
+});
+
 test('reports hidden CLI command failures to the hook wrapper', () => {
   assert.throws(
     () =>
@@ -187,7 +214,8 @@ test('reports hidden CLI command failures to the hook wrapper', () => {
           agentSessionId: 'claude-session',
           source: 'hook',
         },
-        () => ({ status: 2, stderr: 'invalid evidence' })
+        () => ({ status: 2, stderr: 'invalid evidence' }),
+        {}
       ),
     /status 2: invalid evidence/
   );
@@ -291,19 +319,40 @@ test('only exact lifecycle and PostToolUse event IDs are accepted', () => {
   );
 });
 
-test('child-agent hook activity never links a parent session', () => {
-  assert.equal(
-    buildCommandHookLink(
+test('Claude and Codex managed-child lifecycle and PostTool hooks never invoke links', () => {
+  for (const [agentType, agentSessionId] of [
+    ['claude', 'claude/child'],
+    ['codex', 'codex/child'],
+  ]) {
+    for (const payload of [
+      {
+        hook_event_name: 'SessionStart',
+        session_id: agentSessionId,
+      },
       {
         hook_event_name: 'PostToolUse',
-        session_id: 'child-session',
+        session_id: agentSessionId,
         tool_name: 'mcp__polygraph-mcp__anything',
       },
-      'claude',
-      { POLYGRAPH_CHILD_AGENT: '1' }
-    ),
-    undefined
-  );
+    ]) {
+      let spawnCount = 0;
+      const result = main({
+        agentType,
+        env: {
+          POLYGRAPH_CHILD_AGENT: '',
+          POLYGRAPH_SESSION_ID: 'poly-session',
+        },
+        payload,
+        spawn() {
+          spawnCount += 1;
+          return { status: 0, stderr: '' };
+        },
+      });
+
+      assert.equal(result, false);
+      assert.equal(spawnCount, 0);
+    }
+  }
 });
 
 test('Claude and Codex lifecycle hooks preserve session and capture-token evidence', () => {

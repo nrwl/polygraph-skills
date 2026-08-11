@@ -13,6 +13,10 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function isManagedChildEnvironment(env) {
+  return Boolean(env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'));
+}
+
 export function isPolygraphMcpToolName(toolName) {
   const name = nonEmptyString(toolName);
   return Boolean(name && (COMMAND_HOOK_TOOL.test(name) || OPENCODE_TOOL.test(name)));
@@ -53,6 +57,8 @@ export function buildLinkAgentSessionArgs({
 }
 
 export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
+  if (isManagedChildEnvironment(env)) return false;
+
   const args = buildLinkAgentSessionArgs(claim);
   const commandEnv = nonEmptyString(claim.polygraphSessionId) ? env : { ...env };
   if (commandEnv !== env) {
@@ -80,7 +86,7 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
 
 export function buildCommandHookLink(payload, agentType, env = process.env) {
   if (!payload || typeof payload !== 'object') return undefined;
-  if (env.POLYGRAPH_CHILD_AGENT) return undefined;
+  if (isManagedChildEnvironment(env)) return undefined;
 
   const agentSessionId = nonEmptyString(payload.session_id);
   if (!agentSessionId) return undefined;

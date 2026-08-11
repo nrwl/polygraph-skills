@@ -323,18 +323,18 @@ test('OpenCode ignores non-Polygraph tool activity', async () => {
   assert.deepEqual(claims, []);
 });
 
-test('OpenCode child-agent processes never submit claims', async () => {
-  const claims = [];
+test('OpenCode managed-child lifecycle and tool paths never invoke links', async () => {
+  let spawnCount = 0;
   const client = fakeClient({ child: { id: 'child' } });
   const linker = createOpenCodeSessionLinker({
     client,
     env: {
       POLYGRAPH_SESSION_ID: 'poly-session',
-      POLYGRAPH_CHILD_AGENT: '1',
+      POLYGRAPH_CHILD_AGENT: '',
     },
-    link(claim) {
-      claims.push(claim);
-      return true;
+    spawn() {
+      spawnCount += 1;
+      return { status: 0, stderr: '' };
     },
   });
 
@@ -348,7 +348,7 @@ test('OpenCode child-agent processes never submit claims', async () => {
     false
   );
   assert.deepEqual(client.calls, []);
-  assert.deepEqual(claims, []);
+  assert.equal(spawnCount, 0);
 });
 
 function seedPolygraphSession(root, agentSessionId, polygraphSessionId, location) {

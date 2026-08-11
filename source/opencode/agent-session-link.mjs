@@ -74,7 +74,10 @@ export function createOpenCodeSessionLinker({
   }
 
   async function submit(openCodeSessionId, cwd, polygraphSessionId) {
-    if (!openCodeSessionId || env.POLYGRAPH_CHILD_AGENT) {
+    if (
+      !openCodeSessionId ||
+      (env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'))
+    ) {
       return false;
     }
 
