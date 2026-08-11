@@ -136,11 +136,12 @@ test('builds a PostTool link without a Polygraph session or operation flags', ()
   );
 });
 
-test('invokes only _link-agent-session and forwards capture environment without a session ID', () => {
+test('identity-only links strip ambient session and capture-token evidence', () => {
   let invocation;
   const env = {
     POLYGRAPH_CAPTURE_TOKEN: 'opaque-launch-evidence',
     POLYGRAPH_SESSION_ID: 'environment-session',
+    REQUIRED_HARNESS_ENV: 'preserved',
   };
   const spawn = (command, args, options) => {
     invocation = { command, args, options };
@@ -165,13 +166,14 @@ test('invokes only _link-agent-session and forwards capture environment without 
   assert.equal(invocation.args.includes('--set-resume-target'), false);
   assert.notEqual(invocation.options.env, env);
   assert.equal(
-    invocation.options.env.POLYGRAPH_CAPTURE_TOKEN,
-    'opaque-launch-evidence'
-  );
-  assert.equal(
     Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
     false
   );
+  assert.equal(
+    Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+    false
+  );
+  assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
   assert.equal(Object.hasOwn(invocation.options, 'shell'), false);
   assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
 });
@@ -304,38 +306,46 @@ test('child-agent hook activity never links a parent session', () => {
   );
 });
 
-test('the lifecycle hook invokes _link-agent-session with its exact session evidence', () => {
-  let invocation;
-  const env = {
-    POLYGRAPH_SESSION_ID: 'poly-session',
-    POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
-  };
-  const result = main({
-    agentType: 'claude',
-    env,
-    pid: 4321,
-    payload: {
-      hook_event_name: 'SessionStart',
-      session_id: 'claude/root',
-      cwd: '/workspace/repo',
-      transcript_path: '/tmp/transcript.jsonl',
-    },
-    spawn(command, args, options) {
-      invocation = { command, args, options };
-      return { status: 0, stderr: '' };
-    },
-  });
+test('Claude and Codex lifecycle hooks preserve session and capture-token evidence', () => {
+  for (const [agentType, agentSessionId] of [
+    ['claude', 'claude/root'],
+    ['codex', 'codex/root'],
+  ]) {
+    let invocation;
+    const env = {
+      POLYGRAPH_SESSION_ID: 'poly-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+    };
+    const result = main({
+      agentType,
+      env,
+      pid: 4321,
+      payload: {
+        hook_event_name: 'SessionStart',
+        session_id: agentSessionId,
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/transcript.jsonl',
+      },
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+    });
 
-  assert.equal(result, true);
-  assert.equal(invocation.command, 'polygraph');
-  assert.deepEqual(invocation.args.slice(0, 3), [
-    '_link-agent-session',
-    '--session',
-    'poly-session',
-  ]);
-  assert.ok(invocation.args.includes('claude/root'));
-  assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
-  assert.equal(invocation.options.env, env);
+    assert.equal(result, true);
+    assert.equal(invocation.command, 'polygraph');
+    assert.deepEqual(invocation.args.slice(0, 3), [
+      '_link-agent-session',
+      '--session',
+      'poly-session',
+    ]);
+    assert.ok(invocation.args.includes(agentType));
+    assert.ok(invocation.args.includes(agentSessionId));
+    assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
+    assert.equal(invocation.options.env, env);
+    assert.equal(invocation.options.env.POLYGRAPH_SESSION_ID, 'poly-session');
+    assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
+  }
 });
 
 test('read and failed PostToolUse activity forwards identity without session semantics', () => {
@@ -347,6 +357,7 @@ test('read and failed PostToolUse activity forwards identity without session sem
     const env = {
       POLYGRAPH_SESSION_ID: 'ambient-session',
       POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+      REQUIRED_HARNESS_ENV: 'preserved',
     };
     const result = main({
       agentType: 'codex',
@@ -372,10 +383,14 @@ test('read and failed PostToolUse activity forwards identity without session sem
     assert.equal(invocation.args.includes('input-session'), false);
     assert.equal(invocation.args.includes('--set-resume-target'), false);
     assert.ok(invocation.args.includes('codex/root-thread'));
-    assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
     assert.equal(
       Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
       false
     );
+    assert.equal(
+      Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+      false
+    );
+    assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
   }
 });

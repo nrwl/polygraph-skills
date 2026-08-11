@@ -193,29 +193,85 @@ test('OpenCode tool activity forwards only the exact root session identity', asy
   ]);
 });
 
-test('ambient Polygraph session IDs are not bound by OpenCode tool activity', async () => {
-  const client = fakeClient({ root: { id: 'root' } });
-  const claims = [];
+test('OpenCode tool activity strips ambient session and capture-token evidence', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  const invocations = [];
+  const env = {
+    POLYGRAPH_SESSION_ID: 'ambient-poly-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'ambient-capture-token',
+    REQUIRED_HARNESS_ENV: 'preserved',
+  };
   const linker = createOpenCodeSessionLinker({
     client,
     directory: '/workspace/repo',
-    env: { POLYGRAPH_SESSION_ID: 'ambient-poly-session' },
-    link(claim) {
-      claims.push(claim);
-      return true;
+    env,
+    pid: 2468,
+    spawn(command, args, options) {
+      invocations.push({ command, args, options });
+      return { status: 0, stderr: '' };
     },
   });
 
   await linker.fromToolActivity({
     tool: 'polygraph-mcp_update_session',
-    sessionID: 'root',
+    sessionID: 'child',
     args: { sessionId: 'input-poly-session', title: 'Title' },
   });
 
-  assert.equal(claims.length, 1);
-  assert.equal(claims[0].agentSessionId, 'root');
-  assert.equal(Object.hasOwn(claims[0], 'polygraphSessionId'), false);
-  assert.equal(Object.hasOwn(claims[0], 'setResumeTarget'), false);
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].command, 'polygraph');
+  assert.equal(invocations[0].args.includes('--session'), false);
+  assert.ok(invocations[0].args.includes('root'));
+  assert.equal(
+    Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_SESSION_ID'),
+    false
+  );
+  assert.equal(
+    Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+    false
+  );
+  assert.equal(invocations[0].options.env.REQUIRED_HARNESS_ENV, 'preserved');
+});
+
+test('OpenCode lifecycle links preserve session and capture-token evidence', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  let invocation;
+  const env = {
+    POLYGRAPH_SESSION_ID: 'lifecycle-poly-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'lifecycle-capture-token',
+    REQUIRED_HARNESS_ENV: 'preserved',
+  };
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo',
+    env,
+    pid: 2468,
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(await linker.fromEnvironment('child', '/workspace/exact'), true);
+  assert.equal(invocation.command, 'polygraph');
+  assert.ok(invocation.args.includes('lifecycle-poly-session'));
+  assert.ok(invocation.args.includes('root'));
+  assert.ok(invocation.args.includes('/workspace/exact'));
+  assert.equal(invocation.options.env, env);
+  assert.equal(
+    invocation.options.env.POLYGRAPH_SESSION_ID,
+    'lifecycle-poly-session'
+  );
+  assert.equal(
+    invocation.options.env.POLYGRAPH_CAPTURE_TOKEN,
+    'lifecycle-capture-token'
+  );
 });
 
 test('OpenCode read and failed tool activity still submits evidence', async () => {

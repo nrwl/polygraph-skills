@@ -55,7 +55,10 @@ export function buildLinkAgentSessionArgs({
 export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   const args = buildLinkAgentSessionArgs(claim);
   const commandEnv = nonEmptyString(claim.polygraphSessionId) ? env : { ...env };
-  if (commandEnv !== env) delete commandEnv.POLYGRAPH_SESSION_ID;
+  if (commandEnv !== env) {
+    delete commandEnv.POLYGRAPH_SESSION_ID;
+    delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
+  }
 
   const result = spawn('polygraph', args, {
     encoding: 'utf8',

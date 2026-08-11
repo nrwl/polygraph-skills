@@ -59,9 +59,10 @@ export function createOpenCodeSessionLinker({
   env = process.env,
   pid = process.pid,
   link,
+  spawn,
 } = {}) {
   const roots = new Map();
-  const submitLink = link ?? ((claim) => linkAgentSession(claim, undefined, env));
+  const submitLink = link ?? ((claim) => linkAgentSession(claim, spawn, env));
 
   async function rootSessionId(sessionId) {
     if (!sessionId) return undefined;
