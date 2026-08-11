@@ -2,7 +2,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__.*__(add_repo|allow_agent|archive_session|associate_pr|create_pr|deny_agent|git_fetch|link_reference|mark_pr_ready|pack_and_copy|push_branch|spawn_agent|start_session|stop_agent|update_session|upload_artifact)$",
+        "matcher": "^mcp__(plugin_polygraph_)?polygraph[-_]mcp__",
         "hooks": [
           {
             "type": "command",

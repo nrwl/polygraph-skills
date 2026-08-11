@@ -2,28 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import * as linkModule from '../source/hooks/agent-session-link.mjs';
 import {
-  SESSION_MUTATION_TOOLS,
-  buildCommandHookClaim,
+  buildCommandHookLink,
   buildLinkAgentSessionArgs,
-  derivePolygraphSessionClaim,
-  extractStartedSessionId,
+  isPolygraphMcpToolName,
   linkAgentSession,
-  parsePolygraphMutationTool,
 } from '../source/hooks/agent-session-link.mjs';
 import { main } from '../source/hooks/record-session-mapping.mjs';
 
-const startResponse = {
-  content: [
-    {
-      type: 'text',
-      text: 'Session merry-swan-123 (/tmp/session)\nRepositories:\n- nrwl/ocean',
-    },
-  ],
-  isError: false,
-};
-
-test('Claude and Codex register successful PostToolUse command hooks', () => {
+test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
   for (const relativePath of [
     '../source/hooks/hooks.json',
     '../source/codex/hooks/hooks.json',
@@ -33,203 +21,127 @@ test('Claude and Codex register successful PostToolUse command hooks', () => {
     );
     const hooks = manifest.hooks.PostToolUse;
     assert.equal(hooks.length, 1);
-    assert.match(hooks[0].matcher, /start_session/);
-    assert.match(hooks[0].matcher, /update_session/);
+
+    const matcher = new RegExp(hooks[0].matcher);
+    assert.equal(matcher.test('mcp__polygraph-mcp__show_session'), true);
+    assert.equal(matcher.test('mcp__polygraph_mcp__unknown_future_tool'), true);
+    assert.equal(
+      matcher.test('mcp__plugin_polygraph_polygraph-mcp__failed_tool'),
+      true
+    );
+    assert.equal(matcher.test('mcp__some-other-server__start_session'), false);
+    assert.doesNotMatch(hooks[0].matcher, /start_session|update_session|show_session/);
     assert.match(hooks[0].hooks[0].command, /record-session-mapping\.mjs/);
   }
 });
 
-test('recognizes Polygraph mutation names from Claude, Codex, and OpenCode', () => {
-  assert.equal(
-    parsePolygraphMutationTool(
-      'mcp__plugin_polygraph_polygraph-mcp__start_session'
-    ),
-    'start_session'
-  );
-  assert.equal(
-    parsePolygraphMutationTool('mcp__polygraph-mcp__update_session'),
-    'update_session'
-  );
-  assert.equal(
-    parsePolygraphMutationTool('polygraph-mcp_spawn_agent'),
-    'spawn_agent'
-  );
-  assert.equal(
-    parsePolygraphMutationTool('polygraph_mcp_archive_session'),
-    'archive_session'
-  );
-  assert.equal(parsePolygraphMutationTool('polygraph_add_repo'), 'add_repo');
-});
-
-test('the supported mutation registry is fully parseable', () => {
-  for (const operation of SESSION_MUTATION_TOOLS) {
-    assert.equal(
-      parsePolygraphMutationTool(`mcp__polygraph-mcp__${operation}`),
-      operation
-    );
-  }
-});
-
-test('read operations and other MCP servers never produce mutations', () => {
-  for (const operation of [
-    'show_session',
-    'show_agent',
-    'list_sessions',
-    'list_repos',
-    'list_artifacts',
-    'search_sessions',
-    'get_ci_logs',
-    'session_intro',
-    'whoami',
+test('recognizes Polygraph MCP activity by server prefix only', () => {
+  for (const toolName of [
+    'mcp__polygraph-mcp__show_session',
+    'mcp__polygraph_mcp__unknown_future_tool',
+    'mcp__plugin_polygraph_polygraph-mcp__failed_tool',
+    'mcp__plugin_polygraph_polygraph_mcp__anything',
+    'polygraph-mcp_show_session',
+    'polygraph_mcp_failed_tool',
+    'polygraph_unknown_future_tool',
   ]) {
-    assert.equal(
-      parsePolygraphMutationTool(`mcp__polygraph-mcp__${operation}`),
-      undefined,
-      operation
-    );
+    assert.equal(isPolygraphMcpToolName(toolName), true, toolName);
   }
-  assert.equal(
-    parsePolygraphMutationTool('mcp__some-other-server__start_session'),
-    undefined
-  );
+
+  for (const toolName of [
+    'mcp__some-other-server__start_session',
+    'other-mcp_show_session',
+    'polygraphical_tool',
+    '',
+  ]) {
+    assert.equal(isPolygraphMcpToolName(toolName), false, toolName);
+  }
 });
 
-test('extracts a started session ID from the current MCP text result', () => {
-  assert.equal(extractStartedSessionId(startResponse), 'merry-swan-123');
+test('the hook helper exposes no operation-specific parsing API', () => {
+  assert.deepEqual(Object.keys(linkModule).sort(), [
+    'buildCommandHookLink',
+    'buildLinkAgentSessionArgs',
+    'isPolygraphMcpToolName',
+    'linkAgentSession',
+    'logHookFailure',
+  ]);
+
+  const source = readFileSync(
+    new URL('../source/hooks/agent-session-link.mjs', import.meta.url),
+    'utf8'
+  );
+  for (const forbidden of [
+    'SESSION_MUTATION_TOOLS',
+    'derivePolygraphSessionClaim',
+    'extractStartedSessionId',
+    'parsePolygraphMutationTool',
+    'tool_input',
+    'tool_response',
+    '--set-resume-target',
+  ]) {
+    assert.equal(source.includes(forbidden), false, forbidden);
+  }
 });
 
-test('extracts a started session ID from structured and OpenCode output results', () => {
-  assert.equal(
-    extractStartedSessionId({
-      structuredContent: { sessionId: 'structured-session' },
-    }),
-    'structured-session'
-  );
-  assert.equal(
-    extractStartedSessionId({
-      title: 'Started session',
-      output: 'Session opencode-session\nRepositories:\n- nrwl/ocean',
-      metadata: {},
-    }),
-    'opencode-session'
-  );
-  assert.equal(
-    extractStartedSessionId({ content: [{ type: 'text', text: '{"sessionId":"json-session"}' }] }),
-    'json-session'
-  );
-});
-
-test('does not derive a start claim from an MCP error or unrecognized response', () => {
-  assert.equal(
-    derivePolygraphSessionClaim({
-      toolName: 'mcp__polygraph-mcp__start_session',
-      toolResponse: { ...startResponse, isError: true },
-    }),
-    undefined
-  );
-  assert.equal(
-    derivePolygraphSessionClaim({
-      toolName: 'mcp__polygraph-mcp__start_session',
-      toolResponse: { content: [{ type: 'text', text: 'No session here' }] },
-    }),
-    undefined
-  );
-});
-
-test('start_session derives the session ID from the successful result', () => {
-  assert.deepEqual(
-    derivePolygraphSessionClaim({
-      toolName: 'mcp__polygraph-mcp__start_session',
-      toolInput: { sessionId: 'must-not-win' },
-      toolResponse: startResponse,
-    }),
-    {
-      operation: 'start_session',
-      polygraphSessionId: 'merry-swan-123',
-      setResumeTarget: true,
-    }
-  );
-});
-
-test('other mutations derive the session ID from tool input', () => {
-  assert.deepEqual(
-    derivePolygraphSessionClaim({
-      toolName: 'mcp__polygraph-mcp__add_repo',
-      toolInput: { sessionId: 'session-from-input', repoIds: ['repo-1'] },
-      toolResponse: { content: [{ type: 'text', text: 'Added repository' }] },
-    }),
-    { operation: 'add_repo', polygraphSessionId: 'session-from-input' }
-  );
-});
-
-test('failed non-start mutations do not produce claims', () => {
-  assert.equal(
-    derivePolygraphSessionClaim({
-      toolName: 'mcp__polygraph-mcp__update_session',
-      toolInput: { sessionId: 'poly-session', title: 'Title' },
-      toolResponse: { isError: true, content: [{ type: 'text', text: 'Failed' }] },
-    }),
-    undefined
-  );
-});
-
-test('builds the creator CLI command with optional metadata and resume target flag', () => {
+test('builds a lifecycle link with exact session and capture metadata', () => {
   assert.deepEqual(
     buildLinkAgentSessionArgs({
-      polygraphSessionId: 'poly-session',
+      polygraphSessionId: 'poly/session?exact=true',
       agentType: 'codex',
-      agentSessionId: 'codex-thread',
-      cwd: '/workspace/repo',
-      transcriptPath: '/tmp/rollout.jsonl',
+      agentSessionId: 'codex/thread/root',
+      cwd: '/workspace/repo with spaces',
+      transcriptPath: '/tmp/rollout exact.jsonl',
       pid: 1234,
-      setResumeTarget: true,
       source: 'hook',
     }),
     [
       '_link-agent-session',
       '--session',
-      'poly-session',
+      'poly/session?exact=true',
       '--agent-type',
       'codex',
       '--agent-session-id',
-      'codex-thread',
+      'codex/thread/root',
       '--cwd',
-      '/workspace/repo',
+      '/workspace/repo with spaces',
       '--transcript-path',
-      '/tmp/rollout.jsonl',
+      '/tmp/rollout exact.jsonl',
       '--pid',
       '1234',
-      '--set-resume-target',
       '--source',
       'hook',
     ]
   );
 });
 
-test('omits unavailable optional CLI command arguments', () => {
+test('builds a PostTool link without a Polygraph session or operation flags', () => {
   assert.deepEqual(
     buildLinkAgentSessionArgs({
-      polygraphSessionId: 'poly-session',
       agentType: 'opencode',
-      agentSessionId: 'oc-session',
+      agentSessionId: 'oc-root',
       source: 'hook',
+      setResumeTarget: true,
+      operation: 'start_session',
     }),
     [
       '_link-agent-session',
-      '--session',
-      'poly-session',
       '--agent-type',
       'opencode',
       '--agent-session-id',
-      'oc-session',
+      'oc-root',
       '--source',
       'hook',
     ]
   );
 });
 
-test('invokes polygraph directly without shell interpolation', () => {
+test('invokes only _link-agent-session and forwards capture environment without a session ID', () => {
   let invocation;
+  const env = {
+    POLYGRAPH_CAPTURE_TOKEN: 'opaque-launch-evidence',
+    POLYGRAPH_SESSION_ID: 'environment-session',
+  };
   const spawn = (command, args, options) => {
     invocation = { command, args, options };
     return { status: 0, stderr: '' };
@@ -238,18 +150,28 @@ test('invokes polygraph directly without shell interpolation', () => {
   assert.equal(
     linkAgentSession(
       {
-        polygraphSessionId: 'session; touch /tmp/nope',
         agentType: 'claude',
         agentSessionId: 'claude-session',
         source: 'hook',
       },
-      spawn
+      spawn,
+      env
     ),
     true
   );
   assert.equal(invocation.command, 'polygraph');
-  assert.equal(invocation.args[2], 'session; touch /tmp/nope');
+  assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.args.includes('--session'), false);
   assert.equal(invocation.args.includes('--set-resume-target'), false);
+  assert.notEqual(invocation.options.env, env);
+  assert.equal(
+    invocation.options.env.POLYGRAPH_CAPTURE_TOKEN,
+    'opaque-launch-evidence'
+  );
+  assert.equal(
+    Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
+    false
+  );
   assert.equal(Object.hasOwn(invocation.options, 'shell'), false);
   assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
 });
@@ -259,80 +181,43 @@ test('reports hidden CLI command failures to the hook wrapper', () => {
     () =>
       linkAgentSession(
         {
-          polygraphSessionId: 'poly-session',
           agentType: 'claude',
           agentSessionId: 'claude-session',
           source: 'hook',
         },
-        () => ({ status: 2, stderr: 'invalid claim' })
+        () => ({ status: 2, stderr: 'invalid evidence' })
       ),
-    /status 2: invalid claim/
+    /status 2: invalid evidence/
   );
 });
 
-test('SessionStart preserves POLYGRAPH_SESSION_ID binding', () => {
-  const claim = buildCommandHookClaim(
-    {
-      hook_event_name: 'SessionStart',
-      session_id: 'claude-session',
-      cwd: '/workspace/repo',
-      transcript_path: '/tmp/transcript.jsonl',
-    },
-    'claude',
-    { POLYGRAPH_SESSION_ID: 'poly-session' }
-  );
-
-  assert.deepEqual(claim, {
-    polygraphSessionId: 'poly-session',
-    agentType: 'claude',
-    agentSessionId: 'claude-session',
-    cwd: '/workspace/repo',
-    transcriptPath: '/tmp/transcript.jsonl',
-    source: 'hook',
-  });
-});
-
-test('PostToolUse claims do not depend on POLYGRAPH_SESSION_ID', () => {
-  const claim = buildCommandHookClaim(
-    {
-      hook_event_name: 'PostToolUse',
-      session_id: 'codex-thread',
-      cwd: '/workspace/repo',
-      transcript_path: '/tmp/rollout.jsonl',
-      tool_name: 'mcp__polygraph-mcp__start_session',
-      tool_input: {},
-      tool_response: startResponse,
-    },
-    'codex',
-    {}
-  );
-
-  assert.equal(claim.polygraphSessionId, 'merry-swan-123');
-  assert.equal(claim.agentSessionId, 'codex-thread');
-  assert.equal(claim.setResumeTarget, true);
-});
-
-test('child agents and read-only PostToolUse events never claim', () => {
-  const sessionStart = {
-    hook_event_name: 'SessionStart',
-    session_id: 'child-session',
-  };
-  assert.equal(
-    buildCommandHookClaim(sessionStart, 'claude', {
-      POLYGRAPH_SESSION_ID: 'poly-session',
-      POLYGRAPH_CHILD_AGENT: '1',
-    }),
-    undefined
-  );
-  assert.equal(
-    buildCommandHookClaim(
+test('SessionStart forwards exact lifecycle identity and metadata', () => {
+  assert.deepEqual(
+    buildCommandHookLink(
       {
-        hook_event_name: 'PostToolUse',
-        session_id: 'parent-session',
-        tool_name: 'mcp__polygraph-mcp__show_session',
-        tool_input: { sessionId: 'poly-session' },
-        tool_response: { content: [] },
+        hook_event_name: 'SessionStart',
+        session_id: 'claude/root-session',
+        cwd: '/workspace/exact repo',
+        transcript_path: '/tmp/exact transcript.jsonl',
       },
+      'claude',
+      { POLYGRAPH_SESSION_ID: 'poly/exact-session' }
+    ),
+    {
+      polygraphSessionId: 'poly/exact-session',
+      agentType: 'claude',
+      agentSessionId: 'claude/root-session',
+      cwd: '/workspace/exact repo',
+      transcriptPath: '/tmp/exact transcript.jsonl',
+      source: 'hook',
+    }
+  );
+});
+
+test('SessionStart requires launch-provided POLYGRAPH_SESSION_ID', () => {
+  assert.equal(
+    buildCommandHookLink(
+      { hook_event_name: 'SessionStart', session_id: 'claude-session' },
       'claude',
       {}
     ),
@@ -340,48 +225,100 @@ test('child agents and read-only PostToolUse events never claim', () => {
   );
 });
 
-test('the command hook invokes the CLI for a successful mutation claim', () => {
-  let invocation;
-  const result = main({
-    agentType: 'claude',
-    env: {},
-    pid: 4321,
-    payload: {
-      hook_event_name: 'PostToolUse',
-      session_id: 'claude-session',
-      cwd: '/workspace/repo',
-      tool_name: 'mcp__plugin_polygraph_polygraph-mcp__update_session',
-      tool_input: { sessionId: 'poly-session', title: 'New title' },
-      tool_response: { content: [{ type: 'text', text: 'Updated' }] },
+test('PostToolUse ignores tool inputs, results, and ambient Polygraph session IDs', () => {
+  const payload = {
+    hook_event_name: 'PostToolUse',
+    session_id: 'codex/exact-thread',
+    cwd: '/workspace/repo',
+    transcript_path: '/tmp/rollout.jsonl',
+    tool_name: 'mcp__polygraph-mcp__show_session',
+    tool_input: { sessionId: 'must-not-forward' },
+    tool_response: {
+      isError: true,
+      structuredContent: { sessionId: 'must-not-parse' },
     },
-    spawn(command, args, options) {
-      invocation = { command, args, options };
-      return { status: 0, stderr: '' };
-    },
-  });
+  };
 
-  assert.equal(result, true);
-  assert.equal(invocation.command, 'polygraph');
-  assert.ok(invocation.args.includes('poly-session'));
-  assert.ok(invocation.args.includes('claude-session'));
-  assert.ok(invocation.args.includes('4321'));
-  assert.equal(invocation.args.includes('--set-resume-target'), false);
+  assert.deepEqual(
+    buildCommandHookLink(payload, 'codex', {
+      POLYGRAPH_SESSION_ID: 'must-not-bind-post-tool',
+    }),
+    {
+      agentType: 'codex',
+      agentSessionId: 'codex/exact-thread',
+      cwd: '/workspace/repo',
+      transcriptPath: '/tmp/rollout.jsonl',
+      source: 'hook',
+    }
+  );
+
+  assert.deepEqual(
+    buildCommandHookLink(
+      {
+        ...payload,
+        tool_name: 'mcp__polygraph-mcp__start_session',
+        tool_response: { sessionId: 'also-must-not-parse' },
+      },
+      'codex',
+      {}
+    ),
+    buildCommandHookLink(payload, 'codex', {})
+  );
 });
 
-test('the command hook sets the resume target only after successful start_session', () => {
+test('only exact lifecycle and PostToolUse event IDs are accepted', () => {
+  const common = {
+    session_id: 'parent-session',
+    tool_name: 'mcp__polygraph-mcp__anything',
+  };
+  assert.equal(
+    buildCommandHookLink({ ...common, hook_event_name: 'posttooluse' }, 'claude', {}),
+    undefined
+  );
+  assert.equal(
+    buildCommandHookLink({ ...common, hook_event_name: 'PostToolUseFailure' }, 'claude', {}),
+    undefined
+  );
+  assert.equal(
+    buildCommandHookLink(
+      { ...common, hook_event_name: 'PostToolUse', tool_name: 'mcp__other__anything' },
+      'claude',
+      {}
+    ),
+    undefined
+  );
+});
+
+test('child-agent hook activity never links a parent session', () => {
+  assert.equal(
+    buildCommandHookLink(
+      {
+        hook_event_name: 'PostToolUse',
+        session_id: 'child-session',
+        tool_name: 'mcp__polygraph-mcp__anything',
+      },
+      'claude',
+      { POLYGRAPH_CHILD_AGENT: '1' }
+    ),
+    undefined
+  );
+});
+
+test('the lifecycle hook invokes _link-agent-session with its exact session evidence', () => {
   let invocation;
+  const env = {
+    POLYGRAPH_SESSION_ID: 'poly-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+  };
   const result = main({
-    agentType: 'codex',
-    env: {},
-    pid: 9876,
+    agentType: 'claude',
+    env,
+    pid: 4321,
     payload: {
-      hook_event_name: 'PostToolUse',
-      session_id: 'codex-thread',
+      hook_event_name: 'SessionStart',
+      session_id: 'claude/root',
       cwd: '/workspace/repo',
-      transcript_path: '/tmp/rollout.jsonl',
-      tool_name: 'mcp__polygraph-mcp__start_session',
-      tool_input: {},
-      tool_response: startResponse,
+      transcript_path: '/tmp/transcript.jsonl',
     },
     spawn(command, args, options) {
       invocation = { command, args, options };
@@ -391,13 +328,54 @@ test('the command hook sets the resume target only after successful start_sessio
 
   assert.equal(result, true);
   assert.equal(invocation.command, 'polygraph');
-  assert.equal(
-    invocation.args.filter((arg) => arg === '--set-resume-target').length,
-    1
-  );
-  assert.deepEqual(invocation.args.slice(-3), [
-    '--set-resume-target',
-    '--source',
-    'hook',
+  assert.deepEqual(invocation.args.slice(0, 3), [
+    '_link-agent-session',
+    '--session',
+    'poly-session',
   ]);
+  assert.ok(invocation.args.includes('claude/root'));
+  assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
+  assert.equal(invocation.options.env, env);
+});
+
+test('read and failed PostToolUse activity forwards identity without session semantics', () => {
+  for (const toolResponse of [
+    { content: [{ type: 'text', text: 'Session details' }] },
+    { isError: true, content: [{ type: 'text', text: 'Failed' }] },
+  ]) {
+    let invocation;
+    const env = {
+      POLYGRAPH_SESSION_ID: 'ambient-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+    };
+    const result = main({
+      agentType: 'codex',
+      env,
+      pid: 9876,
+      payload: {
+        hook_event_name: 'PostToolUse',
+        session_id: 'codex/root-thread',
+        tool_name: 'mcp__polygraph-mcp__show_session',
+        tool_input: { sessionId: 'input-session' },
+        tool_response: toolResponse,
+      },
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+    });
+
+    assert.equal(result, true);
+    assert.equal(invocation.args[0], '_link-agent-session');
+    assert.equal(invocation.args.includes('--session'), false);
+    assert.equal(invocation.args.includes('ambient-session'), false);
+    assert.equal(invocation.args.includes('input-session'), false);
+    assert.equal(invocation.args.includes('--set-resume-target'), false);
+    assert.ok(invocation.args.includes('codex/root-thread'));
+    assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
+    assert.equal(
+      Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
+      false
+    );
+  }
 });

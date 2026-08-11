@@ -5,136 +5,17 @@ import { spawnSync } from 'node:child_process';
 
 const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
-export const SESSION_MUTATION_TOOLS = Object.freeze([
-  'add_repo',
-  'allow_agent',
-  'archive_session',
-  'associate_pr',
-  'create_pr',
-  'deny_agent',
-  'git_fetch',
-  'link_reference',
-  'mark_pr_ready',
-  'pack_and_copy',
-  'push_branch',
-  'spawn_agent',
-  'start_session',
-  'stop_agent',
-  'update_session',
-  'upload_artifact',
-]);
-
-const SESSION_MUTATION_TOOL_SET = new Set(SESSION_MUTATION_TOOLS);
 const AGENT_TYPES = new Set(['claude', 'codex', 'opencode']);
-const COMMAND_HOOK_PREFIXES = [
-  'mcp__polygraph-mcp__',
-  'mcp__polygraph_mcp__',
-  'mcp__plugin_polygraph_polygraph-mcp__',
-  'mcp__plugin_polygraph_polygraph_mcp__',
-];
-const OPENCODE_PREFIXES = [
-  'polygraph-mcp_',
-  'polygraph_mcp_',
-  'polygraph_',
-];
+const COMMAND_HOOK_TOOL = /^mcp__(?:plugin_polygraph_)?polygraph[-_]mcp__/;
+const OPENCODE_TOOL = /^polygraph(?:(?:-|_)mcp)?_/;
 
 function nonEmptyString(value) {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-export function parsePolygraphMutationTool(toolName) {
+export function isPolygraphMcpToolName(toolName) {
   const name = nonEmptyString(toolName);
-  if (!name) return undefined;
-
-  for (const prefix of [...COMMAND_HOOK_PREFIXES, ...OPENCODE_PREFIXES]) {
-    if (!name.startsWith(prefix)) continue;
-    const operation = name.slice(prefix.length);
-    return SESSION_MUTATION_TOOL_SET.has(operation) ? operation : undefined;
-  }
-
-  return undefined;
-}
-
-function sessionIdFromRecord(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return undefined;
-  }
-
-  return (
-    nonEmptyString(value.sessionId) ??
-    nonEmptyString(value.polygraphSessionId)
-  );
-}
-
-function sessionIdFromText(text) {
-  const value = nonEmptyString(text);
-  if (!value) return undefined;
-
-  try {
-    const parsed = JSON.parse(value);
-    const fromJson =
-      sessionIdFromRecord(parsed) ??
-      sessionIdFromRecord(parsed?.data) ??
-      sessionIdFromRecord(parsed?.result);
-    if (fromJson) return fromJson;
-  } catch {
-    // Successful MCP responses are often plain text rather than JSON.
-  }
-
-  return value.match(/^Session\s+([^\s(]+)/m)?.[1];
-}
-
-export function extractStartedSessionId(toolResponse) {
-  if (typeof toolResponse === 'string') {
-    return sessionIdFromText(toolResponse);
-  }
-  if (!toolResponse || typeof toolResponse !== 'object') {
-    return undefined;
-  }
-  if (toolResponse.isError === true) {
-    return undefined;
-  }
-
-  const direct =
-    sessionIdFromRecord(toolResponse) ??
-    sessionIdFromRecord(toolResponse.structuredContent) ??
-    sessionIdFromRecord(toolResponse.data) ??
-    sessionIdFromRecord(toolResponse.result);
-  if (direct) return direct;
-
-  const output = sessionIdFromText(toolResponse.output);
-  if (output) return output;
-
-  if (Array.isArray(toolResponse.content)) {
-    for (const block of toolResponse.content) {
-      const fromBlock = sessionIdFromRecord(block) ?? sessionIdFromText(block?.text);
-      if (fromBlock) return fromBlock;
-    }
-  }
-
-  return undefined;
-}
-
-export function derivePolygraphSessionClaim({
-  toolName,
-  toolInput,
-  toolResponse,
-} = {}) {
-  const operation = parsePolygraphMutationTool(toolName);
-  if (!operation) return undefined;
-  if (toolResponse?.isError === true) return undefined;
-
-  const polygraphSessionId =
-    operation === 'start_session'
-      ? extractStartedSessionId(toolResponse)
-      : nonEmptyString(toolInput?.sessionId);
-  if (!polygraphSessionId) return undefined;
-
-  return {
-    operation,
-    polygraphSessionId,
-    ...(operation === 'start_session' ? { setResumeTarget: true } : {}),
-  };
+  return Boolean(name && (COMMAND_HOOK_TOOL.test(name) || OPENCODE_TOOL.test(name)));
 }
 
 export function buildLinkAgentSessionArgs({
@@ -144,26 +25,18 @@ export function buildLinkAgentSessionArgs({
   cwd,
   transcriptPath,
   pid,
-  setResumeTarget,
   source,
 }) {
   const session = nonEmptyString(polygraphSessionId);
   const harnessSession = nonEmptyString(agentSessionId);
   const claimSource = nonEmptyString(source);
-  if (!session) throw new Error('polygraphSessionId is required');
   if (!AGENT_TYPES.has(agentType)) throw new Error(`Unsupported agent type: ${agentType}`);
   if (!harnessSession) throw new Error('agentSessionId is required');
   if (!claimSource) throw new Error('source is required');
 
-  const args = [
-    '_link-agent-session',
-    '--session',
-    session,
-    '--agent-type',
-    agentType,
-    '--agent-session-id',
-    harnessSession,
-  ];
+  const args = ['_link-agent-session'];
+  if (session) args.push('--session', session);
+  args.push('--agent-type', agentType, '--agent-session-id', harnessSession);
 
   const workingDirectory = nonEmptyString(cwd);
   if (workingDirectory) args.push('--cwd', workingDirectory);
@@ -175,18 +48,18 @@ export function buildLinkAgentSessionArgs({
     args.push('--pid', String(pid));
   }
 
-  if (setResumeTarget === true) {
-    args.push('--set-resume-target');
-  }
-
   args.push('--source', claimSource);
   return args;
 }
 
-export function linkAgentSession(claim, spawn = spawnSync) {
+export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   const args = buildLinkAgentSessionArgs(claim);
+  const commandEnv = nonEmptyString(claim.polygraphSessionId) ? env : { ...env };
+  if (commandEnv !== env) delete commandEnv.POLYGRAPH_SESSION_ID;
+
   const result = spawn('polygraph', args, {
     encoding: 'utf8',
+    env: commandEnv,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
 
@@ -202,7 +75,7 @@ export function linkAgentSession(claim, spawn = spawnSync) {
   return true;
 }
 
-export function buildCommandHookClaim(payload, agentType, env = process.env) {
+export function buildCommandHookLink(payload, agentType, env = process.env) {
   if (!payload || typeof payload !== 'object') return undefined;
   if (env.POLYGRAPH_CHILD_AGENT) return undefined;
 
@@ -223,18 +96,7 @@ export function buildCommandHookClaim(payload, agentType, env = process.env) {
   }
 
   if (payload.hook_event_name === 'PostToolUse') {
-    const derived = derivePolygraphSessionClaim({
-      toolName: payload.tool_name,
-      toolInput: payload.tool_input,
-      toolResponse: payload.tool_response,
-    });
-    return derived
-      ? {
-          ...common,
-          polygraphSessionId: derived.polygraphSessionId,
-          ...(derived.setResumeTarget ? { setResumeTarget: true } : {}),
-        }
-      : undefined;
+    return isPolygraphMcpToolName(payload.tool_name) ? common : undefined;
   }
 
   return undefined;

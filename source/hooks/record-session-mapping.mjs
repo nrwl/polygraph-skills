@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import {
-  buildCommandHookClaim,
+  buildCommandHookLink,
   linkAgentSession,
   logHookFailure,
 } from './agent-session-link.mjs';
@@ -24,16 +24,17 @@ export function main({
   spawn,
 } = {}) {
   try {
-    const claim = buildCommandHookClaim(payload, agentType, env);
-    if (!claim) return false;
+    const link = buildCommandHookLink(payload, agentType, env);
+    if (!link) return false;
 
     return linkAgentSession(
       {
-        ...claim,
+        ...link,
         pid,
-        cwd: claim.cwd ?? process.cwd(),
+        cwd: link.cwd ?? process.cwd(),
       },
-      spawn
+      spawn,
+      env
     );
   } catch (error) {
     logHookFailure(`${agentType || 'unknown'}:link-agent-session`, error, {

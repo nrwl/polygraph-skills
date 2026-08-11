@@ -53,9 +53,9 @@ export const PolygraphPlugin = async ({ client, directory } = {}) => {
       }
     },
 
-    'tool.execute.after': async (input, output) => {
+    'tool.execute.after': async (input) => {
       try {
-        await sessionLinker.fromSuccessfulTool(input, output);
+        await sessionLinker.fromToolActivity(input);
       } catch (error) {
         logHookFailure('opencode:tool.execute.after', error, {
           sessionID: input?.sessionID,

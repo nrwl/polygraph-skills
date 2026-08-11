@@ -1,5 +1,5 @@
 import {
-  derivePolygraphSessionClaim,
+  isPolygraphMcpToolName,
   linkAgentSession,
   logHookFailure,
 } from '../hooks/agent-session-link.mjs';
@@ -58,9 +58,10 @@ export function createOpenCodeSessionLinker({
   directory,
   env = process.env,
   pid = process.pid,
-  link = linkAgentSession,
+  link,
 } = {}) {
   const roots = new Map();
+  const submitLink = link ?? ((claim) => linkAgentSession(claim, undefined, env));
 
   async function rootSessionId(sessionId) {
     if (!sessionId) return undefined;
@@ -71,51 +72,33 @@ export function createOpenCodeSessionLinker({
     return root;
   }
 
-  async function submit(
-    polygraphSessionId,
-    openCodeSessionId,
-    cwd,
-    setResumeTarget = false
-  ) {
-    if (!polygraphSessionId || !openCodeSessionId || env.POLYGRAPH_CHILD_AGENT) {
+  async function submit(openCodeSessionId, cwd, polygraphSessionId) {
+    if (!openCodeSessionId || env.POLYGRAPH_CHILD_AGENT) {
       return false;
     }
 
     const agentSessionId = await rootSessionId(openCodeSessionId);
     if (!agentSessionId) return false;
 
-    return link({
-      polygraphSessionId,
+    return submitLink({
+      ...(polygraphSessionId ? { polygraphSessionId } : {}),
       agentType: 'opencode',
       agentSessionId,
       cwd: cwd || directory || process.cwd(),
       pid,
-      ...(setResumeTarget ? { setResumeTarget: true } : {}),
       source: 'hook',
     });
   }
 
   return {
     async fromEnvironment(sessionId, cwd) {
-      return submit(env.POLYGRAPH_SESSION_ID, sessionId, cwd);
+      if (!env.POLYGRAPH_SESSION_ID) return false;
+      return submit(sessionId, cwd, env.POLYGRAPH_SESSION_ID);
     },
 
-    async fromSuccessfulTool(input, output) {
-      if (env.POLYGRAPH_CHILD_AGENT) return false;
-
-      const claim = derivePolygraphSessionClaim({
-        toolName: input?.tool,
-        toolInput: input?.args,
-        toolResponse: output,
-      });
-      if (!claim) return false;
-
-      return submit(
-        claim.polygraphSessionId,
-        input?.sessionID,
-        undefined,
-        claim.setResumeTarget
-      );
+    async fromToolActivity(input) {
+      if (!isPolygraphMcpToolName(input?.tool)) return false;
+      return submit(input?.sessionID);
     },
   };
 }

@@ -159,7 +159,7 @@ test('environment binding links the exact root OpenCode session', async () => {
   ]);
 });
 
-test('successful OpenCode start_session links the result session to the root', async () => {
+test('OpenCode tool activity forwards only the exact root session identity', async () => {
   const client = fakeClient({
     child: { id: 'child', parentID: 'root' },
     root: { id: 'root' },
@@ -175,49 +175,50 @@ test('successful OpenCode start_session links the result session to the root', a
     },
   });
 
-  await linker.fromSuccessfulTool(
-    { tool: 'polygraph-mcp_start_session', sessionID: 'child', args: {} },
-    {
-      title: 'Started session',
-      output: 'Session new-poly-session (/tmp/session)\nRepositories:\n- nrwl/ocean',
-      metadata: {},
-    }
-  );
+  await linker.fromToolActivity({
+    tool: 'polygraph-mcp_start_session',
+    sessionID: 'child',
+    args: { sessionId: 'must-not-forward' },
+    result: { sessionId: 'must-not-parse' },
+  });
 
-  assert.equal(claims.length, 1);
-  assert.equal(claims[0].polygraphSessionId, 'new-poly-session');
-  assert.equal(claims[0].agentSessionId, 'root');
-  assert.equal(claims[0].setResumeTarget, true);
+  assert.deepEqual(claims, [
+    {
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace/repo',
+      pid: process.pid,
+      source: 'hook',
+    },
+  ]);
 });
 
-test('successful OpenCode mutations derive the session from args', async () => {
+test('ambient Polygraph session IDs are not bound by OpenCode tool activity', async () => {
   const client = fakeClient({ root: { id: 'root' } });
   const claims = [];
   const linker = createOpenCodeSessionLinker({
     client,
     directory: '/workspace/repo',
-    env: {},
+    env: { POLYGRAPH_SESSION_ID: 'ambient-poly-session' },
     link(claim) {
       claims.push(claim);
       return true;
     },
   });
 
-  await linker.fromSuccessfulTool(
-    {
-      tool: 'polygraph-mcp_update_session',
-      sessionID: 'root',
-      args: { sessionId: 'existing-poly-session', title: 'Title' },
-    },
-    { title: 'Updated', output: 'Updated session', metadata: {} }
-  );
+  await linker.fromToolActivity({
+    tool: 'polygraph-mcp_update_session',
+    sessionID: 'root',
+    args: { sessionId: 'input-poly-session', title: 'Title' },
+  });
 
-  assert.equal(claims[0].polygraphSessionId, 'existing-poly-session');
+  assert.equal(claims.length, 1);
   assert.equal(claims[0].agentSessionId, 'root');
+  assert.equal(Object.hasOwn(claims[0], 'polygraphSessionId'), false);
   assert.equal(Object.hasOwn(claims[0], 'setResumeTarget'), false);
 });
 
-test('OpenCode read tools do not resolve ancestry or submit claims', async () => {
+test('OpenCode read and failed tool activity still submits evidence', async () => {
   const claims = [];
   const client = fakeClient({ root: { id: 'root' } });
   const linker = createOpenCodeSessionLinker({
@@ -230,14 +231,36 @@ test('OpenCode read tools do not resolve ancestry or submit claims', async () =>
   });
 
   assert.equal(
-    await linker.fromSuccessfulTool(
-      {
-        tool: 'polygraph-mcp_show_session',
-        sessionID: 'root',
-        args: { sessionId: 'poly-session' },
-      },
-      { output: 'Session details' }
-    ),
+    await linker.fromToolActivity({
+      tool: 'polygraph-mcp_show_session',
+      sessionID: 'root',
+      args: { sessionId: 'poly-session' },
+      error: { message: 'tool failed' },
+    }),
+    true
+  );
+  assert.deepEqual(client.calls, ['root']);
+  assert.equal(claims.length, 1);
+  assert.equal(Object.hasOwn(claims[0], 'polygraphSessionId'), false);
+});
+
+test('OpenCode ignores non-Polygraph tool activity', async () => {
+  const claims = [];
+  const client = fakeClient({ root: { id: 'root' } });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(
+    await linker.fromToolActivity({
+      tool: 'other-mcp_start_session',
+      sessionID: 'root',
+    }),
     false
   );
   assert.deepEqual(client.calls, []);
@@ -261,14 +284,11 @@ test('OpenCode child-agent processes never submit claims', async () => {
 
   assert.equal(await linker.fromEnvironment('child'), false);
   assert.equal(
-    await linker.fromSuccessfulTool(
-      {
-        tool: 'polygraph-mcp_update_session',
-        sessionID: 'child',
-        args: { sessionId: 'poly-session' },
-      },
-      { output: 'Updated' }
-    ),
+    await linker.fromToolActivity({
+      tool: 'polygraph-mcp_update_session',
+      sessionID: 'child',
+      args: { sessionId: 'poly-session' },
+    }),
     false
   );
   assert.deepEqual(client.calls, []);
