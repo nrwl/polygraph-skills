@@ -26,7 +26,7 @@ test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
     assert.equal(matcher.test('mcp__polygraph-mcp__show_session'), true);
     assert.equal(matcher.test('mcp__polygraph_mcp__unknown_future_tool'), true);
     assert.equal(
-      matcher.test('mcp__plugin_polygraph_polygraph-mcp__failed_tool'),
+      matcher.test('mcp__plugin_polygraph_polygraph-mcp__start_session'),
       true
     );
     assert.equal(matcher.test('mcp__some-other-server__start_session'), false);
@@ -134,6 +134,28 @@ test('builds a PostTool link without a Polygraph session or operation flags', ()
       'hook',
     ]
   );
+});
+
+test('uses the configured Polygraph CLI executable', () => {
+  let invocation;
+  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
+  assert.equal(
+    linkAgentSession(
+      {
+        agentType: 'codex',
+        agentSessionId: 'codex-root',
+        source: 'hook',
+      },
+      (command, args, options) => {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+      env
+    ),
+    true
+  );
+  assert.equal(invocation.command, '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
 test('identity-only links strip ambient session and capture-token evidence', () => {

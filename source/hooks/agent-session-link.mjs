@@ -60,13 +60,14 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   if (isManagedChildEnvironment(env)) return false;
 
   const args = buildLinkAgentSessionArgs(claim);
+  const command = nonEmptyString(env?.POLYGRAPH_CLI) ?? 'polygraph';
   const commandEnv = nonEmptyString(claim.polygraphSessionId) ? env : { ...env };
   if (commandEnv !== env) {
     delete commandEnv.POLYGRAPH_SESSION_ID;
     delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   }
 
-  const result = spawn('polygraph', args, {
+  const result = spawn(command, args, {
     encoding: 'utf8',
     env: commandEnv,
     stdio: ['ignore', 'ignore', 'pipe'],

@@ -16,6 +16,7 @@ import yaml from 'js-yaml';
 
 import {
   createOpenCodeSessionLinker,
+  linkOpenCodeSessionCreatedEvent,
   logHookFailure,
 } from './agent-session-link.mjs';
 
@@ -29,6 +30,17 @@ export const PolygraphPlugin = async ({ client, directory } = {}) => {
   const sessionLinker = createOpenCodeSessionLinker({ client, directory });
 
   return {
+    event: async (input) => {
+      try {
+        await linkOpenCodeSessionCreatedEvent(input, sessionLinker);
+      } catch (error) {
+        logHookFailure('opencode:event', error, {
+          eventType: input?.event?.type,
+          sessionID: input?.event?.properties?.info?.id,
+        });
+      }
+    },
+
     config: async (cfg) => {
       cfg.skills ??= {};
       cfg.skills.paths ??= [];

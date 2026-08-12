@@ -53,6 +53,13 @@ export async function resolveOpenCodeRootSessionId(client, sessionId) {
   return undefined;
 }
 
+export async function linkOpenCodeSessionCreatedEvent(input, sessionLinker) {
+  const event = input?.event;
+  if (event?.type !== 'session.created') return false;
+
+  return sessionLinker.fromSessionCreated(event.properties?.info);
+}
+
 export function createOpenCodeSessionLinker({
   client,
   directory,
@@ -62,6 +69,7 @@ export function createOpenCodeSessionLinker({
   spawn,
 } = {}) {
   const roots = new Map();
+  const linkedLifecycleSessions = new Set();
   const submitLink = link ?? ((claim) => linkAgentSession(claim, spawn, env));
 
   async function rootSessionId(sessionId) {
@@ -84,7 +92,12 @@ export function createOpenCodeSessionLinker({
     const agentSessionId = await rootSessionId(openCodeSessionId);
     if (!agentSessionId) return false;
 
-    return submitLink({
+    const lifecycleKey = polygraphSessionId
+      ? `${polygraphSessionId}\0${agentSessionId}`
+      : undefined;
+    if (lifecycleKey && linkedLifecycleSessions.has(lifecycleKey)) return false;
+
+    const linked = await submitLink({
       ...(polygraphSessionId ? { polygraphSessionId } : {}),
       agentType: 'opencode',
       agentSessionId,
@@ -92,13 +105,23 @@ export function createOpenCodeSessionLinker({
       pid,
       source: 'hook',
     });
+    if (linked && lifecycleKey) linkedLifecycleSessions.add(lifecycleKey);
+    return linked;
+  }
+
+  async function fromEnvironment(sessionId, cwd) {
+    if (!env.POLYGRAPH_SESSION_ID) return false;
+    return submit(sessionId, cwd, env.POLYGRAPH_SESSION_ID);
   }
 
   return {
-    async fromEnvironment(sessionId, cwd) {
-      if (!env.POLYGRAPH_SESSION_ID) return false;
-      return submit(sessionId, cwd, env.POLYGRAPH_SESSION_ID);
+    async fromSessionCreated(info) {
+      if (!info?.id || info.parentID) return false;
+      roots.set(info.id, info.id);
+      return fromEnvironment(info.id, info.directory);
     },
+
+    fromEnvironment,
 
     async fromToolActivity(input) {
       if (!isPolygraphMcpToolName(input?.tool)) return false;

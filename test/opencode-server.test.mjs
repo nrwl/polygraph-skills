@@ -13,6 +13,7 @@ import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
 import {
   createOpenCodeSessionLinker,
+  linkOpenCodeSessionCreatedEvent,
   resolveOpenCodeRootSessionId,
 } from '../source/opencode/agent-session-link.mjs';
 
@@ -61,10 +62,72 @@ test('PolygraphPlugin exposes the supported OpenCode hooks', async () => {
   await withoutPolygraphEnv(async () => {
     const plugin = await PolygraphPlugin();
     assert.equal(typeof plugin.config, 'function');
+    assert.equal(typeof plugin.event, 'function');
     assert.equal(typeof plugin['shell.env'], 'function');
     assert.equal(typeof plugin['tool.execute.after'], 'function');
     assert.equal(typeof plugin['experimental.session.compacting'], 'function');
   });
+});
+
+test('session.created links the exact OpenCode lifecycle identity once', async () => {
+  const claims = [];
+  const client = fakeClient({});
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: { POLYGRAPH_SESSION_ID: 'poly-session' },
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+  const event = {
+    event: {
+      type: 'session.created',
+      properties: { info: { id: 'root', directory: '/workspace/exact' } },
+    },
+  };
+
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), true);
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), false);
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, [
+    {
+      polygraphSessionId: 'poly-session',
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace/exact',
+      pid: process.pid,
+      source: 'hook',
+    },
+  ]);
+});
+
+test('session.created is inert outside a launched Polygraph session', async () => {
+  const client = fakeClient({ root: { id: 'root' } });
+  const claims = [];
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(
+    await linkOpenCodeSessionCreatedEvent(
+      {
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'root', directory: '/workspace' } },
+        },
+      },
+      linker
+    ),
+    false
+  );
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, []);
 });
 
 test('shell.env publishes the OpenCode agent identity', async () => {
@@ -176,7 +239,7 @@ test('OpenCode tool activity forwards only the exact root session identity', asy
   });
 
   await linker.fromToolActivity({
-    tool: 'polygraph-mcp_start_session',
+    tool: 'polygraph_start_session',
     sessionID: 'child',
     args: { sessionId: 'must-not-forward' },
     result: { sessionId: 'must-not-parse' },
@@ -339,6 +402,18 @@ test('OpenCode managed-child lifecycle and tool paths never invoke links', async
   });
 
   assert.equal(await linker.fromEnvironment('child'), false);
+  assert.equal(
+    await linkOpenCodeSessionCreatedEvent(
+      {
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'child', directory: '/workspace' } },
+        },
+      },
+      linker
+    ),
+    false
+  );
   assert.equal(
     await linker.fromToolActivity({
       tool: 'polygraph-mcp_update_session',
