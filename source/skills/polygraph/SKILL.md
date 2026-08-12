@@ -419,13 +419,13 @@ Use `link_reference` to link an external reference to the current Polygraph sess
 
 **Parameters:**
 
-- `sessionId` (required): the source 
+- `sessionId` (required): The Polygraph session receiving the linked reference
 - `reference` (required): Reference metadata with `type`, `url`, and `label`
 - `reference.sessionId` (session references only): The referenced Polygraph session ID when `reference.type` is `session`
 
 When an external resource is mentioned during a Polygraph session and appears relevant to the current work, the parent agent should record it with `link_reference({ sessionId, reference })`. This applies to relevant external resources such as pull requests, GitHub issues, other Polygraph sessions, and Linear issues.
 
-The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command.
+The canonical MCP parameters are `{ sessionId, reference }`. There is no unlink command; `show_session` returns a session's existing links as `session.linkedReferences`.
 
 ### Add Repositories to a Session
 

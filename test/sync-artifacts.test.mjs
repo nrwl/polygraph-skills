@@ -76,25 +76,12 @@ test('rendered polygraph skill documents linked references', () => {
   const raw = readFileSync(join(rootDir, 'source', 'skills', 'polygraph', 'SKILL.md'), 'utf8');
   const rendered = renderArtifact(raw, 'codex');
 
-  assert.match(rendered, /`link_reference` for linking external references to sessions/);
   assert.match(rendered, /`link_reference` \| — \| Link an external reference to a session\./);
   assert.match(rendered, /session\.linkedReferences/);
   assert.match(rendered, /### Linked References/);
   assert.match(rendered, /When an external resource is mentioned during a Polygraph session and appears relevant to the current work/);
   assert.match(rendered, /record it with `link_reference\(\{ sessionId, reference \}\)`/);
   assert.match(rendered, /pull requests, GitHub issues, other Polygraph sessions, and Linear issues/);
-  assert.match(rendered, /Invoke the MCP tool with a single object containing `\{ sessionId, reference \}`/);
-  assert.match(rendered, /For example, to record a relevant pull request/);
-  assert.match(rendered, /link_reference\(\{/);
-  assert.match(rendered, /sessionId: "<current-session-id>"/);
-  assert.match(rendered, /reference: \{/);
-  assert.match(rendered, /type: "github_pr"/);
-  assert.match(rendered, /url: "https:\/\/github\.com\/nrwl\/polygraph-skills\/pull\/123"/);
-  assert.match(rendered, /label: "Implementation PR"/);
-  assert.match(rendered, /To record a relevant Polygraph session, use the same invocation shape and include `reference\.sessionId`/);
-  assert.match(rendered, /type: "session"/);
-  assert.match(rendered, /label: "Inspected Polygraph session"/);
-  assert.match(rendered, /sessionId: "<inspected-session-id>"/);
   assert.match(rendered, /The canonical MCP parameters are `\{ sessionId, reference \}`/);
   assert.match(rendered, /polygraph session show --details <session-id>/);
 
@@ -119,20 +106,13 @@ test('rendered polygraph skill points at the session description reference file'
   const policySection = sectionBetween(
     rendered,
     '### Session Description Policy',
-    '### Get Current Polygraph Session'
+    '### Linked References'
   );
   const publishReference = readFileSync(
     join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
     'utf8'
   );
-  const updateDescriptionSection = sectionBetween(
-    rendered,
-    '### Update Session Description',
-    '### Print Polygraph Session Details'
-  );
-
   assert.match(rendered, /`update_session` \| `polygraph session update --session <id> \[--title\] \[--description\]`/);
-  assert.match(rendered, /`update_session` for session metadata updates/);
   assert.doesNotMatch(rendered, /update_session_description/);
   assert.doesNotMatch(rendered, /update-description/);
 
@@ -142,14 +122,15 @@ test('rendered polygraph skill points at the session description reference file'
   assert.match(policySection, /That reference file holds the full policy/);
   assert.match(publishReference, /[Mm]ust follow the Session Description Policy/);
   assert.match(publishReference, /read \[`session-description\.md`\]\(session-description\.md\)/);
-  assert.match(updateDescriptionSection, /reference\/session-description\.md/);
-  assert.match(updateDescriptionSection, /Then call `update_session` with the resulting summary as `description`\./);
+  // The standalone "Update Session Description" subsection folded into the policy section.
+  assert.match(policySection, /Use `update_session` directly when the user asks to summarize progress/);
+  assert.doesNotMatch(rendered, /### Update Session Description/);
 
   // The detailed guidance moved OUT of SKILL.md into the reference file.
   assert.doesNotMatch(rendered, /Goal: <what the session is trying to accomplish>/);
   assert.doesNotMatch(rendered, /Next Steps: <clear next implementation steps>/);
   assert.doesNotMatch(rendered, /Prefer high-level state over file-by-file changelogs/);
-  assert.doesNotMatch(updateDescriptionSection, /\*\*Parameters:\*\*/);
+  assert.doesNotMatch(policySection, /\*\*Parameters:\*\*/);
   assert.doesNotMatch(rendered, /description: "Add user preferences feature: UI in frontend, API in backend"/);
   assert.doesNotMatch(rendered, /Session Description Summary/);
   assert.doesNotMatch(rendered, /cloud_polygraph_create_prs/);
@@ -313,7 +294,7 @@ test('rendered polygraph skill keeps session intro as hidden internal fallback',
 
   assert.match(rendered, /`session_intro` MCP tool/);
   assert.match(rendered, /`polygraph session intro -s <sessionId>`/);
-  assert.match(rendered, /intentionally hidden\/internal and may not appear in public command listings/);
+  assert.match(rendered, /hidden `polygraph session intro -s <sessionId>`/);
   assert.doesNotMatch(toolsSection, /polygraph session intro/);
 });
 
