@@ -13,9 +13,35 @@ import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
 import {
   createOpenCodeSessionLinker,
+  deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
   resolveOpenCodeRootSessionId,
 } from '../source/opencode/agent-session-link.mjs';
+
+test('OpenCode defers proof reads until after the tool hook returns', async () => {
+  const calls = [];
+  let scheduled;
+  deferOpenCodeToolActivity(
+    { sessionID: 'root', tool: 'polygraph_start_session' },
+    {
+      async fromToolActivity(input) {
+        calls.push(input);
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
+
+  assert.deepEqual(calls, []);
+  await scheduled();
+  assert.deepEqual(calls, [
+    { sessionID: 'root', tool: 'polygraph_start_session' },
+  ]);
+});
 
 async function withoutPolygraphEnv(fn) {
   const savedSession = process.env.POLYGRAPH_SESSION_ID;

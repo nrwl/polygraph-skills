@@ -32,6 +32,9 @@ test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
     assert.equal(matcher.test('mcp__some-other-server__start_session'), false);
     assert.doesNotMatch(hooks[0].matcher, /start_session|update_session|show_session/);
     assert.match(hooks[0].hooks[0].command, /record-session-mapping\.mjs/);
+    if (relativePath === '../source/hooks/hooks.json') {
+      assert.equal(hooks[0].hooks[0].async, true);
+    }
   }
 });
 

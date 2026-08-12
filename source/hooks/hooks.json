@@ -13,11 +13,12 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "^mcp__(plugin_polygraph_)?polygraph[-_]mcp__",
+        "matcher": "mcp__plugin_polygraph_.*|mcp__polygraph.*",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/record-session-mapping.mjs claude"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/record-session-mapping.mjs claude",
+            "async": true
           }
         ]
       }

@@ -60,6 +60,17 @@ export async function linkOpenCodeSessionCreatedEvent(input, sessionLinker) {
   return sessionLinker.fromSessionCreated(event.properties?.info);
 }
 
+export function deferOpenCodeToolActivity(
+  input,
+  sessionLinker,
+  onError,
+  schedule = setTimeout
+) {
+  schedule(() => {
+    Promise.resolve(sessionLinker.fromToolActivity(input)).catch(onError);
+  }, 0);
+}
+
 export function createOpenCodeSessionLinker({
   client,
   directory,

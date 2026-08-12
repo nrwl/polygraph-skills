@@ -16,6 +16,7 @@ import yaml from 'js-yaml';
 
 import {
   createOpenCodeSessionLinker,
+  deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
   logHookFailure,
 } from './agent-session-link.mjs';
@@ -66,14 +67,12 @@ export const PolygraphPlugin = async ({ client, directory } = {}) => {
     },
 
     'tool.execute.after': async (input) => {
-      try {
-        await sessionLinker.fromToolActivity(input);
-      } catch (error) {
+      deferOpenCodeToolActivity(input, sessionLinker, (error) => {
         logHookFailure('opencode:tool.execute.after', error, {
           sessionID: input?.sessionID,
           tool: input?.tool,
         });
-      }
+      });
     },
 
     // OpenCode has no SessionStart hook, but the Polygraph CLI already seeds the
