@@ -10,6 +10,12 @@ import {
   linkAgentSession,
 } from '../source/hooks/agent-session-link.mjs';
 import { main } from '../source/hooks/record-session-mapping.mjs';
+import {
+  buildCommandHookFinalize,
+  buildFinalizeAgentSessionArgs,
+  finalizeAgentSession,
+} from '../source/hooks/agent-session-finalize.mjs';
+import { main as finalizeMain } from '../source/hooks/finalize-agent-session.mjs';
 
 test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
   for (const relativePath of [
@@ -36,6 +42,22 @@ test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
       assert.equal(hooks[0].hooks[0].async, true);
     }
   }
+});
+
+test('Claude lifecycle hooks link asynchronously and finalize synchronously', () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../source/hooks/hooks.json', import.meta.url), 'utf8')
+  );
+
+  const sessionStartHooks = manifest.hooks.SessionStart[0].hooks;
+  const linkHook = sessionStartHooks.find((hook) =>
+    hook.command.includes('record-session-mapping.mjs')
+  );
+  assert.equal(linkHook.async, true);
+
+  const sessionEndHook = manifest.hooks.SessionEnd[0].hooks[0];
+  assert.match(sessionEndHook.command, /finalize-agent-session\.mjs claude/);
+  assert.equal(Object.hasOwn(sessionEndHook, 'async'), false);
 });
 
 test('recognizes Polygraph MCP activity by server prefix only', () => {
@@ -269,15 +291,121 @@ test('SessionStart forwards exact lifecycle identity and metadata', () => {
   );
 });
 
-test('SessionStart requires launch-provided POLYGRAPH_SESSION_ID', () => {
+test('ordinary Claude SessionStart forwards exact identity without a Polygraph session', () => {
+  assert.deepEqual(
+    buildCommandHookLink(
+      {
+        hook_event_name: 'SessionStart',
+        session_id: 'claude-session',
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/transcript.jsonl',
+      },
+      'claude',
+      {}
+    ),
+    {
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      cwd: '/workspace/repo',
+      transcriptPath: '/tmp/transcript.jsonl',
+      source: 'hook',
+    }
+  );
+
   assert.equal(
     buildCommandHookLink(
-      { hook_event_name: 'SessionStart', session_id: 'claude-session' },
-      'claude',
+      { hook_event_name: 'SessionStart', session_id: 'codex-session' },
+      'codex',
       {}
     ),
     undefined
   );
+});
+
+test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
+  const payload = {
+    hook_event_name: 'SessionEnd',
+    session_id: 'claude/root-session',
+    cwd: '/workspace/exact repo',
+    transcript_path: '/tmp/exact transcript.jsonl',
+    reason: 'user-request',
+  };
+  const claim = buildCommandHookFinalize(payload, 'claude', {
+    POLYGRAPH_SESSION_ID: 'must-not-forward',
+  });
+
+  assert.deepEqual(claim, {
+    agentType: 'claude',
+    agentSessionId: 'claude/root-session',
+    cwd: '/workspace/exact repo',
+    transcriptPath: '/tmp/exact transcript.jsonl',
+    source: 'hook',
+  });
+  assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
+    '_finalize-agent-session',
+    '--agent-type',
+    'claude',
+    '--agent-session-id',
+    'claude/root-session',
+    '--cwd',
+    '/workspace/exact repo',
+    '--transcript-path',
+    '/tmp/exact transcript.jsonl',
+    '--source',
+    'hook',
+  ]);
+  assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
+});
+
+test('SessionEnd launcher is synchronous, strips ambient evidence, and excludes children', () => {
+  let invocation;
+  const env = {
+    POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js',
+    POLYGRAPH_SESSION_ID: 'ambient-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'ambient-token',
+  };
+  const spawn = (command, args, options) => {
+    invocation = { command, args, options };
+    return { status: 0, stderr: '' };
+  };
+
+  assert.equal(
+    finalizeMain({
+      agentType: 'claude',
+      env,
+      payload: {
+        hook_event_name: 'SessionEnd',
+        session_id: 'claude-session',
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/transcript.jsonl',
+      },
+      spawn,
+    }),
+    true
+  );
+  assert.equal(invocation.command, env.POLYGRAPH_CLI);
+  assert.equal(invocation.args[0], '_finalize-agent-session');
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
+  assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
+
+  let childSpawnCount = 0;
+  assert.equal(
+    finalizeAgentSession(
+      {
+        agentType: 'claude',
+        agentSessionId: 'child-session',
+        source: 'hook',
+      },
+      () => {
+        childSpawnCount += 1;
+        return { status: 0, stderr: '' };
+      },
+      { POLYGRAPH_CHILD_AGENT: '' }
+    ),
+    false
+  );
+  assert.equal(childSpawnCount, 0);
 });
 
 test('PostToolUse ignores tool inputs, results, and ambient Polygraph session IDs', () => {
@@ -416,6 +544,7 @@ test('Claude and Codex lifecycle hooks preserve session and capture-token eviden
     assert.ok(invocation.args.includes(agentType));
     assert.ok(invocation.args.includes(agentSessionId));
     assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
+    assert.equal(invocation.args.includes('--pid'), agentType !== 'claude');
     assert.equal(invocation.options.env, env);
     assert.equal(invocation.options.env.POLYGRAPH_SESSION_ID, 'poly-session');
     assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
