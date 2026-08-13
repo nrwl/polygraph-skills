@@ -5,7 +5,7 @@
 // plugin loading ENTIRELY for every user who has the plugin installed.
 //
 // DO NOT add new exports to this file. Put shared or testable logic in sibling
-// modules under source/opencode/ (e.g. agent-capture-mapping.mjs) and import
+// modules under source/opencode/ (e.g. agent-session-link.mjs) and import
 // it here instead.
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -14,17 +14,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 
-import { writeAgentCaptureMapping, logHookFailure } from './agent-capture-mapping.mjs';
+import {
+  createOpenCodeSessionLinker,
+  deferOpenCodeToolActivity,
+  linkOpenCodeSessionCreatedEvent,
+  logHookFailure,
+} from './agent-session-link.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = __dirname;
 const skillsDir = path.join(packageRoot, 'skills');
 const agentsDir = path.join(packageRoot, 'agents');
 
-export const PolygraphPlugin = async () => {
+export const PolygraphPlugin = async ({ client, directory } = {}) => {
   const agents = loadAgents();
+  const sessionLinker = createOpenCodeSessionLinker({ client, directory });
 
   return {
+    event: async (input) => {
+      try {
+        await linkOpenCodeSessionCreatedEvent(input, sessionLinker);
+      } catch (error) {
+        logHookFailure('opencode:event', error, {
+          eventType: input?.event?.type,
+          sessionID: input?.event?.properties?.info?.id,
+        });
+      }
+    },
+
     config: async (cfg) => {
       cfg.skills ??= {};
       cfg.skills.paths ??= [];
@@ -42,13 +59,20 @@ export const PolygraphPlugin = async () => {
       try {
         output.env.POLYGRAPH_AGENT_SESSION_ID = input.sessionID;
         output.env.POLYGRAPH_AGENT_TYPE = 'opencode';
-        // Record the agent-capture mapping so the Polygraph CLI can bind
-        // parent-log capture deterministically for this session.
-        writeAgentCaptureMapping(input.sessionID);
+        await sessionLinker.fromEnvironment(input.sessionID, input.cwd);
       } catch (error) {
         // Never let a hook failure break the OpenCode session; just record it.
         logHookFailure('opencode:shell.env', error, { sessionID: input?.sessionID });
       }
+    },
+
+    'tool.execute.after': async (input) => {
+      deferOpenCodeToolActivity(input, sessionLinker, (error) => {
+        logHookFailure('opencode:tool.execute.after', error, {
+          sessionID: input?.sessionID,
+          tool: input?.tool,
+        });
+      });
     },
 
     // OpenCode has no SessionStart hook, but the Polygraph CLI already seeds the
@@ -62,9 +86,7 @@ export const PolygraphPlugin = async () => {
         if (note) {
           output.context.push(note);
         }
-        // Refresh the mapping on compaction (same refresh semantics as Claude/Codex
-        // SessionStart hooks firing on 'compact').
-        writeAgentCaptureMapping(input.sessionID);
+        await sessionLinker.fromEnvironment(input.sessionID);
       } catch (error) {
         // Never let a hook failure break the OpenCode session; just record it.
         logHookFailure('opencode:session.compacting', error, {

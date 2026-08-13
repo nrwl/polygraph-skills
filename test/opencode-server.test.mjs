@@ -1,11 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  existsSync,
   mkdtempSync,
   mkdirSync,
-  readdirSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -14,60 +11,165 @@ import { join } from 'node:path';
 
 import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
-import { writeAgentCaptureMapping } from '../source/opencode/agent-capture-mapping.mjs';
+import {
+  createOpenCodeSessionLinker,
+  deferOpenCodeToolActivity,
+  linkOpenCodeSessionCreatedEvent,
+  resolveOpenCodeRootSessionId,
+} from '../source/opencode/agent-session-link.mjs';
 
-// These tests exercise the default sessions root (<root>/sessions); make sure
-// an ambient POLYGRAPH_ROOT cannot redirect it.
-delete process.env.POLYGRAPH_ROOT;
+test('OpenCode defers proof reads until after the tool hook returns', async () => {
+  const calls = [];
+  let scheduled;
+  deferOpenCodeToolActivity(
+    { sessionID: 'root', tool: 'polygraph_start_session' },
+    {
+      async fromToolActivity(input) {
+        calls.push(input);
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
 
-// The compaction-note helpers resolve Polygraph state under os.homedir(), so
-// these tests point HOME at a temp dir instead of injecting a root.
+  assert.deepEqual(calls, []);
+  await scheduled();
+  assert.deepEqual(calls, [
+    { sessionID: 'root', tool: 'polygraph_start_session' },
+  ]);
+});
+
+async function withoutPolygraphEnv(fn) {
+  const savedSession = process.env.POLYGRAPH_SESSION_ID;
+  const savedChild = process.env.POLYGRAPH_CHILD_AGENT;
+  delete process.env.POLYGRAPH_SESSION_ID;
+  delete process.env.POLYGRAPH_CHILD_AGENT;
+  try {
+    return await fn();
+  } finally {
+    if (savedSession === undefined) delete process.env.POLYGRAPH_SESSION_ID;
+    else process.env.POLYGRAPH_SESSION_ID = savedSession;
+    if (savedChild === undefined) delete process.env.POLYGRAPH_CHILD_AGENT;
+    else process.env.POLYGRAPH_CHILD_AGENT = savedChild;
+  }
+}
+
 async function withTempHome(fn) {
   const home = mkdtempSync(join(tmpdir(), 'pg-opencode-home-'));
   const savedHome = process.env.HOME;
   process.env.HOME = home;
   try {
-    return await fn(join(home, '.polygraph'));
+    return await withoutPolygraphEnv(() => fn(join(home, '.polygraph')));
   } finally {
     process.env.HOME = savedHome;
     rmSync(home, { recursive: true, force: true });
   }
 }
 
-test('PolygraphPlugin returns a shell.env hook', async () => {
-  const plugin = await PolygraphPlugin();
-  assert.equal(typeof plugin['shell.env'], 'function');
+function fakeClient(records) {
+  const calls = [];
+  return {
+    calls,
+    session: {
+      async get(options) {
+        const id = options.path.id;
+        calls.push(id);
+        return { data: records[id] };
+      },
+    },
+  };
+}
+
+test('PolygraphPlugin exposes the supported OpenCode hooks', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    assert.equal(typeof plugin.config, 'function');
+    assert.equal(typeof plugin.event, 'function');
+    assert.equal(typeof plugin['shell.env'], 'function');
+    assert.equal(typeof plugin['tool.execute.after'], 'function');
+    assert.equal(typeof plugin['experimental.session.compacting'], 'function');
+  });
 });
 
-test('shell.env sets POLYGRAPH_AGENT_SESSION_ID from input.sessionID', async () => {
-  const plugin = await PolygraphPlugin();
-  const output = { env: {} };
-  await plugin['shell.env']({ sessionID: 'test-session-123' }, output);
-  assert.equal(output.env.POLYGRAPH_AGENT_SESSION_ID, 'test-session-123');
+test('session.created links the exact OpenCode lifecycle identity once', async () => {
+  const claims = [];
+  const client = fakeClient({});
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: { POLYGRAPH_SESSION_ID: 'poly-session' },
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+  const event = {
+    event: {
+      type: 'session.created',
+      properties: { info: { id: 'root', directory: '/workspace/exact' } },
+    },
+  };
+
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), true);
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), false);
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, [
+    {
+      polygraphSessionId: 'poly-session',
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace/exact',
+      pid: process.pid,
+      source: 'hook',
+    },
+  ]);
 });
 
-test('shell.env sets POLYGRAPH_AGENT_TYPE to "opencode"', async () => {
-  const plugin = await PolygraphPlugin();
-  const output = { env: {} };
-  await plugin['shell.env']({ sessionID: 'any-session' }, output);
-  assert.equal(output.env.POLYGRAPH_AGENT_TYPE, 'opencode');
+test('session.created is inert outside a launched Polygraph session', async () => {
+  const client = fakeClient({ root: { id: 'root' } });
+  const claims = [];
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(
+    await linkOpenCodeSessionCreatedEvent(
+      {
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'root', directory: '/workspace' } },
+        },
+      },
+      linker
+    ),
+    false
+  );
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, []);
 });
 
-test('shell.env does not overwrite unrelated env vars', async () => {
-  const plugin = await PolygraphPlugin();
-  const output = { env: { SOME_OTHER_VAR: 'preserved' } };
-  await plugin['shell.env']({ sessionID: 'sess-abc' }, output);
-  assert.equal(output.env.SOME_OTHER_VAR, 'preserved');
-  assert.equal(output.env.POLYGRAPH_AGENT_SESSION_ID, 'sess-abc');
-  assert.equal(output.env.POLYGRAPH_AGENT_TYPE, 'opencode');
+test('shell.env publishes the OpenCode agent identity', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    const output = { env: { SOME_OTHER_VAR: 'preserved' } };
+    await plugin['shell.env']({ sessionID: 'test-session-123' }, output);
+    assert.deepEqual(output.env, {
+      SOME_OTHER_VAR: 'preserved',
+      POLYGRAPH_AGENT_SESSION_ID: 'test-session-123',
+      POLYGRAPH_AGENT_TYPE: 'opencode',
+    });
+  });
 });
 
-test('PolygraphPlugin still returns a config hook', async () => {
-  const plugin = await PolygraphPlugin();
-  assert.equal(typeof plugin.config, 'function');
-});
-
-test('config hook still registers skills path', async () => {
+test('config hook registers the skills path', async () => {
   const plugin = await PolygraphPlugin();
   const cfg = {};
   await plugin.config(cfg);
@@ -75,13 +177,281 @@ test('config hook still registers skills path', async () => {
   assert.equal(cfg.skills.paths.length, 1);
 });
 
-test('PolygraphPlugin exposes the experimental.session.compacting hook', async () => {
-  const plugin = await PolygraphPlugin();
-  assert.equal(typeof plugin['experimental.session.compacting'], 'function');
+test('every server export remains a valid plugin factory', async () => {
+  for (const [name, value] of Object.entries(serverModule)) {
+    assert.equal(typeof value, 'function', `export "${name}" must be a function`);
+    const hooks = await value({});
+    assert.ok(
+      hooks && typeof hooks === 'object',
+      `export "${name}" must return a hooks object`
+    );
+  }
 });
 
-// Seed a parent sidecar + session.json under the fake root. `location`
-// selects the new per-session layout or the legacy shared sidecars dir.
+test('resolves an OpenCode subagent session to its exact root session', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'middle' },
+    middle: { id: 'middle', parentID: 'root' },
+    root: { id: 'root' },
+  });
+
+  assert.equal(await resolveOpenCodeRootSessionId(client, 'child'), 'root');
+  assert.deepEqual(client.calls, ['child', 'middle', 'root']);
+});
+
+test('rejects cyclic or unavailable OpenCode session ancestry', async () => {
+  const cyclic = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root', parentID: 'child' },
+  });
+  await assert.rejects(
+    resolveOpenCodeRootSessionId(cyclic, 'child'),
+    /parent cycle/
+  );
+  await assert.rejects(
+    resolveOpenCodeRootSessionId(undefined, 'child'),
+    /client\.session\.get is unavailable/
+  );
+  await assert.rejects(
+    resolveOpenCodeRootSessionId(fakeClient({}), 'missing'),
+    /was not found/
+  );
+});
+
+test('environment binding links the exact root OpenCode session', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  const claims = [];
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/default',
+    env: { POLYGRAPH_SESSION_ID: 'poly-session' },
+    pid: 7654,
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(await linker.fromEnvironment('child', '/workspace/repo'), true);
+  assert.deepEqual(claims, [
+    {
+      polygraphSessionId: 'poly-session',
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace/repo',
+      pid: 7654,
+      source: 'hook',
+    },
+  ]);
+});
+
+test('OpenCode tool activity forwards only the exact root session identity', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  const claims = [];
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo',
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  await linker.fromToolActivity({
+    tool: 'polygraph_start_session',
+    sessionID: 'child',
+    args: { sessionId: 'must-not-forward' },
+    result: { sessionId: 'must-not-parse' },
+  });
+
+  assert.deepEqual(claims, [
+    {
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace/repo',
+      pid: process.pid,
+      source: 'hook',
+    },
+  ]);
+});
+
+test('OpenCode tool activity strips ambient session and capture-token evidence', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  const invocations = [];
+  const env = {
+    POLYGRAPH_SESSION_ID: 'ambient-poly-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'ambient-capture-token',
+    REQUIRED_HARNESS_ENV: 'preserved',
+  };
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo',
+    env,
+    pid: 2468,
+    spawn(command, args, options) {
+      invocations.push({ command, args, options });
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  await linker.fromToolActivity({
+    tool: 'polygraph-mcp_update_session',
+    sessionID: 'child',
+    args: { sessionId: 'input-poly-session', title: 'Title' },
+  });
+
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].command, 'polygraph');
+  assert.equal(invocations[0].args.includes('--session'), false);
+  assert.ok(invocations[0].args.includes('root'));
+  assert.equal(
+    Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_SESSION_ID'),
+    false
+  );
+  assert.equal(
+    Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+    false
+  );
+  assert.equal(invocations[0].options.env.REQUIRED_HARNESS_ENV, 'preserved');
+});
+
+test('OpenCode lifecycle links preserve session and capture-token evidence', async () => {
+  const client = fakeClient({
+    child: { id: 'child', parentID: 'root' },
+    root: { id: 'root' },
+  });
+  let invocation;
+  const env = {
+    POLYGRAPH_SESSION_ID: 'lifecycle-poly-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'lifecycle-capture-token',
+    REQUIRED_HARNESS_ENV: 'preserved',
+  };
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo',
+    env,
+    pid: 2468,
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(await linker.fromEnvironment('child', '/workspace/exact'), true);
+  assert.equal(invocation.command, 'polygraph');
+  assert.ok(invocation.args.includes('lifecycle-poly-session'));
+  assert.ok(invocation.args.includes('root'));
+  assert.ok(invocation.args.includes('/workspace/exact'));
+  assert.equal(invocation.options.env, env);
+  assert.equal(
+    invocation.options.env.POLYGRAPH_SESSION_ID,
+    'lifecycle-poly-session'
+  );
+  assert.equal(
+    invocation.options.env.POLYGRAPH_CAPTURE_TOKEN,
+    'lifecycle-capture-token'
+  );
+});
+
+test('OpenCode read and failed tool activity still submits evidence', async () => {
+  const claims = [];
+  const client = fakeClient({ root: { id: 'root' } });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(
+    await linker.fromToolActivity({
+      tool: 'polygraph-mcp_show_session',
+      sessionID: 'root',
+      args: { sessionId: 'poly-session' },
+      error: { message: 'tool failed' },
+    }),
+    true
+  );
+  assert.deepEqual(client.calls, ['root']);
+  assert.equal(claims.length, 1);
+  assert.equal(Object.hasOwn(claims[0], 'polygraphSessionId'), false);
+});
+
+test('OpenCode ignores non-Polygraph tool activity', async () => {
+  const claims = [];
+  const client = fakeClient({ root: { id: 'root' } });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {},
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(
+    await linker.fromToolActivity({
+      tool: 'other-mcp_start_session',
+      sessionID: 'root',
+    }),
+    false
+  );
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, []);
+});
+
+test('OpenCode managed-child lifecycle and tool paths never invoke links', async () => {
+  let spawnCount = 0;
+  const client = fakeClient({ child: { id: 'child' } });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    env: {
+      POLYGRAPH_SESSION_ID: 'poly-session',
+      POLYGRAPH_CHILD_AGENT: '',
+    },
+    spawn() {
+      spawnCount += 1;
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(await linker.fromEnvironment('child'), false);
+  assert.equal(
+    await linkOpenCodeSessionCreatedEvent(
+      {
+        event: {
+          type: 'session.created',
+          properties: { info: { id: 'child', directory: '/workspace' } },
+        },
+      },
+      linker
+    ),
+    false
+  );
+  assert.equal(
+    await linker.fromToolActivity({
+      tool: 'polygraph-mcp_update_session',
+      sessionID: 'child',
+      args: { sessionId: 'poly-session' },
+    }),
+    false
+  );
+  assert.deepEqual(client.calls, []);
+  assert.equal(spawnCount, 0);
+});
+
 function seedPolygraphSession(root, agentSessionId, polygraphSessionId, location) {
   const sidecarDir =
     location === 'legacy'
@@ -112,11 +482,10 @@ function seedPolygraphSession(root, agentSessionId, polygraphSessionId, location
 }
 
 for (const location of ['new', 'legacy']) {
-  test(`compacting hook pushes a preserve note built from local Polygraph state (${location} sidecar location)`, async () => {
+  test(`compacting hook preserves Polygraph context (${location} sidecar)`, async () => {
     await withTempHome(async (root) => {
       const agentSessionId = 'ses_opencode_demo';
-      const polygraphSessionId = 'demo-session-abc';
-      seedPolygraphSession(root, agentSessionId, polygraphSessionId, location);
+      seedPolygraphSession(root, agentSessionId, 'demo-session-abc', location);
 
       const plugin = await PolygraphPlugin();
       const output = { context: [] };
@@ -126,15 +495,14 @@ for (const location of ['new', 'legacy']) {
       );
 
       assert.equal(output.context.length, 1);
-      const note = output.context[0];
-      assert.match(note, /Polygraph session demo-session-abc/);
-      assert.match(note, /nrwl\/polygraph-skills, nrwl\/ocean/);
-      assert.match(note, /[Pp]reserve/);
+      assert.match(output.context[0], /Polygraph session demo-session-abc/);
+      assert.match(output.context[0], /nrwl\/polygraph-skills, nrwl\/ocean/);
+      assert.match(output.context[0], /[Pp]reserve/);
     });
   });
 }
 
-test('compacting hook pushes nothing outside a Polygraph session', async () => {
+test('compacting hook is a no-op outside a Polygraph session', async () => {
   await withTempHome(async () => {
     const plugin = await PolygraphPlugin();
     const output = { context: [] };
@@ -144,287 +512,4 @@ test('compacting hook pushes nothing outside a Polygraph session', async () => {
     );
     assert.deepEqual(output.context, []);
   });
-});
-
-// OpenCode's plugin loader calls EVERY export of this module as a plugin
-// factory and registers whatever it returns as a hooks object. An export that
-// is not a function — or whose result is not a hooks object — crashes the
-// OpenCode server on startup ("Unexpected server error").
-test('every export is a plugin factory that returns a hooks object', async () => {
-  for (const [name, value] of Object.entries(serverModule)) {
-    assert.equal(typeof value, 'function', `export "${name}" must be a function`);
-    const hooks = await value({});
-    assert.ok(
-      hooks && typeof hooks === 'object',
-      `export "${name}" must return a hooks object when called as a plugin factory`
-    );
-  }
-});
-
-test('experimental.session.compacting is a no-op outside a Polygraph session', async () => {
-  const plugin = await PolygraphPlugin();
-  const output = { context: [] };
-  await plugin['experimental.session.compacting'](
-    { sessionID: 'ses_definitely_not_a_polygraph_session' },
-    output
-  );
-  assert.deepEqual(output.context, []);
-});
-
-// ---------------------------------------------------------------------------
-// writeAgentCaptureMapping tests
-// ---------------------------------------------------------------------------
-
-function savePgEnv() {
-  return {
-    POLYGRAPH_SESSION_ID: process.env.POLYGRAPH_SESSION_ID,
-    POLYGRAPH_CHILD_AGENT: process.env.POLYGRAPH_CHILD_AGENT,
-  };
-}
-
-function restorePgEnv(saved) {
-  for (const [key, val] of Object.entries(saved)) {
-    if (val === undefined) delete process.env[key];
-    else process.env[key] = val;
-  }
-}
-
-// The session folder for a session, under the default sessions root.
-function ocSessionDir(home, polygraphSessionId) {
-  return join(home, '.polygraph', 'sessions', polygraphSessionId);
-}
-
-// New mapping location: the sidecars dir inside the session folder (used
-// when the session directory exists).
-function sessionSidecarDir(home, polygraphSessionId) {
-  return join(ocSessionDir(home, polygraphSessionId), 'sidecars');
-}
-
-// Legacy flat location, used only when the session directory does not exist.
-function legacyMappingDir(home, polygraphSessionId) {
-  return join(home, '.polygraph', 'sidecars', polygraphSessionId);
-}
-
-function readMappingFilesIn(dir) {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.startsWith('mapping-'));
-}
-
-// All mapping files for a session across both possible locations.
-function readMappingFiles(home, polygraphSessionId) {
-  return [
-    ...readMappingFilesIn(sessionSidecarDir(home, polygraphSessionId)),
-    ...readMappingFilesIn(legacyMappingDir(home, polygraphSessionId)),
-  ];
-}
-
-function readMappingJsonIn(dir) {
-  const files = readMappingFilesIn(dir);
-  assert.equal(files.length, 1, `expected exactly one mapping file in ${dir}`);
-  return JSON.parse(readFileSync(join(dir, files[0]), 'utf8'));
-}
-
-test('writeAgentCaptureMapping writes into the session sidecars dir when the session directory exists', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-map-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-1';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-    mkdirSync(ocSessionDir(home, 'poly-oc-1'), { recursive: true });
-
-    const before = Date.now();
-    writeAgentCaptureMapping('ses_oc_abc', home);
-    const after = Date.now();
-
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-1'));
-
-    assert.equal(mapping.version, 1);
-    assert.equal(mapping.polygraphSessionId, 'poly-oc-1');
-    assert.equal(mapping.agentType, 'opencode');
-    assert.equal(mapping.agentSessionId, 'ses_oc_abc');
-    assert.equal(mapping.source, 'hook');
-    assert.equal(typeof mapping.cwd, 'string');
-    assert.ok(mapping.cwd.length > 0);
-    assert.ok(Number.isFinite(mapping.pid));
-    assert.ok(Number.isFinite(mapping.firstSeenAt));
-    assert.ok(Number.isFinite(mapping.lastSeenAt));
-    assert.ok(mapping.firstSeenAt >= before && mapping.firstSeenAt <= after);
-    assert.equal(Object.hasOwn(mapping, 'transcriptPath'), false);
-
-    // Nothing new lands under the legacy flat dir.
-    assert.equal(existsSync(legacyMappingDir(home, 'poly-oc-1')), false);
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping falls back to the legacy flat dir only when the session directory does not exist', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-legacy-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-legacy';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-
-    writeAgentCaptureMapping('ses_oc_legacy', home);
-
-    const mapping = readMappingJsonIn(legacyMappingDir(home, 'poly-oc-legacy'));
-    assert.equal(mapping.agentSessionId, 'ses_oc_legacy');
-    assert.equal(existsSync(ocSessionDir(home, 'poly-oc-legacy')), false);
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping keeps firstSeenAt continuity when migrating a mapping from the legacy dir', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-migrate-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-migrate';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-
-    // Prior state from an older install: mapping in the legacy flat dir.
-    const legacy = legacyMappingDir(home, 'poly-oc-migrate');
-    mkdirSync(legacy, { recursive: true });
-    const legacyPath = join(legacy, 'mapping-opencode-ses_oc_migrate.json');
-    const legacyContent = JSON.stringify({
-      version: 1,
-      polygraphSessionId: 'poly-oc-migrate',
-      agentType: 'opencode',
-      agentSessionId: 'ses_oc_migrate',
-      cwd: '/old-cwd',
-      pid: 1,
-      source: 'hook',
-      firstSeenAt: 1000,
-      lastSeenAt: 1000,
-    });
-    writeFileSync(legacyPath, legacyContent);
-
-    // The session directory now exists, so the write routes to it.
-    mkdirSync(ocSessionDir(home, 'poly-oc-migrate'), { recursive: true });
-
-    writeAgentCaptureMapping('ses_oc_migrate', home);
-
-    const migrated = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-migrate'));
-    assert.equal(migrated.firstSeenAt, 1000, 'firstSeenAt carried over from the legacy mapping');
-    assert.ok(migrated.lastSeenAt > 1000);
-
-    // The legacy copy is a read-only fallback: untouched, and not rewritten.
-    assert.equal(readFileSync(legacyPath, 'utf8'), legacyContent);
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping is a no-op when POLYGRAPH_SESSION_ID is unset', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-noop-'));
-  try {
-    delete process.env.POLYGRAPH_SESSION_ID;
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-
-    writeAgentCaptureMapping('ses_oc_noop', home);
-
-    assert.equal(
-      existsSync(join(home, '.polygraph')),
-      false,
-      'no file written when POLYGRAPH_SESSION_ID unset'
-    );
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping is a no-op when POLYGRAPH_CHILD_AGENT is set', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-child-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-child';
-    process.env.POLYGRAPH_CHILD_AGENT = '1';
-
-    writeAgentCaptureMapping('ses_oc_child', home);
-
-    assert.equal(readMappingFiles(home, 'poly-oc-child').length, 0);
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping is a no-op when agentSessionId is empty', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-empty-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-empty';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-
-    writeAgentCaptureMapping('', home);
-
-    assert.equal(readMappingFiles(home, 'poly-oc-empty').length, 0);
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping preserves firstSeenAt and bumps lastSeenAt on refresh', () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-refresh-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-oc-refresh';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-    mkdirSync(ocSessionDir(home, 'poly-oc-refresh'), { recursive: true });
-
-    writeAgentCaptureMapping('ses_oc_refresh', home);
-    const first = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-refresh'));
-
-    const end = Date.now() + 2;
-    while (Date.now() < end) { /* busy-wait one tick */ }
-
-    writeAgentCaptureMapping('ses_oc_refresh', home);
-    const second = readMappingJsonIn(sessionSidecarDir(home, 'poly-oc-refresh'));
-
-    assert.equal(second.firstSeenAt, first.firstSeenAt, 'firstSeenAt preserved');
-    assert.ok(second.lastSeenAt >= first.lastSeenAt, 'lastSeenAt updated');
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('shell.env writes a mapping file when POLYGRAPH_SESSION_ID is set', async () => {
-  const saved = savePgEnv();
-  const home = mkdtempSync(join(tmpdir(), 'pg-oc-shell-env-'));
-  try {
-    process.env.POLYGRAPH_SESSION_ID = 'poly-shell-env';
-    delete process.env.POLYGRAPH_CHILD_AGENT;
-
-    // Call writeAgentCaptureMapping via the plugin's shell.env hook by overriding
-    // HOME so the in-process call lands in our temp dir.
-    const savedHome = process.env.HOME;
-    process.env.HOME = home;
-    try {
-      const plugin = await PolygraphPlugin();
-      const output = { env: {} };
-      await plugin['shell.env']({ sessionID: 'ses_shell_env_test' }, output);
-
-      // shell.env must still set the env vars correctly
-      assert.equal(output.env.POLYGRAPH_AGENT_SESSION_ID, 'ses_shell_env_test');
-      assert.equal(output.env.POLYGRAPH_AGENT_TYPE, 'opencode');
-
-      // and the mapping must be on disk — no session dir exists in this
-      // fixture, so it lands in the legacy flat dir
-      const mapping = readMappingJsonIn(legacyMappingDir(home, 'poly-shell-env'));
-      assert.equal(mapping.agentType, 'opencode');
-      assert.equal(mapping.agentSessionId, 'ses_shell_env_test');
-    } finally {
-      process.env.HOME = savedHome;
-    }
-  } finally {
-    restorePgEnv(saved);
-    rmSync(home, { recursive: true, force: true });
-  }
 });

@@ -6,6 +6,8 @@ The branch-to-PR flow: push branches, create draft PRs, mark them ready, and ass
 
 Once work is complete in a repository, push the branch using `push_branch`. This must be done before creating a PR.
 
+**If `push_branch` fails, don't guess at the cause.** Report the tool's actual error to the user first. Only once the real cause is clear, offer to fall back to a manual `git push` — let the user decide, rather than falling back unprompted or asserting what a credential/token can or cannot do.
+
 `push_branch` pushes from the local checkout: for the repo you are in, that is your current working directory with your commits; for delegated repos, it is the Polygraph-managed clone the child agent worked in. There is no separate session copy of the current repo.
 
 **Parameters:**
