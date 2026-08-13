@@ -33,7 +33,18 @@
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/record-session-mapping.mjs claude"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/record-session-mapping.mjs claude",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/finalize-agent-session.mjs claude"
           }
         ]
       }
