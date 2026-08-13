@@ -10,10 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  logHookFailure,
-  writeAgentCaptureMapping,
-} from '../source/opencode/agent-capture-mapping.mjs';
+import { logHookFailure } from '../source/hooks/agent-session-link.mjs';
 
 function makeHome() {
   return mkdtempSync(join(tmpdir(), 'pg-hook-log-'));
@@ -102,20 +99,6 @@ test('logHookFailure never throws, even with an unusable home', () => {
       logHookFailure('h', new Error('boom'), {}, filePath)
     );
   } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeAgentCaptureMapping no-op paths do not write a failure log', () => {
-  const saved = process.env.POLYGRAPH_SESSION_ID;
-  const home = makeHome();
-  try {
-    delete process.env.POLYGRAPH_SESSION_ID; // forces the silent no-op path
-    writeAgentCaptureMapping('ses', home);
-    assert.equal(existsSync(logPath(home)), false, 'no log for a clean no-op');
-  } finally {
-    if (saved === undefined) delete process.env.POLYGRAPH_SESSION_ID;
-    else process.env.POLYGRAPH_SESSION_ID = saved;
     rmSync(home, { recursive: true, force: true });
   }
 });

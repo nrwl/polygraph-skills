@@ -1,525 +1,470 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+import * as linkModule from '../source/hooks/agent-session-link.mjs';
 import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+  buildCommandHookLink,
+  buildLinkAgentSessionArgs,
+  isPolygraphMcpToolName,
+  linkAgentSession,
+} from '../source/hooks/agent-session-link.mjs';
+import { main } from '../source/hooks/record-session-mapping.mjs';
 
-import { writeCaptureMapping } from '../source/hooks/record-session-mapping.mjs';
-
-// These tests exercise the default sessions root (~/.polygraph/sessions under
-// the injected home); make sure an ambient POLYGRAPH_ROOT cannot redirect it.
-delete process.env.POLYGRAPH_ROOT;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeHome() {
-  return mkdtempSync(join(tmpdir(), 'pg-mapping-'));
-}
-
-// The session folder for a session, under the default sessions root.
-function sessionDir(home, polygraphSessionId) {
-  return join(home, '.polygraph', 'sessions', polygraphSessionId);
-}
-
-// New mapping location: the sidecars dir inside the session folder.
-function sessionSidecarDir(home, polygraphSessionId) {
-  return join(sessionDir(home, polygraphSessionId), 'sidecars');
-}
-
-// Legacy flat location, used only when the session directory does not exist.
-function legacyDir(home, polygraphSessionId) {
-  return join(home, '.polygraph', 'sidecars', polygraphSessionId);
-}
-
-// Create the session directory so writes route to the session folder.
-function makeSessionDir(home, polygraphSessionId) {
-  mkdirSync(sessionDir(home, polygraphSessionId), { recursive: true });
-}
-
-function readMappingFilesIn(dir) {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.startsWith('mapping-'));
-}
-
-function readMappingJsonIn(dir) {
-  const files = readMappingFilesIn(dir);
-  assert.equal(files.length, 1, `expected exactly one mapping file in ${dir}`);
-  return JSON.parse(readFileSync(join(dir, files[0]), 'utf8'));
-}
-
-// ---------------------------------------------------------------------------
-// Location routing
-// ---------------------------------------------------------------------------
-
-test('writeCaptureMapping writes into the session sidecars dir when the session directory exists', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-xyz');
-
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-abc-123',
-        polygraphSessionId: 'poly-xyz',
-        cwd: '/some/project',
-      },
-      home
+test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
+  for (const relativePath of [
+    '../source/hooks/hooks.json',
+    '../source/codex/hooks/hooks.json',
+  ]) {
+    const manifest = JSON.parse(
+      readFileSync(new URL(relativePath, import.meta.url), 'utf8')
     );
+    const hooks = manifest.hooks.PostToolUse;
+    assert.equal(hooks.length, 1);
 
-    const files = readMappingFilesIn(sessionSidecarDir(home, 'poly-xyz'));
-    assert.equal(files.length, 1);
-    assert.match(files[0], /^mapping-claude-sess-abc-123\.json$/);
-
-    // Nothing new lands under the legacy flat dir.
-    assert.equal(existsSync(legacyDir(home, 'poly-xyz')), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+    const matcher = new RegExp(hooks[0].matcher);
+    assert.equal(matcher.test('mcp__polygraph-mcp__show_session'), true);
+    assert.equal(matcher.test('mcp__polygraph_mcp__unknown_future_tool'), true);
+    assert.equal(
+      matcher.test('mcp__plugin_polygraph_polygraph-mcp__start_session'),
+      true
+    );
+    assert.equal(matcher.test('mcp__some-other-server__start_session'), false);
+    assert.doesNotMatch(hooks[0].matcher, /start_session|update_session|show_session/);
+    assert.match(hooks[0].hooks[0].command, /record-session-mapping\.mjs/);
+    if (relativePath === '../source/hooks/hooks.json') {
+      assert.equal(hooks[0].hooks[0].async, true);
+    }
   }
 });
 
-test('writeCaptureMapping falls back to the legacy flat dir only when the session directory does not exist', () => {
-  const home = makeHome();
-  try {
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-legacy',
-        polygraphSessionId: 'poly-legacy',
-        cwd: '/repo',
-      },
-      home
-    );
+test('recognizes Polygraph MCP activity by server prefix only', () => {
+  for (const toolName of [
+    'mcp__polygraph-mcp__show_session',
+    'mcp__polygraph_mcp__unknown_future_tool',
+    'mcp__plugin_polygraph_polygraph-mcp__failed_tool',
+    'mcp__plugin_polygraph_polygraph_mcp__anything',
+    'polygraph-mcp_show_session',
+    'polygraph_mcp_failed_tool',
+    'polygraph_unknown_future_tool',
+  ]) {
+    assert.equal(isPolygraphMcpToolName(toolName), true, toolName);
+  }
 
-    const files = readMappingFilesIn(legacyDir(home, 'poly-legacy'));
-    assert.equal(files.length, 1);
-    assert.match(files[0], /^mapping-claude-sess-legacy\.json$/);
-    assert.equal(existsSync(sessionDir(home, 'poly-legacy')), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+  for (const toolName of [
+    'mcp__some-other-server__start_session',
+    'other-mcp_show_session',
+    'polygraphical_tool',
+    '',
+  ]) {
+    assert.equal(isPolygraphMcpToolName(toolName), false, toolName);
   }
 });
 
-test('writeCaptureMapping honours POLYGRAPH_ROOT as the sessions root', () => {
-  const home = makeHome();
-  const customRoot = mkdtempSync(join(tmpdir(), 'pg-custom-root-'));
-  const saved = process.env.POLYGRAPH_ROOT;
-  try {
-    process.env.POLYGRAPH_ROOT = customRoot;
-    mkdirSync(join(customRoot, 'poly-envroot'), { recursive: true });
+test('the hook helper exposes no operation-specific parsing API', () => {
+  assert.deepEqual(Object.keys(linkModule).sort(), [
+    'buildCommandHookLink',
+    'buildLinkAgentSessionArgs',
+    'isPolygraphMcpToolName',
+    'linkAgentSession',
+    'logHookFailure',
+  ]);
 
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-envroot',
-        polygraphSessionId: 'poly-envroot',
-        cwd: '/repo',
-      },
-      home
-    );
-
-    const dir = join(customRoot, 'poly-envroot', 'sidecars');
-    assert.equal(readMappingFilesIn(dir).length, 1, 'written under POLYGRAPH_ROOT');
-    assert.equal(existsSync(legacyDir(home, 'poly-envroot')), false);
-  } finally {
-    if (saved === undefined) delete process.env.POLYGRAPH_ROOT;
-    else process.env.POLYGRAPH_ROOT = saved;
-    rmSync(home, { recursive: true, force: true });
-    rmSync(customRoot, { recursive: true, force: true });
+  const source = readFileSync(
+    new URL('../source/hooks/agent-session-link.mjs', import.meta.url),
+    'utf8'
+  );
+  for (const forbidden of [
+    'SESSION_MUTATION_TOOLS',
+    'derivePolygraphSessionClaim',
+    'extractStartedSessionId',
+    'parsePolygraphMutationTool',
+    'tool_input',
+    'tool_response',
+    '--set-resume-target',
+  ]) {
+    assert.equal(source.includes(forbidden), false, forbidden);
   }
 });
 
-test('writeCaptureMapping honours globalRoot from ~/.polygraph/config.json as the sessions root', () => {
-  const home = makeHome();
-  const customRoot = mkdtempSync(join(tmpdir(), 'pg-global-root-'));
-  try {
-    mkdirSync(join(home, '.polygraph'), { recursive: true });
-    writeFileSync(
-      join(home, '.polygraph', 'config.json'),
-      JSON.stringify({ globalRoot: customRoot })
-    );
-    mkdirSync(join(customRoot, 'poly-globalroot'), { recursive: true });
-
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-globalroot',
-        polygraphSessionId: 'poly-globalroot',
-        cwd: '/repo',
-      },
-      home
-    );
-
-    const dir = join(customRoot, 'poly-globalroot', 'sidecars');
-    assert.equal(readMappingFilesIn(dir).length, 1, 'written under globalRoot');
-    assert.equal(existsSync(legacyDir(home, 'poly-globalroot')), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(customRoot, { recursive: true, force: true });
-  }
+test('builds a lifecycle link with exact session and capture metadata', () => {
+  assert.deepEqual(
+    buildLinkAgentSessionArgs({
+      polygraphSessionId: 'poly/session?exact=true',
+      agentType: 'codex',
+      agentSessionId: 'codex/thread/root',
+      cwd: '/workspace/repo with spaces',
+      transcriptPath: '/tmp/rollout exact.jsonl',
+      pid: 1234,
+      source: 'hook',
+    }),
+    [
+      '_link-agent-session',
+      '--session',
+      'poly/session?exact=true',
+      '--agent-type',
+      'codex',
+      '--agent-session-id',
+      'codex/thread/root',
+      '--cwd',
+      '/workspace/repo with spaces',
+      '--transcript-path',
+      '/tmp/rollout exact.jsonl',
+      '--pid',
+      '1234',
+      '--source',
+      'hook',
+    ]
+  );
 });
 
-// ---------------------------------------------------------------------------
-// Mapping contents
-// ---------------------------------------------------------------------------
-
-test('writeCaptureMapping writes all required fields with correct values', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-1');
-
-    const before = Date.now();
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-claude-1',
-        polygraphSessionId: 'poly-1',
-        cwd: '/workspace/my-repo',
-        transcriptPath: '/tmp/transcript.jsonl',
-        pid: 12345,
-      },
-      home
-    );
-    const after = Date.now();
-
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-1'));
-
-    assert.equal(mapping.version, 1);
-    assert.equal(mapping.polygraphSessionId, 'poly-1');
-    assert.equal(mapping.agentType, 'claude');
-    assert.equal(mapping.agentSessionId, 'sess-claude-1');
-    assert.equal(mapping.cwd, '/workspace/my-repo');
-    assert.equal(mapping.transcriptPath, '/tmp/transcript.jsonl');
-    assert.equal(mapping.pid, 12345);
-    assert.equal(mapping.source, 'hook');
-    assert.ok(Number.isFinite(mapping.firstSeenAt), 'firstSeenAt is a finite number');
-    assert.ok(Number.isFinite(mapping.lastSeenAt), 'lastSeenAt is a finite number');
-    assert.ok(mapping.firstSeenAt >= before);
-    assert.ok(mapping.lastSeenAt <= after);
-    assert.equal(mapping.firstSeenAt, mapping.lastSeenAt, 'first write: equal timestamps');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
+test('builds a PostTool link without a Polygraph session or operation flags', () => {
+  assert.deepEqual(
+    buildLinkAgentSessionArgs({
+      agentType: 'opencode',
+      agentSessionId: 'oc-root',
+      source: 'hook',
+      setResumeTarget: true,
+      operation: 'start_session',
+    }),
+    [
+      '_link-agent-session',
+      '--agent-type',
+      'opencode',
+      '--agent-session-id',
+      'oc-root',
+      '--source',
+      'hook',
+    ]
+  );
 });
 
-test('writeCaptureMapping omits transcriptPath when not provided', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-2');
-    writeCaptureMapping(
+test('uses the configured Polygraph CLI executable', () => {
+  let invocation;
+  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
+  assert.equal(
+    linkAgentSession(
       {
         agentType: 'codex',
-        agentSessionId: 'thread-codex-99',
-        polygraphSessionId: 'poly-2',
-        cwd: '/repo',
-        // transcriptPath intentionally absent
+        agentSessionId: 'codex-root',
+        source: 'hook',
       },
-      home
-    );
-
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-2'));
-    assert.equal(Object.hasOwn(mapping, 'transcriptPath'), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
+      (command, args, options) => {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+      env
+    ),
+    true
+  );
+  assert.equal(invocation.command, '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
-test('writeCaptureMapping omits transcriptPath when explicitly null', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-null-tp');
-    writeCaptureMapping(
-      {
-        agentType: 'codex',
-        agentSessionId: 'sess-null-tp',
-        polygraphSessionId: 'poly-null-tp',
-        cwd: '/repo',
-        transcriptPath: null,
-      },
-      home
-    );
+test('identity-only links strip ambient session and capture-token evidence', () => {
+  let invocation;
+  const env = {
+    POLYGRAPH_CAPTURE_TOKEN: 'opaque-launch-evidence',
+    POLYGRAPH_SESSION_ID: 'environment-session',
+    REQUIRED_HARNESS_ENV: 'preserved',
+  };
+  const spawn = (command, args, options) => {
+    invocation = { command, args, options };
+    return { status: 0, stderr: '' };
+  };
 
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-null-tp'));
-    assert.equal(Object.hasOwn(mapping, 'transcriptPath'), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeCaptureMapping omits pid when not provided', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-3');
-    writeCaptureMapping(
+  assert.equal(
+    linkAgentSession(
       {
         agentType: 'claude',
-        agentSessionId: 'sess-no-pid',
-        polygraphSessionId: 'poly-3',
-        cwd: '/repo',
-        // pid intentionally absent
+        agentSessionId: 'claude-session',
+        source: 'hook',
       },
-      home
-    );
-
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-3'));
-    assert.equal(Object.hasOwn(mapping, 'pid'), false);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
+      spawn,
+      env
+    ),
+    true
+  );
+  assert.equal(invocation.command, 'polygraph');
+  assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.args.includes('--session'), false);
+  assert.equal(invocation.args.includes('--set-resume-target'), false);
+  assert.notEqual(invocation.options.env, env);
+  assert.equal(
+    Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
+    false
+  );
+  assert.equal(
+    Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+    false
+  );
+  assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
+  assert.equal(Object.hasOwn(invocation.options, 'shell'), false);
+  assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
 });
 
-// ---------------------------------------------------------------------------
-// Refresh + migration semantics
-// ---------------------------------------------------------------------------
+test('managed-child environments never invoke the shared link command', () => {
+  let spawnCount = 0;
+  const spawn = () => {
+    spawnCount += 1;
+    return { status: 0, stderr: '' };
+  };
+  const env = { POLYGRAPH_CHILD_AGENT: '' };
 
-test('writeCaptureMapping preserves firstSeenAt and bumps lastSeenAt on refresh', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-refresh');
-    const baseArgs = {
+  for (const claim of [
+    {
+      polygraphSessionId: 'poly-session',
       agentType: 'claude',
-      agentSessionId: 'sess-refresh',
-      polygraphSessionId: 'poly-refresh',
-      cwd: '/original-cwd',
-    };
-
-    writeCaptureMapping(baseArgs, home);
-    const first = readMappingJsonIn(sessionSidecarDir(home, 'poly-refresh'));
-
-    // Ensure at least 1 ms passes so lastSeenAt can advance.
-    const end = Date.now() + 2;
-    while (Date.now() < end) { /* busy-wait */ }
-
-    writeCaptureMapping({ ...baseArgs, cwd: '/updated-cwd' }, home);
-    const second = readMappingJsonIn(sessionSidecarDir(home, 'poly-refresh'));
-
-    assert.equal(second.firstSeenAt, first.firstSeenAt, 'firstSeenAt preserved');
-    assert.ok(second.lastSeenAt > first.lastSeenAt, 'lastSeenAt advanced');
-    assert.equal(second.cwd, '/updated-cwd', 'cwd updated on refresh');
-    assert.equal(second.version, 1);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeCaptureMapping keeps firstSeenAt continuity when migrating a mapping from the legacy dir', () => {
-  const home = makeHome();
-  try {
-    // Prior state from an older install: mapping in the legacy flat dir.
-    const legacy = legacyDir(home, 'poly-migrate');
-    mkdirSync(legacy, { recursive: true });
-    const legacyPath = join(legacy, 'mapping-claude-sess-migrate.json');
-    const legacyContent = JSON.stringify({
-      version: 1,
-      polygraphSessionId: 'poly-migrate',
-      agentType: 'claude',
-      agentSessionId: 'sess-migrate',
-      cwd: '/old-cwd',
+      agentSessionId: 'claude-session',
       source: 'hook',
-      firstSeenAt: 1000,
-      lastSeenAt: 1000,
-    });
-    writeFileSync(legacyPath, legacyContent);
-
-    // The session directory now exists, so the write routes to it.
-    makeSessionDir(home, 'poly-migrate');
-
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-migrate',
-        polygraphSessionId: 'poly-migrate',
-        cwd: '/repo',
-      },
-      home
-    );
-
-    const migrated = readMappingJsonIn(sessionSidecarDir(home, 'poly-migrate'));
-    assert.equal(migrated.firstSeenAt, 1000, 'firstSeenAt carried over from the legacy mapping');
-    assert.ok(migrated.lastSeenAt > 1000);
-    assert.equal(migrated.cwd, '/repo');
-
-    // The legacy copy is a read-only fallback: untouched, and not rewritten.
-    assert.equal(readFileSync(legacyPath, 'utf8'), legacyContent);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeCaptureMapping prefers the new-location mapping over the legacy one for firstSeenAt', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-both');
-    const newDir = sessionSidecarDir(home, 'poly-both');
-    mkdirSync(newDir, { recursive: true });
-    const base = {
-      version: 1,
-      polygraphSessionId: 'poly-both',
-      agentType: 'claude',
-      agentSessionId: 'sess-both',
-      cwd: '/x',
+    },
+    {
+      agentType: 'codex',
+      agentSessionId: 'codex-session',
       source: 'hook',
-      lastSeenAt: 1,
-    };
-    writeFileSync(
-      join(newDir, 'mapping-claude-sess-both.json'),
-      JSON.stringify({ ...base, firstSeenAt: 2000 })
-    );
-    const legacy = legacyDir(home, 'poly-both');
-    mkdirSync(legacy, { recursive: true });
-    writeFileSync(
-      join(legacy, 'mapping-claude-sess-both.json'),
-      JSON.stringify({ ...base, firstSeenAt: 1000 })
-    );
-
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-both',
-        polygraphSessionId: 'poly-both',
-        cwd: '/repo',
-      },
-      home
-    );
-
-    const mapping = readMappingJsonIn(newDir);
-    assert.equal(mapping.firstSeenAt, 2000, 'new-location firstSeenAt wins');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+    },
+  ]) {
+    assert.equal(linkAgentSession(claim, spawn, env), false);
   }
+
+  assert.equal(spawnCount, 0);
 });
 
-// ---------------------------------------------------------------------------
-// Filenames + hygiene
-// ---------------------------------------------------------------------------
-
-test('writeCaptureMapping writes to separate session dirs for different polygraphSessionIds', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-A');
-    makeSessionDir(home, 'poly-B');
-    for (const id of ['poly-A', 'poly-B']) {
-      writeCaptureMapping(
+test('reports hidden CLI command failures to the hook wrapper', () => {
+  assert.throws(
+    () =>
+      linkAgentSession(
         {
           agentType: 'claude',
-          agentSessionId: 'sess-multi',
-          polygraphSessionId: id,
-          cwd: '/repo',
+          agentSessionId: 'claude-session',
+          source: 'hook',
         },
-        home
-      );
+        () => ({ status: 2, stderr: 'invalid evidence' }),
+        {}
+      ),
+    /status 2: invalid evidence/
+  );
+});
+
+test('SessionStart forwards exact lifecycle identity and metadata', () => {
+  assert.deepEqual(
+    buildCommandHookLink(
+      {
+        hook_event_name: 'SessionStart',
+        session_id: 'claude/root-session',
+        cwd: '/workspace/exact repo',
+        transcript_path: '/tmp/exact transcript.jsonl',
+      },
+      'claude',
+      { POLYGRAPH_SESSION_ID: 'poly/exact-session' }
+    ),
+    {
+      polygraphSessionId: 'poly/exact-session',
+      agentType: 'claude',
+      agentSessionId: 'claude/root-session',
+      cwd: '/workspace/exact repo',
+      transcriptPath: '/tmp/exact transcript.jsonl',
+      source: 'hook',
     }
+  );
+});
 
-    for (const id of ['poly-A', 'poly-B']) {
-      const mapping = readMappingJsonIn(sessionSidecarDir(home, id));
-      assert.equal(mapping.polygraphSessionId, id);
-      assert.ok(Number.isFinite(mapping.firstSeenAt));
+test('SessionStart requires launch-provided POLYGRAPH_SESSION_ID', () => {
+  assert.equal(
+    buildCommandHookLink(
+      { hook_event_name: 'SessionStart', session_id: 'claude-session' },
+      'claude',
+      {}
+    ),
+    undefined
+  );
+});
+
+test('PostToolUse ignores tool inputs, results, and ambient Polygraph session IDs', () => {
+  const payload = {
+    hook_event_name: 'PostToolUse',
+    session_id: 'codex/exact-thread',
+    cwd: '/workspace/repo',
+    transcript_path: '/tmp/rollout.jsonl',
+    tool_name: 'mcp__polygraph-mcp__show_session',
+    tool_input: { sessionId: 'must-not-forward' },
+    tool_response: {
+      isError: true,
+      structuredContent: { sessionId: 'must-not-parse' },
+    },
+  };
+
+  assert.deepEqual(
+    buildCommandHookLink(payload, 'codex', {
+      POLYGRAPH_SESSION_ID: 'must-not-bind-post-tool',
+    }),
+    {
+      agentType: 'codex',
+      agentSessionId: 'codex/exact-thread',
+      cwd: '/workspace/repo',
+      transcriptPath: '/tmp/rollout.jsonl',
+      source: 'hook',
     }
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+  );
+
+  assert.deepEqual(
+    buildCommandHookLink(
+      {
+        ...payload,
+        tool_name: 'mcp__polygraph-mcp__start_session',
+        tool_response: { sessionId: 'also-must-not-parse' },
+      },
+      'codex',
+      {}
+    ),
+    buildCommandHookLink(payload, 'codex', {})
+  );
+});
+
+test('only exact lifecycle and PostToolUse event IDs are accepted', () => {
+  const common = {
+    session_id: 'parent-session',
+    tool_name: 'mcp__polygraph-mcp__anything',
+  };
+  assert.equal(
+    buildCommandHookLink({ ...common, hook_event_name: 'posttooluse' }, 'claude', {}),
+    undefined
+  );
+  assert.equal(
+    buildCommandHookLink({ ...common, hook_event_name: 'PostToolUseFailure' }, 'claude', {}),
+    undefined
+  );
+  assert.equal(
+    buildCommandHookLink(
+      { ...common, hook_event_name: 'PostToolUse', tool_name: 'mcp__other__anything' },
+      'claude',
+      {}
+    ),
+    undefined
+  );
+});
+
+test('Claude and Codex managed-child lifecycle and PostTool hooks never invoke links', () => {
+  for (const [agentType, agentSessionId] of [
+    ['claude', 'claude/child'],
+    ['codex', 'codex/child'],
+  ]) {
+    for (const payload of [
+      {
+        hook_event_name: 'SessionStart',
+        session_id: agentSessionId,
+      },
+      {
+        hook_event_name: 'PostToolUse',
+        session_id: agentSessionId,
+        tool_name: 'mcp__polygraph-mcp__anything',
+      },
+    ]) {
+      let spawnCount = 0;
+      const result = main({
+        agentType,
+        env: {
+          POLYGRAPH_CHILD_AGENT: '',
+          POLYGRAPH_SESSION_ID: 'poly-session',
+        },
+        payload,
+        spawn() {
+          spawnCount += 1;
+          return { status: 0, stderr: '' };
+        },
+      });
+
+      assert.equal(result, false);
+      assert.equal(spawnCount, 0);
+    }
   }
 });
 
-test('writeCaptureMapping uses agentType in the filename', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-codex');
-    writeCaptureMapping(
-      {
-        agentType: 'codex',
-        agentSessionId: 'thread-codex-xyz',
-        polygraphSessionId: 'poly-codex',
-        cwd: '/repo',
+test('Claude and Codex lifecycle hooks preserve session and capture-token evidence', () => {
+  for (const [agentType, agentSessionId] of [
+    ['claude', 'claude/root'],
+    ['codex', 'codex/root'],
+  ]) {
+    let invocation;
+    const env = {
+      POLYGRAPH_SESSION_ID: 'poly-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+    };
+    const result = main({
+      agentType,
+      env,
+      pid: 4321,
+      payload: {
+        hook_event_name: 'SessionStart',
+        session_id: agentSessionId,
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/transcript.jsonl',
       },
-      home
-    );
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+    });
 
-    const files = readMappingFilesIn(sessionSidecarDir(home, 'poly-codex'));
-    assert.equal(files.length, 1);
-    assert.match(files[0], /^mapping-codex-/);
-
-    const mapping = readMappingJsonIn(sessionSidecarDir(home, 'poly-codex'));
-    assert.equal(mapping.agentType, 'codex');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+    assert.equal(result, true);
+    assert.equal(invocation.command, 'polygraph');
+    assert.deepEqual(invocation.args.slice(0, 3), [
+      '_link-agent-session',
+      '--session',
+      'poly-session',
+    ]);
+    assert.ok(invocation.args.includes(agentType));
+    assert.ok(invocation.args.includes(agentSessionId));
+    assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
+    assert.equal(invocation.options.env, env);
+    assert.equal(invocation.options.env.POLYGRAPH_SESSION_ID, 'poly-session');
+    assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
   }
 });
 
-test('writeCaptureMapping sanitizes special characters in the filename', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-sanitize');
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess/with spaces&special!chars',
-        polygraphSessionId: 'poly-sanitize',
-        cwd: '/repo',
+test('read and failed PostToolUse activity forwards identity without session semantics', () => {
+  for (const toolResponse of [
+    { content: [{ type: 'text', text: 'Session details' }] },
+    { isError: true, content: [{ type: 'text', text: 'Failed' }] },
+  ]) {
+    let invocation;
+    const env = {
+      POLYGRAPH_SESSION_ID: 'ambient-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'opaque-token',
+      REQUIRED_HARNESS_ENV: 'preserved',
+    };
+    const result = main({
+      agentType: 'codex',
+      env,
+      pid: 9876,
+      payload: {
+        hook_event_name: 'PostToolUse',
+        session_id: 'codex/root-thread',
+        tool_name: 'mcp__polygraph-mcp__show_session',
+        tool_input: { sessionId: 'input-session' },
+        tool_response: toolResponse,
       },
-      home
-    );
-
-    const files = readMappingFilesIn(sessionSidecarDir(home, 'poly-sanitize'));
-    assert.equal(files.length, 1);
-    // Filename must only contain safe characters (besides the mandatory
-    // mapping- prefix and .json suffix).
-    assert.match(files[0], /^mapping-[A-Za-z0-9._-]+\.json$/);
-    assert.doesNotMatch(files[0], /[/ !&]/);
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeCaptureMapping leaves no tmp file after a successful write', () => {
-  const home = makeHome();
-  try {
-    makeSessionDir(home, 'poly-atomic');
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-atomic',
-        polygraphSessionId: 'poly-atomic',
-        cwd: '/repo',
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
       },
-      home
+    });
+
+    assert.equal(result, true);
+    assert.equal(invocation.args[0], '_link-agent-session');
+    assert.equal(invocation.args.includes('--session'), false);
+    assert.equal(invocation.args.includes('ambient-session'), false);
+    assert.equal(invocation.args.includes('input-session'), false);
+    assert.equal(invocation.args.includes('--set-resume-target'), false);
+    assert.ok(invocation.args.includes('codex/root-thread'));
+    assert.equal(
+      Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
+      false
     );
-
-    const dir = sessionSidecarDir(home, 'poly-atomic');
-    const tmpFiles = readdirSync(dir).filter((f) => f.includes('.tmp-'));
-    assert.equal(tmpFiles.length, 0, 'no leftover tmp files');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writeCaptureMapping creates intermediate directories from scratch (legacy fallback)', () => {
-  const home = makeHome();
-  try {
-    // Confirm ~/.polygraph does not exist yet — so no session dir either,
-    // and the write falls back to the legacy flat dir.
-    assert.equal(existsSync(join(home, '.polygraph')), false);
-
-    writeCaptureMapping(
-      {
-        agentType: 'claude',
-        agentSessionId: 'sess-mkdir',
-        polygraphSessionId: 'poly-fresh',
-        cwd: '/repo',
-      },
-      home
+    assert.equal(
+      Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'),
+      false
     );
-
-    assert.ok(existsSync(legacyDir(home, 'poly-fresh')));
-  } finally {
-    rmSync(home, { recursive: true, force: true });
+    assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
   }
 });

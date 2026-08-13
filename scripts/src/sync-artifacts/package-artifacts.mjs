@@ -89,7 +89,7 @@ function buildPublishPackageJson(pkgJson, packageName, files, extraFields = {}) 
 export function buildOpenCodePackageJson(pkgJson) {
   return buildPublishPackageJson(pkgJson, '@polygraph/opencode-plugin', [
     'server.js',
-    'agent-capture-mapping.mjs',
+    'agent-session-link.mjs',
     'skills/',
     'agents/',
     'README.md',
@@ -167,8 +167,8 @@ export function finalizeCodexDist(pkgJson) {
   writeJson(join(codexDir, '.mcp.json'), buildMcpConfig('codex'));
   writeJson(join(pluginDir, 'plugin.json'), buildCodexPluginManifest(pkgJson));
 
-  // Plugin-bundled SessionStart hooks. Reuses the same re-injection and
-  // capture-mapping scripts as the Claude plugin; Codex resolves ${PLUGIN_ROOT}
+  // Plugin-bundled lifecycle hooks. Reuses the same re-injection and
+  // session-link scripts as the Claude plugin; Codex resolves ${PLUGIN_ROOT}
   // in the hook commands and injects stdout `additionalContext` exactly like
   // Claude Code does.
   const codexHooksDir = join(codexDir, 'hooks');
@@ -184,6 +184,10 @@ export function finalizeCodexDist(pkgJson) {
   cpSync(
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
+  );
+  cpSync(
+    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
+    join(codexHooksDir, 'agent-session-link.mjs')
   );
 
   cpSync(
@@ -210,10 +214,15 @@ export function finalizeOpenCodeDist(pkgJson) {
     join(sourceDir, 'opencode', 'server.js'),
     join(opencodeDir, 'server.js')
   );
-  cpSync(
-    join(sourceDir, 'opencode', 'agent-capture-mapping.mjs'),
-    join(opencodeDir, 'agent-capture-mapping.mjs')
-  );
+  buildSync({
+    entryPoints: [join(sourceDir, 'opencode', 'agent-session-link.mjs')],
+    outfile: join(opencodeDir, 'agent-session-link.mjs'),
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent',
+  });
   copySharedDocs(opencodeDir);
 }
 
