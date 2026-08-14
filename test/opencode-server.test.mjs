@@ -128,12 +128,44 @@ test('session.created links the exact OpenCode lifecycle identity once', async (
   ]);
 });
 
-test('session.created is inert outside a launched Polygraph session', async () => {
+test('session.created outside a launched Polygraph session links speculatively once', async () => {
   const client = fakeClient({ root: { id: 'root' } });
   const claims = [];
   const linker = createOpenCodeSessionLinker({
     client,
     env: {},
+    pid: 7654,
+    link(claim) {
+      claims.push(claim);
+      return true;
+    },
+  });
+  const event = {
+    event: {
+      type: 'session.created',
+      properties: { info: { id: 'root', directory: '/workspace' } },
+    },
+  };
+
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), true);
+  assert.equal(await linkOpenCodeSessionCreatedEvent(event, linker), false);
+  assert.deepEqual(client.calls, []);
+  assert.deepEqual(claims, [
+    {
+      agentType: 'opencode',
+      agentSessionId: 'root',
+      cwd: '/workspace',
+      pid: 7654,
+      source: 'hook',
+    },
+  ]);
+});
+
+test('speculative session.created capture never links managed-child sessions', async () => {
+  const claims = [];
+  const linker = createOpenCodeSessionLinker({
+    client: fakeClient({ root: { id: 'root' } }),
+    env: { POLYGRAPH_CHILD_AGENT: '' },
     link(claim) {
       claims.push(claim);
       return true;
@@ -152,7 +184,6 @@ test('session.created is inert outside a launched Polygraph session', async () =
     ),
     false
   );
-  assert.deepEqual(client.calls, []);
   assert.deepEqual(claims, []);
 });
 

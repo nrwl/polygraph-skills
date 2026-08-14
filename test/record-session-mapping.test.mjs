@@ -291,35 +291,65 @@ test('SessionStart forwards exact lifecycle identity and metadata', () => {
   );
 });
 
-test('ordinary Claude SessionStart forwards exact identity without a Polygraph session', () => {
-  assert.deepEqual(
-    buildCommandHookLink(
+test('ordinary SessionStart forwards exact identity without a Polygraph session', () => {
+  for (const agentType of ['claude', 'codex', 'opencode']) {
+    assert.deepEqual(
+      buildCommandHookLink(
+        {
+          hook_event_name: 'SessionStart',
+          session_id: `${agentType}-session`,
+          cwd: '/workspace/repo',
+          transcript_path: '/tmp/transcript.jsonl',
+        },
+        agentType,
+        {}
+      ),
       {
-        hook_event_name: 'SessionStart',
-        session_id: 'claude-session',
+        agentType,
+        agentSessionId: `${agentType}-session`,
         cwd: '/workspace/repo',
-        transcript_path: '/tmp/transcript.jsonl',
+        transcriptPath: '/tmp/transcript.jsonl',
+        source: 'hook',
       },
-      'claude',
-      {}
-    ),
-    {
-      agentType: 'claude',
-      agentSessionId: 'claude-session',
-      cwd: '/workspace/repo',
-      transcriptPath: '/tmp/transcript.jsonl',
-      source: 'hook',
-    }
-  );
+      agentType
+    );
+  }
 
   assert.equal(
     buildCommandHookLink(
-      { hook_event_name: 'SessionStart', session_id: 'codex-session' },
-      'codex',
+      { hook_event_name: 'SessionStart', session_id: 'other-session' },
+      'unsupported-harness',
       {}
     ),
     undefined
   );
+});
+
+test('ordinary Codex SessionStart submits a speculative identity-only link', () => {
+  let invocation;
+  const result = main({
+    agentType: 'codex',
+    env: {},
+    pid: 4321,
+    payload: {
+      hook_event_name: 'SessionStart',
+      session_id: 'codex/root-thread',
+      cwd: '/workspace/repo',
+      transcript_path: '/tmp/rollout.jsonl',
+    },
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(result, true);
+  assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.args.includes('--session'), false);
+  assert.ok(invocation.args.includes('codex'));
+  assert.ok(invocation.args.includes('codex/root-thread'));
+  assert.ok(invocation.args.includes('/tmp/rollout.jsonl'));
+  assert.deepEqual(invocation.args.slice(-4), ['--pid', '4321', '--source', 'hook']);
 });
 
 test('SessionEnd forwards only exact Claude lifecycle metadata', () => {

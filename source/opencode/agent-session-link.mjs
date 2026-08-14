@@ -92,7 +92,7 @@ export function createOpenCodeSessionLinker({
     return root;
   }
 
-  async function submit(openCodeSessionId, cwd, polygraphSessionId) {
+  async function submit(openCodeSessionId, cwd, polygraphSessionId, lifecycle = false) {
     if (
       !openCodeSessionId ||
       (env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'))
@@ -105,7 +105,9 @@ export function createOpenCodeSessionLinker({
 
     const lifecycleKey = polygraphSessionId
       ? `${polygraphSessionId}\0${agentSessionId}`
-      : undefined;
+      : lifecycle
+        ? `\0${agentSessionId}`
+        : undefined;
     if (lifecycleKey && linkedLifecycleSessions.has(lifecycleKey)) return false;
 
     const linked = await submitLink({
@@ -129,7 +131,13 @@ export function createOpenCodeSessionLinker({
     async fromSessionCreated(info) {
       if (!info?.id || info.parentID) return false;
       roots.set(info.id, info.id);
-      return fromEnvironment(info.id, info.directory);
+      if (env.POLYGRAPH_SESSION_ID) {
+        return fromEnvironment(info.id, info.directory);
+      }
+      // Ordinary OpenCode sessions are eligible for speculative capture, so
+      // later session searches can find them even when the session was not
+      // launched with Polygraph session evidence.
+      return submit(info.id, info.directory, undefined, true);
     },
 
     fromEnvironment,

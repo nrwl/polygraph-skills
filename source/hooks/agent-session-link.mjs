@@ -104,9 +104,10 @@ export function buildCommandHookLink(payload, agentType, env = process.env) {
     const polygraphSessionId = nonEmptyString(env.POLYGRAPH_SESSION_ID);
     if (polygraphSessionId) return { ...common, polygraphSessionId };
 
-    // Ordinary Claude sessions are eligible for speculative capture. Other
-    // harnesses still require launch-provided Polygraph session evidence.
-    return agentType === 'claude' ? common : undefined;
+    // Ordinary sessions of every supported harness are eligible for
+    // speculative capture, so later session searches can find them even when
+    // the session was not launched with Polygraph session evidence.
+    return AGENT_TYPES.has(agentType) ? common : undefined;
   }
 
   if (payload.hook_event_name === 'PostToolUse') {
