@@ -433,6 +433,31 @@ test('adversarial-review skill stays the seven requested steps', () => {
   assertNoNonCodexDelegationText(codex);
 });
 
+test('delegation own-repo rule is scoped to the default role', () => {
+  for (const platform of ['claude', 'codex', 'opencode']) {
+    const agent = renderAgent('polygraph-delegate-subagent', platform);
+    assert.match(
+      agent,
+      /When `role` is omitted \(the default role\), `repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo with the default role\./
+    );
+    assert.match(
+      agent,
+      /non-default `role` \(e\.g\. `reviewer`\), delegating into the parent's own repo IS allowed/
+    );
+    assert.doesNotMatch(agent, /never delegate into the parent's own repo\./);
+
+    const skill = renderSkill('polygraph', platform);
+    assert.match(
+      skill,
+      /With the default role, delegate only to \*other\* repos — never to the repo you are in/
+    );
+    assert.match(
+      skill,
+      /Delegating into the repo you are in is allowed only with an explicit non-default `role`\./
+    );
+  }
+});
+
 test('pack-and-copy skill keeps consumer CI installable', () => {
   const rendered = renderSkill('pack-and-copy');
 
