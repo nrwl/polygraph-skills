@@ -40,7 +40,7 @@ The main agent provides these parameters in the prompt:
 
 Call the `spawn_agent` tool to start a child agent on the repo or to send a follow-up to an active task. Follow-up routing is automatic per (repo, role): if that (repo, role) already has an active child task (working or paused on input), the orchestrator delivers your `instruction` to that task as a follow-up message rather than starting a second run; otherwise it starts a new child run. A repo therefore has at most one active child per role.
 
-`repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo.
+When `role` is omitted (the default role), `repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo with the default role. When the parent explicitly passes a non-default `role` (e.g. `reviewer`), delegating into the parent's own repo IS allowed — each (repo, role) pair still has at most one active child, and that child runs alongside the parent without conflicting with the parent's default-role work.
 
 **Resume/reconstruction is read-only.** If the parent asks you to resume, reconnect, restore, or reconstruct a preserved session without an explicit new change request from the user, do not call `spawn_agent` to continue work. Use `show_agent` only as needed to read status/log context, return a concise restoration summary, and stop. After resuming, wait for explicit user instructions before any child agent makes changes.
 
