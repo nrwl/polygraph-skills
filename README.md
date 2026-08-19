@@ -25,6 +25,8 @@
 
 Polygraph is the agent-agnostic meta-harness for maximum agentic autonomy. It works with the agents you already use and gives them what they're missing: visibility across every repo boundary, and memory that survives every session. Agents discover how repositories relate, coordinate changes across them, and hand off or resume work later with repos, branches, PRs, and logs all preserved.
 
+Works great whether your repos are managed by humans, robots, or cats.
+
 ## Setup
 
 Run the interactive setup and follow the prompts:
