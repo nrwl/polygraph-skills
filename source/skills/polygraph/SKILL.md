@@ -293,8 +293,8 @@ To debug a stuck subagent you can call `show_agent` as a one-off, but routine po
 {% else %}
 
 1. Call `spawn_agent` with `sessionId`, `repo`, `instruction`, and optionally `role` for each repo. The call returns immediately.
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (one call per repo — `repo` is required; pass `role` to narrow to one agent); watch `child.status` on the `children[]` entry for your delegation until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
-3. Review `child.lastOutputLines` for the final log tail.
+2. Poll `show_agent` via chained `waitForTransitionMs: 300000` long-poll calls (one call per repo — `repo` is required; pass `role` to narrow to one agent); watch `child.status` on the `children[]` entry for your delegation until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
+3. Review `child.lastOutputLines` for the final log tail — it arrives with the terminal status, not on mid-flight polls.
 4. Continue to `push_branch` + `create_pr`.
 
 {% endif %}
@@ -311,12 +311,14 @@ Use this pattern when the child may need clarification, the task is exploratory,
    { "taskId": "…", "message": "…", "status": "delegated" }
    ```
 
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (`repo` is required; pass the same `role` you spawned with to narrow to that agent). The response shape is `{ children: PolygraphChildStatusItem[] }` with one entry per matching agent in that repo. On your delegation's entry, inspect:
+2. Poll `show_agent` via chained `waitForTransitionMs: 300000` long-poll calls (`repo` is required; pass the same `role` you spawned with to narrow to that agent). Each call blocks up to ~5 minutes and resolves within ~1 second of a state change. The response shape is `{ children: PolygraphChildStatusItem[] }` with one entry per matching agent in that repo. On your delegation's entry, inspect:
 
    - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
    - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`.
-   - `child.lastOutputLines` — recent log tail.
+   - `child.lastOutputLines` — recent log tail. Present on terminal statuses; a waited `created`/`in-progress` poll omits it by design.
    - `child.repoFullName` — which repo is talking.
+
+   A waited call that returns `created` or `in-progress` carries status only — no `lastOutputLines`. That is the intended shape of a mid-flight poll, not truncation and not an error; poll again rather than looking for the output elsewhere. The output arrives with the terminal status. Do not pass `tail` while polling; if a terminal response is missing the lines you need, make exactly ONE more `show_agent` call with no `waitForTransitionMs` and `tail: 20`. Never read transcripts, `~/.polygraph/sessions`, `.harness-config`, `*.jsonl` files, or harness-saved result files to learn a child's status or outcome — `show_agent` is the only supported source.
 
    Drive the state machine:
 

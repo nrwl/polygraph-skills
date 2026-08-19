@@ -7,8 +7,16 @@ export function readRootPackageJson() {
   return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 }
 
+// Codex defaults `tool_timeout_sec` to 60 per MCP server, which would abort a
+// `show_agent` long poll well before its 5-minute ceiling. Claude Code needs no
+// equivalent (its per-call limit is effectively unbounded) and OpenCode is kept
+// alive by the progress notifications the MCP server sends.
+const CODEX_TOOL_TIMEOUT_SEC = 360;
+
 export function buildMcpConfig(agentType) {
   const env = agentType ? { POLYGRAPH_AGENT_TYPE: agentType } : undefined;
+  const toolTimeout =
+    agentType === 'codex' ? { tool_timeout_sec: CODEX_TOOL_TIMEOUT_SEC } : undefined;
 
   return {
     mcpServers: {
@@ -17,6 +25,7 @@ export function buildMcpConfig(agentType) {
         command: 'npx',
         args: ['@polygraph/mcp@latest'],
         ...(env ? { env } : {}),
+        ...(toolTimeout ?? {}),
       },
     },
   };

@@ -458,6 +458,76 @@ test('delegation own-repo rule is scoped to the default role', () => {
   }
 });
 
+// Ocean's polygraph-native-subagents.ts parses `**Repo:**` out of this block to
+// join a finished delegation back to its child agent. The heading and the field
+// labels are a cross-repo contract, not cosmetic formatting.
+test('delegate subagent pins the delegation result summary shape', () => {
+  for (const platform of ['claude', 'codex', 'opencode']) {
+    const agent = renderAgent('polygraph-delegate-subagent', platform);
+
+    assert.match(agent, /^## Polygraph Delegation Result$/m);
+    assert.match(agent, /^\*\*Repo:\*\* <repo>$/m);
+    assert.match(agent, /^\*\*Role:\*\* <role, or "default" when none was given>$/m);
+    assert.match(agent, /^\*\*Status:\*\* <success \| failed \| cancelled>$/m);
+    assert.match(agent, /^\*\*Session ID:\*\* <sessionId>$/m);
+    assert.match(agent, /^### Result$/m);
+
+    // The timeout variant reuses the same heading and the same Repo/Status/
+    // Session ID labels, so the parser sees one shape either way.
+    assert.equal(agent.match(/^## Polygraph Delegation Result$/gm).length, 2);
+    assert.match(agent, /^\*\*Status:\*\* timeout$/m);
+    assert.match(agent, /^### Suggestions$/m);
+  }
+});
+
+// Regression guard for the token blowout measured in multi-repo runs: waited
+// polls must request 5-minute waits, must not ask for log tails, and must never
+// send the delegate hunting through transcripts when a poll comes back thin.
+test('delegate subagent polling contract keeps status polls cheap', () => {
+  for (const platform of ['claude', 'codex', 'opencode']) {
+    const agent = renderAgent('polygraph-delegate-subagent', platform);
+
+    assert.match(agent, /waitForTransitionMs: 300000/);
+    assert.doesNotMatch(agent, /50000/);
+    assert.match(agent, /blocks up to ~5 minutes/);
+
+    // A mid-flight poll carries status only — that is the contract, not a fault.
+    assert.match(agent, /the response carries status only/);
+    assert.match(agent, /has no `lastOutputLines` on the child entry/);
+    assert.match(agent, /Do not pass a `tail` argument while polling/);
+
+    // Recovery is exactly one call with a fixed small tail.
+    assert.match(agent, /exactly ONE more `show_agent` call/);
+    assert.match(agent, /`tail: 20`/);
+    assert.match(agent, /not a loop, and never an escalating `tail`/);
+
+    // No transcript spelunking when a result overflows the harness cap.
+    assert.match(
+      agent,
+      /`show_agent` is the only supported way to learn a child's status or output/
+    );
+    assert.match(agent, /~\/\.polygraph\/sessions/);
+    assert.match(agent, /\.harness-config/);
+    assert.match(agent, /\*\.jsonl/);
+    assert.match(agent, /`tail: 10`/);
+  }
+});
+
+// Bash was vestigial — nothing in the documented flow shells out, and leaving it
+// granted is what let delegates grep saved results and raw child transcripts
+// after a poll overflowed the harness tool-result cap.
+test('delegate subagent is not granted Bash', () => {
+  const claude = renderAgent('polygraph-delegate-subagent', 'claude');
+  const frontmatter = claude.match(/^---\n([\s\S]*?)\n---/)[1];
+
+  assert.match(frontmatter, /^name: polygraph-delegate-subagent$/m);
+  assert.match(frontmatter, /^tools:$/m);
+  assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__spawn_agent/);
+  assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__show_agent/);
+  assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__stop_agent/);
+  assert.doesNotMatch(frontmatter, /^\s*-\s*Bash\s*$/m);
+});
+
 test('pack-and-copy skill keeps consumer CI installable', () => {
   const rendered = renderSkill('pack-and-copy');
 
@@ -496,7 +566,8 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.description, /Delegates work to a child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /Polling with long-poll waits/);
-  assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
+  assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 300000/);
+  assert.doesNotMatch(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /backoff/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /fallback/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /sleep/i);
@@ -607,7 +678,22 @@ test('buildMcpConfig can force an MCP server agent type', () => {
         env: {
           POLYGRAPH_AGENT_TYPE: 'codex',
         },
+        tool_timeout_sec: 360,
       },
     },
   });
+});
+
+// Codex caps MCP tool calls at 60s by default, which would abort a `show_agent`
+// long poll before its 5-minute ceiling. Only Codex needs the override.
+test('only the codex MCP config raises the per-tool timeout past the long-poll ceiling', () => {
+  assert.equal(buildMcpConfig('codex').mcpServers['polygraph-mcp'].tool_timeout_sec, 360);
+  assert.equal(buildMcpConfig().mcpServers['polygraph-mcp'].tool_timeout_sec, undefined);
+
+  const delegate = renderAgent('polygraph-delegate-subagent', 'codex');
+  const longPollMs = Number(delegate.match(/waitForTransitionMs: (\d+)/)[1]);
+  assert.ok(
+    buildMcpConfig('codex').mcpServers['polygraph-mcp'].tool_timeout_sec * 1000 > longPollMs,
+    'codex tool timeout must exceed the long-poll ceiling the delegate prompt asks for'
+  );
 });

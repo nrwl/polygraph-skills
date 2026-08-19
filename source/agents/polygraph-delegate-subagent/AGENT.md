@@ -7,7 +7,6 @@ tools:
   - mcp__plugin_polygraph_polygraph-mcp__spawn_agent
   - mcp__plugin_polygraph_polygraph-mcp__show_agent
   - mcp__plugin_polygraph_polygraph-mcp__stop_agent
-  - Bash
 {% elsif platform == "opencode" %}
 description: Delegates work to a child agent in another repository via Polygraph, polls for completion, and returns a structured summary. Runs in the background.
 mode: subagent
@@ -58,18 +57,18 @@ The call returns immediately — the child agent runs asynchronously.
 
 **Polling with long-poll waits:**
 
-Call `show_agent` in a loop, passing `waitForTransitionMs: 50000` on every call:
+Call `show_agent` in a loop, passing `waitForTransitionMs: 300000` on every call:
 
 ```
 show_agent(
   sessionId: "<sessionId>",
   repo: "<repo>",
   role: "<role, if any>",
-  waitForTransitionMs: 50000
+  waitForTransitionMs: 300000
 )
 ```
 
-Each call blocks up to ~50 seconds and resolves within ~1 second of a state change. It returns immediately if the child is already terminal, `input-required`, or `permission-required`. Call it back-to-back in a loop.
+Each call blocks up to ~5 minutes and resolves within ~1 second of a state change. It returns immediately if the child is already terminal, `input-required`, or `permission-required`. Call it back-to-back in a loop.
 
 ## Polling the child (multi-turn + input-required)
 
@@ -79,18 +78,24 @@ After calling `spawn_agent`, parse the structured JSON response:
 { "taskId": "…", "message": "…", "status": "delegated" }
 ```
 
-Then poll `show_agent` in a loop with `waitForTransitionMs: 50000`. **Do not pass a `tail` argument** — the tool's default is sized for status polling. Only set `tail` if you have a specific reason (e.g., the default truncated output you actually need to inspect, or you are hunting for an earlier failure that scrolled off). Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+Then poll `show_agent` in a loop with `waitForTransitionMs: 300000`. **Do not pass a `tail` argument while polling** — a waited call is a status check, not a log read. Never ratchet `tail` upward across polls; that is what causes the polling loop to flood your context window.
+
+**While the child is still running, the response carries status only.** A waited call that comes back `created` or `in-progress` has no `lastOutputLines` on the child entry. That is the normal, intended shape of a mid-flight poll: it is not truncation, it is not an error, and it does not mean output was lost. Do not go looking for the missing lines anywhere else — just call `show_agent` again.
+
+**The output arrives with the terminal status.** The waited call that first reports `completed`, `failed`, or `cancelled` DOES carry `lastOutputLines`, and that is what you build the summary from. If those lines are somehow absent at the moment you need them, make exactly ONE more `show_agent` call for that child — no `waitForTransitionMs`, `tail: 20` — and build the summary from that result. One call, not a loop, and never an escalating `tail`.
+
+**`show_agent` is the only supported way to learn a child's status or output.** Never read the child's transcript or log files to determine either. Specifically: never inspect `~/.polygraph/sessions`, `.harness-config`, any `*.jsonl` file, or any file your harness wrote on your behalf because a tool result was too large to inline. Those files are not a status interface, and reading them burns exactly the context this polling contract exists to protect. If a result was too large and got saved to a file, ignore that file entirely and call `show_agent` again with a smaller `tail` (e.g. `tail: 10`).
 
 The response's `children[]` array has one entry per agent matching your query. Find YOUR delegation's entry (match on `role`; absent means the default role) and inspect:
 
 - `child.status` — an AcpRunStatus value: one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`). Note `'permission-required'` and `'input-required'` are DIFFERENT states handled by different cases below — do not conflate them.
 - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`; contains the verbatim question the child agent has asked the parent.
-- `child.lastOutputLines` — recent log tail (use for status narration; do not treat as an API surface).
+- `child.lastOutputLines` — recent log tail. Present on terminal statuses; a waited `created`/`in-progress` poll omits it by design (see above). Use for status narration; do not treat as an API surface.
 - `child.repoFullName` — human-facing identifier for which repo is talking.
 
 State machine:
 
-1. `child.status === 'created'` or `'in-progress'` — child is still executing. Call `show_agent` (with `waitForTransitionMs: 50000`) again.
+1. `child.status === 'created'` or `'in-progress'` — child is still executing, and this response carries no `lastOutputLines`. That is expected. Call `show_agent` (with `waitForTransitionMs: 300000`) again.
 2. `child.status === 'input-required'` — child is paused waiting for parent input:
    - Read `child.inputRequiredQuestion`.
    - Surface this question verbatim to the parent/user: "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}".
@@ -180,6 +185,7 @@ If polling exceeds **30 minutes**, return with a timeout status:
 {% endif %}
 - Do NOT make decisions about the work — only delegate and monitor
 - Do NOT call `push_branch` or `create_pr` — those are the main agent's responsibility
+- `show_agent` is your ONLY window into the child — never read transcripts, session directories, or harness-saved result files to fill a gap
 - If `spawn_agent` fails, return the error immediately
 - If `show_agent` returns an error, wait and retry (count as failed poll)
 - After 5 consecutive poll failures, return with `status: error`
