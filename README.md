@@ -35,6 +35,29 @@ polygraph config
 
 It detects your AI agent — Claude Code, Codex, OpenCode, and more — and installs the Polygraph skills and subagents for it. Re-run it any time to add another agent or update an existing install.
 
+### Codex: raising the long-poll ceiling
+
+The delegate subagent polls child agents with `show_agent(waitForTransitionMs: 300000)` — a single 5-minute wait instead of a stream of short polls, which is what keeps delegation cheap. Claude Code and OpenCode honor the full wait. Codex does not by default.
+
+Codex caps every MCP tool call at `tool_timeout_sec = 60`, so long polls effectively cap at 50s. Nothing the plugin ships can change that: a plugin's `.mcp.json` has no timeout field, and `tool_timeout_sec` is only read from `~/.codex/config.toml`. Polling still works at 50s — the MCP resolves the real ceiling per client and returns early rather than erroring — you just pay for more round trips.
+
+To get the full 5-minute wait under Codex, set **both**:
+
+1. `tool_timeout_sec` in `~/.codex/config.toml`:
+
+   ```toml
+   [mcp_servers.polygraph]
+   tool_timeout_sec = 360
+   ```
+
+2. `POLYGRAPH_MCP_MAX_WAIT_MS` in that server's env, if you launch it from the CLI:
+
+   ```sh
+   POLYGRAPH_MCP_MAX_WAIT_MS=300000
+   ```
+
+Neither is required — they are a throughput optimization, not a correctness fix.
+
 ## Skills
 
 - **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management

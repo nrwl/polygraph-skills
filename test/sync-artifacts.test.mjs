@@ -678,22 +678,7 @@ test('buildMcpConfig can force an MCP server agent type', () => {
         env: {
           POLYGRAPH_AGENT_TYPE: 'codex',
         },
-        tool_timeout_sec: 360,
       },
     },
   });
-});
-
-// Codex caps MCP tool calls at 60s by default, which would abort a `show_agent`
-// long poll before its 5-minute ceiling. Only Codex needs the override.
-test('only the codex MCP config raises the per-tool timeout past the long-poll ceiling', () => {
-  assert.equal(buildMcpConfig('codex').mcpServers['polygraph-mcp'].tool_timeout_sec, 360);
-  assert.equal(buildMcpConfig().mcpServers['polygraph-mcp'].tool_timeout_sec, undefined);
-
-  const delegate = renderAgent('polygraph-delegate-subagent', 'codex');
-  const longPollMs = Number(delegate.match(/waitForTransitionMs: (\d+)/)[1]);
-  assert.ok(
-    buildMcpConfig('codex').mcpServers['polygraph-mcp'].tool_timeout_sec * 1000 > longPollMs,
-    'codex tool timeout must exceed the long-poll ceiling the delegate prompt asks for'
-  );
 });

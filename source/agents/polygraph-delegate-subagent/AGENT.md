@@ -70,6 +70,8 @@ show_agent(
 
 Each call blocks up to ~5 minutes and resolves within ~1 second of a state change. It returns immediately if the child is already terminal, `input-required`, or `permission-required`. Call it back-to-back in a loop.
 
+Always pass `300000`, whichever client you are running under. The MCP resolves the real ceiling per client, and a client that caps the wait lower just returns sooner with the status unchanged. An early return is not an error and not a reason to change the value — call `show_agent` again.
+
 ## Polling the child (multi-turn + input-required)
 
 After calling `spawn_agent`, parse the structured JSON response:

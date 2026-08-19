@@ -176,7 +176,7 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
    show_agent(sessionId: "<session-id>", repo: "frontend")
    ```
 
-   Poll until the child agent's status indicates completion (pass the same `role` you spawned with, if any). Use the `tail` parameter to retrieve recent output lines containing the investigation results.
+   Poll until the child agent's status indicates completion (pass the same `role` you spawned with, if any). Do not pass `tail` while polling — a waited call that is still `created` or `in-progress` carries status only, by design. The investigation results arrive with the terminal response; only if they are missing there, make exactly ONE more `show_agent` call with no `waitForTransitionMs` and `tail: 20`.
 
 4. Collect each child agent's response from the status output. If a child agent fails or gets stuck, use `stop_agent` to terminate it and skip that repo.
 
