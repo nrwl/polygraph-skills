@@ -20,6 +20,8 @@
 //       holds selectedUrl, used to build the session URL.
 //
 // Outside a Polygraph session (no matching sidecar) the hook is a silent no-op.
+// Speculative captures (implicit session context, not explicit Polygraph sessions)
+// are also treated as no-op and not injected as context.
 
 import {
   appendFileSync,
@@ -94,7 +96,9 @@ function sessionsRoot(root) {
 
 // Scan the immediate subdirectories of `baseDir`; for each, `candidatePath`
 // maps the subdirectory name to a candidate sidecar file. Returns the first
-// parsed match, or null.
+// parsed match that is not a speculative sidecar, or null.
+// Speculative sidecars (target === 'speculative') are skipped; only regular
+// sidecars (target === 'regular' or missing target) are returned.
 function scanForSidecar(baseDir, candidatePath) {
   if (!existsSync(baseDir)) return null;
 
@@ -109,7 +113,13 @@ function scanForSidecar(baseDir, candidatePath) {
     if (!entry.isDirectory()) continue;
     const candidate = candidatePath(entry.name);
     if (existsSync(candidate)) {
-      return readJson(candidate);
+      const sidecar = readJson(candidate);
+      if (sidecar) {
+        // Skip speculative sidecars; only return regular ones (missing or 'regular' target).
+        if (sidecar.target !== 'speculative') {
+          return sidecar;
+        }
+      }
     }
   }
   return null;
@@ -118,7 +128,7 @@ function scanForSidecar(baseDir, candidatePath) {
 // Find the sidecar that maps an agent session id to a Polygraph session.
 // Checks the new per-session layout first, then falls back to the legacy
 // shared sidecars directory. Returns the parsed sidecar object, or null when
-// none matches.
+// none matches or only speculative sidecars are found.
 export function findSidecar(agentSessionId, root = polygraphRoot()) {
   if (!agentSessionId) return null;
 
