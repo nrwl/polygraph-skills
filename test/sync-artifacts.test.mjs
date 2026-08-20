@@ -410,6 +410,7 @@ test('adversarial-review skill stays the seven requested steps', () => {
 
     // Tool names and parameters needed to execute the steps.
     assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
+    assert.match(rendered, /If the user names a model, pass it via `spawn_agent`'s optional `model` parameter; don't ask about models\./);
     assert.match(rendered, /`role: "reviewer"`/);
     assert.match(rendered, /`upload_artifact`/);
 
