@@ -6,7 +6,7 @@ The flow is **pointer-based**. `spawn_agent` hands you a delegation id. A cheap 
 
 ## The delegation id
 
-`spawn_agent` returns a short id (e.g. `ocean-1`) that names one child run. It is the handle for everything afterwards — polling, reading the result, following up, stopping. The id pins the repo AND the role, so once you have it you never re-specify either.
+`spawn_agent` returns a short id (e.g. `frontend-1`) that names one child run. It is the handle for everything afterwards — polling, reading the result, following up, stopping. The id pins the repo AND the role, so once you have it you never re-specify either.
 
 Keep every id you are given. Losing one means falling back to `repo` + `role` lookups, which are ambiguous the moment a repo hosts more than one agent.
 

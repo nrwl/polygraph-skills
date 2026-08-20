@@ -22,7 +22,7 @@ The main agent already spawned the child via `spawn_agent` and received a delega
 | Parameter   | Description                                                  |
 | ----------- | ------------------------------------------------------------ |
 | `sessionId` | The Polygraph session ID                                     |
-| `id`        | The delegation id returned by `spawn_agent` (e.g. `ocean-1`) |
+| `id`        | The delegation id returned by `spawn_agent` (e.g. `frontend-1`) |
 
 ## Loop
 
