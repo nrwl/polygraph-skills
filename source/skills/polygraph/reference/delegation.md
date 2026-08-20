@@ -59,8 +59,8 @@ One-off unwaited reads like this are cheap and expected inline. It is the *waiti
 Only if `result.text` is missing, truncated, or the child failed in a way you cannot explain from it:
 
 - Pass an explicit `tail` to `show_agent` to pull recent log lines.
-- Page further back through the log with additional explicit calls.
-- Attach to the run locally with `polygraph agent attach <repo>` (add `--role <role>` for a non-default agent).
+- Page further back with the `page` param: `tail: 20, page: 2` returns the 20 lines before the newest 20, `page: 3` the window before that.
+- If the user wants to watch the run live, point them at `polygraph agent attach <repo>` (plus `--role <role>` for a non-default agent) — an interactive terminal view for humans, not a command for you to run.
 
 These are deliberate, targeted follow-ups. None of them belongs in a polling loop, and none of them is a reason to go looking at transcript files, `~/.polygraph/sessions`, or anything a harness saved to disk because a tool result was too large. `show_agent` is the supported interface.
 
@@ -88,7 +88,7 @@ A repository in a session can host several child agents at once, distinguished b
 - **Purpose.** Roles let independent streams of work run concurrently in one repo — a default agent implementing a feature while a `reviewer` or `ci-investigator` runs alongside. Each (repo, role) pair has at most one active child.
 - **Default role.** An omitted `role` means the default role: `spawn_agent` without `role` starts or follows up with that repo's default-role agent.
 - **Ids pin the role.** A delegation id already identifies one (repo, role) pair, so `show_agent` and `stop_agent` by id need no `role` argument. Pass `role` only when addressing an agent by `repo` instead of by id.
-- **Logs.** Only default-role agents upload logs to the cloud and appear in the multiplexed stream (`polygraph session logs`). Inspect non-default agents locally with `polygraph agent attach <repo> --role <role>`.
+- **Logs.** Only default-role agents upload logs to the cloud and appear in the multiplexed stream (`polygraph session logs`). A non-default agent's transcript stays on this machine — the user can watch it with `polygraph agent attach <repo> --role <role>`.
 
 ## Stopping
 
