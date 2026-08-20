@@ -8,7 +8,7 @@
 <h1 align="center">Polygraph Skills</h1>
 
 <p align="center">
-  AI agent skills and subagents for <a href="https://trypolygraph.com/">Polygraph</a> — the meta-harness for maximum agentic autonomy, giving agents visibility across every repo and memory that survives every session.
+  AI agent skills and subagents for <a href="https://trypolygraph.com/">Polygraph</a> — the agent-agnostic meta-harness for maximum agentic autonomy, giving agents visibility across every repo and memory that survives every session.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ## What is Polygraph?
 
-Polygraph is a meta-harness for maximum agentic autonomy. It works with the agents you already use and gives them what they're missing: visibility across every repo boundary, and memory that survives every session. Agents discover how repositories relate, coordinate changes across them, and hand off or resume work later with repos, branches, PRs, and logs all preserved.
+Polygraph is the agent-agnostic meta-harness for maximum agentic autonomy. It works with the agents you already use and gives them what they're missing: visibility across every repo boundary, and memory that survives every session. Agents discover how repositories relate, coordinate changes across them, and hand off or resume work later with repos, branches, PRs, and logs all preserved.
 
 ## Setup
 
@@ -60,17 +60,17 @@ Neither is required — they are a throughput optimization, not a correctness fi
 
 ## Skills
 
-- **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management
-- **adversarial-review** — Second-opinion review of a session's work by independent reviewer agents, one per repo, running under a read-only `reviewer` role
-- **await-polygraph-ci** — Wait for CI pipelines to settle across all repos in a session, investigate failures, and present fix options
-- **get-latest-ci** — One-shot fetch of the latest CI pipeline execution for the current branch
-- **session-debrief** — Analyze the raw logs of past Polygraph sessions and produce structured, rank-ordered debriefs for use in a different session
+- **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management.
+- **adversarial-review** — Second-opinion review of a session's work by independent reviewer agents, one per repo, running under a read-only `reviewer` role.
+- **await-polygraph-ci** — Wait for CI pipelines to settle across all repos in a session, investigate failures, and present fix options.
+- **get-latest-ci** — One-shot fetch of the latest CI pipeline execution for the current branch.
+- **session-debrief** — Analyze the raw logs of past Polygraph sessions and produce structured, rank-ordered debriefs for use in a different session.
 
 ## Agents
 
-- **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session
-- **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion
-- **session-debrief** — Analyzes the raw logs of past Polygraph sessions and returns a structured, rank-ordered debrief for the current task
+- **polygraph-init-subagent** — Discovers candidate repositories and initializes a Polygraph session.
+- **polygraph-delegate-subagent** — Delegates work to a child agent in another repository, polls for completion.
+- **session-debrief** — Analyzes the raw logs of past Polygraph sessions and returns a structured, rank-ordered debrief for the current task.
 
 ## Development
 
@@ -94,7 +94,7 @@ For the strictest release flow, do not allow direct `npm publish` for the truste
 
 ## Learn More
 
-- **[Polygraph](https://trypolygraph.com/)** — The meta-harness for maximum agentic autonomy
+- **[Polygraph](https://trypolygraph.com/)** — The agent-agnostic meta-harness for maximum agentic autonomy
 - **[@polygraph/mcp](https://www.npmjs.com/package/@polygraph/mcp)** — The MCP server that powers Polygraph tools
 ## License
 

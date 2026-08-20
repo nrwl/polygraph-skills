@@ -30,7 +30,7 @@ Read this before the tool table below — it determines which tools are yours to
 
 Polygraph connects repos and the agent work happening across them. Its central artifact is the session, which groups the repos, branches, PRs, and CI status for one piece of work and can be shared and resumed: use it to coordinate changes across multiple repos or in a single repoto share the session URL with collaborators, hand off progress via the session description, resume prior work, and watch CI across the session's PRs.
 
-**Polygraph operates on the current repo in place.** Starting or joining a session never clones or modifies the repository you are in — you keep working in your real working directory, and `push_branch` pushes your local commits from that checkout. Only *other* repos are worked on in separate Polygraph-managed clones via `spawn_agent`.
+**Polygraph operates on the current repo in place.** Starting a session never clones or modifies the repository you are in — you keep working in your real working directory, and `push_branch` pushes your local commits from that checkout. Only *other* repos are worked on in separate Polygraph-managed clones via `spawn_agent`. Resuming is the one qualified case: a `resume_session` with the explicit `reset` consent force-switches branches inside the session's materialized repositories, and can force-move the current working tree when it is itself one of them. Repositories outside the session folder are never modified. Full contract under "Explore an Existing Session".
 
 {% if platform == "claude" or platform == "codex" %}
 
@@ -50,6 +50,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | --- | --- | --- |
 | `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
+| `resume_session` | `polygraph session resume --session <id> --json` | Join an existing session from this conversation: a tracked adoption that performs the full reconstruct. On divergence it stays local by default; `reset` is an explicit, destructive opt-in. Divergence and post-join behavior are under "Explore an Existing Session". |
 | `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository; returns a delegation id. A repeat call for the same (repo, role) is delivered to that task as a follow-up; otherwise a new child starts. See `reference/delegation.md`. |
 | `show_agent` | — | Poll by repo or delegation id; unwaited reads return the child's result. Waited calls are for the poller subagent, not the main conversation. See `reference/delegation.md`. |
 | `stop_agent` | — | Cancel an in-progress child by delegation id; its session is preserved for later read-only context restoration. |
@@ -131,6 +132,8 @@ There are three cases. Pick exactly one before calling any tool. The case labels
 
 **Hard rule: if a session ID is already in scope (e.g., the startup banner says "You're in Polygraph session …", or the user passed one or you are provided one by a reminder hook), that session ID is authoritative for this entire conversation. NEVER call `start_session` — doing so creates a brand-new session and orphans the one the parent harness is pointed at. Reuse the existing session via `show_session` and, if needed, `add_repo`.**
 
+**Hard rule: before doing ad-hoc work in another repository, or reading a session's context untracked, ask whether an existing session already covers this work. If one might and its session ID is not in scope, ask the user for it — never fall back to an ad-hoc clone. To WORK in a session's context, join it via `resume_session` — a tracked adoption. To only read or summarize, `show_session` remains the read path.**
+
 **Case A — Existing session, already has repos.** Call `show_session` directly with the known session ID. Skip the init subagent entirely, show the session details (format below), and proceed.
 
 **Case B — Existing session, no repos yet (or user wants to add more).** If the user gives exact repo refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call `add_repo(sessionId, repoIds: [...])` directly with those refs. Do NOT call `list_repos`, do NOT ask for candidates, and do NOT launch the init subagent just to resolve those refs. If the user wants discovery/filtering instead, launch the `polygraph-init-subagent`, passing both the existing `sessionId` and `userContext`. The subagent will discover candidates, select relevant repositories, and call `add_repo` against the existing session — it will NOT call `start_session`.
@@ -177,11 +180,11 @@ The subagent will:
 
 Use this workflow when the user gives a Polygraph session ID and asks to understand, resume, inspect, or investigate prior work.
 
-**Resume is not a work command.** If the user's intent is to resume, reconnect, or reconstruct a prior Polygraph session, fetch and summarize the restored context, then stop. Do not edit files, push branches, add repos, delegate new work, or continue previous changes until the user explicitly asks for changes. Treat "resume" as context restoration followed by waiting for user instructions.
+**Resume is not a work command.** If the user's intent is to resume, reconnect, or reconstruct a prior Polygraph session, join it via `resume_session`, summarize the restored context it returns, then stop. Do not edit files, push branches, add repos, delegate new work, or continue previous changes until the user explicitly asks for changes. Recording the join in the session's history is not making changes to the work. Treat "resume" as context restoration followed by waiting for user instructions.
 
-1. Fetch detailed session context:
-   - Prefer `show_session` with `details: true` 
-   - Otherwise run `polygraph session show --details <session-id>`.
+1. Fetch session context by intent:
+   - To continue work in the session from this conversation, join it via `resume_session` (CLI: `polygraph session resume --session <id> --json`) — a tracked adoption that performs the full reconstruct; the restored session context comes back in the tool result. On a divergent session the join stays on the local conversation by default and returns the divergence evidence; adopting the selected path requires the explicit `reset` consent, a destructive opt-in that force-switches branches in the session's materialized repositories (discarding uncommitted tracked changes there, untracked files survive) and deletes this machine's local session logs.
+   - To only read, inspect, or summarize without joining, prefer `show_session` with `details: true`; otherwise run `polygraph session show --details <session-id>`. This is the read-only path and records nothing.
 2. Treat the detailed output as authoritative context. It should include:
    - `<summary>` — the session summary.
    - `<repositories>` — relevant repos, including each repo's `<id>` and `<name>`.
