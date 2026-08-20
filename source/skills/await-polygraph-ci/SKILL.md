@@ -147,7 +147,7 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 - **If `pr.ci.cipeUrl` is null but `pr.ci.externalCIRuns` exists** → external CI only. Examine failed jobs from `pr.ci.externalCIRuns[].jobs` and use `get_ci_logs(sessionId, repositoryId, jobId)` (a polygraph-mcp tool) for log retrieval, passing `pr.repositoryId` and the failed job's `jobId` straight from the same PR object.
 {% if platform == "codex" %}
 
-**Codex subagent wrapper:** Use `polygraph-delegate-subagent` to keep the Polygraph MCP `spawn_agent` / `show_agent` polling loop out of the main conversation. For each failed repo, launch a Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` and instructions to perform steps 2-4 below for that repo, then collect completed summaries with `wait_agent` when the main flow needs them. In the steps below, `spawn_agent` and `show_agent` refer to the Polygraph MCP tools that belong inside the Codex subagent.
+**Codex subagent wrapper:** Call the Polygraph MCP `spawn_agent` directly to start each investigation and collect its delegation id, then launch one Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` per id to wait on it, collecting them with `wait_agent`. Only the waiting belongs in the subagent; the unwaited `show_agent` read that returns each investigation is yours to make here.
 {% endif %}
 
 1. Display known info from the PR's `ci` object before delegating:
@@ -170,15 +170,15 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 
    Since `spawn_agent` is non-blocking, you can delegate to multiple failed repos in parallel.
 
-3. **Monitor investigation progress** — poll `show_agent` to wait for each child agent to complete:
+3. **Monitor investigation progress** — launch one background `polygraph-delegate-subagent` per delegation id and let it do the waiting. When it exits, read that investigation with a single unwaited `show_agent`:
 
    ```
-   show_agent(sessionId: "<session-id>", repo: "frontend")
+   show_agent(sessionId: "<session-id>", id: "<delegation-id>")
    ```
 
-   Poll until the child agent's status indicates completion (pass the same `role` you spawned with, if any). Use the `tail` parameter to retrieve recent output lines containing the investigation results.
+   `result.text` is the child's investigation summary. Never run a waited `show_agent` loop here, and do not pass `tail` unless `result.text` alone is insufficient.
 
-4. Collect each child agent's response from the status output. If a child agent fails or gets stuck, use `stop_agent` to terminate it and skip that repo.
+4. Collect each child agent's response from its unwaited `show_agent` read. If a child agent fails or gets stuck, use `stop_agent` with its delegation id to terminate it and skip that repo.
 
 5. Display failure summary for each repo:
 
@@ -214,8 +214,8 @@ For each repo with `ciStatus: FAILED`, branch on the PR's `ci` object from `show
 - `cipeUrl` is a browser link for the user — never fetch, curl, WebFetch, or poll it (in the main agent or in child agents). CIPE data is only available via the Nx MCP `ci_information` tool.
 - All heavy CI data inspection happens in child agents via `spawn_agent` to keep this context window clean.
 {% if platform == "codex" %}
-- On Codex, the delegate-and-poll loop should run inside `polygraph-delegate-subagent`, and the main conversation should use `wait_agent` only when it needs to collect results.
+- On Codex, the waiting runs inside `polygraph-delegate-subagent` and the main conversation uses `wait_agent` to collect it; `spawn_agent` and the unwaited `show_agent` read stay in the main conversation.
 {% endif %}
 - Child agents can use `get_ci_logs` to save CI job logs to local files, but ONLY when no CIPE exists for the PR (`pr.ci.cipeUrl` is null). When a CIPE exists, logs come from the CIPE system via the Nx MCP `ci_information` tool. Job IDs come from `pr.ci.externalCIRuns[].jobs[].jobId` in the `show_session` response. The tool returns a file path (`logFile`) and size (`sizeBytes`) — use the `Read` tool to examine the log content. Logs can be large (100KB+), so only fetch logs for failed or relevant jobs.
-- `spawn_agent` is **non-blocking** — it starts the child agent and returns immediately. Use `show_agent` to poll for results and `stop_agent` to terminate stuck agents.
+- `spawn_agent` is **non-blocking** — it starts the child agent and returns a delegation id immediately. Waiting on that id belongs in a background poller subagent; an unwaited `show_agent` by id returns the result, and `stop_agent` by id terminates a stuck agent.
 - The `show_session` response is compact and safe to poll from the main agent.

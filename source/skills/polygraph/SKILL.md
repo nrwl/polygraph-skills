@@ -14,17 +14,17 @@ allowed-tools:
 
 # Working with Polygraph
 
-**IMPORTANT:** Polygraph keeps local clones only for *other* repositories in the session. NEVER `cd` into those clones or access their files directly — work in other repositories ALWAYS happens through the Polygraph MCP `spawn_agent` tool, invoked {% if platform == "codex" %}via Codex Polygraph subagents{% elsif platform == "claude" %}via background `polygraph-delegate-subagent` Tasks{% elsif platform == "opencode" %}via `@polygraph-delegate-subagent`{% else %}directly{% endif %}.
+**IMPORTANT:** Polygraph keeps local clones only for *other* repositories in the session. NEVER `cd` into those clones or access their files directly — work in other repositories ALWAYS happens through the Polygraph MCP `spawn_agent` tool. Before delegating anything, read [`reference/delegation.md`](reference/delegation.md).
 
 {% if platform == "codex" %}
 ## Critical Routing Rule (Codex Parent Conversation)
 
 Read this before the tool table below — it determines which tools are yours to call directly.
 
-- Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`. Codex `spawn_agent` launches the local custom subagents (`polygraph-init-subagent`, `polygraph-delegate-subagent`). The Polygraph MCP `spawn_agent` runs work inside another repository and must only be invoked from inside those subagents.
+- Codex `spawn_agent` ≠ Polygraph MCP `spawn_agent`. Codex `spawn_agent` launches the local custom subagents (`polygraph-init-subagent`, `polygraph-delegate-subagent`). The Polygraph MCP `spawn_agent` starts work inside another repository and returns a delegation id; calling it directly from this conversation is fine.
 - **For new sessions:** call Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"`. Do NOT call Polygraph MCP `list_repos` or `start_session` directly from this conversation.
 - **For explicit repo additions to an existing session:** if the user gives exact refs by ID, short name, full name, GitHub `owner/repo` slug, or URL-like slug, call Polygraph MCP `add_repo` directly with those refs. Do NOT call `list_repos` or launch candidate discovery first.
-- **For repo work:** call Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"`. Do NOT call Polygraph MCP `spawn_agent` or `show_agent` directly from this conversation; collect results with `wait_agent` when needed.
+- **For repo work:** call the Polygraph MCP `spawn_agent` directly to start the child and get a delegation id, then launch Codex `spawn_agent` with `agent_type: "polygraph-delegate-subagent"` to wait on that id and collect it with `wait_agent`. Waited `show_agent` polling belongs in that subagent; unwaited `show_agent` reads belong here. See `reference/delegation.md`.
 - Do NOT pass `fork_context: true` to Codex `spawn_agent` when `agent_type` is a custom agent — Codex rejects it.
 {% endif %}
 
@@ -51,9 +51,9 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `list_repos` | `polygraph repo list` | Discover candidate repositories. Candidate entries do not include repository descriptions; use `semanticQuery` for natural-language discovery. |
 | `start_session` | `polygraph session start --repo <ids>` | Initialize a Polygraph session with selected repositories |
 | `resume_session` | `polygraph session resume --session <id> --json` | Join an existing session from this conversation: a tracked adoption that performs the full reconstruct. On divergence it stays local by default; `reset` is an explicit, destructive opt-in. Divergence and post-join behavior are under "Explore an Existing Session". |
-| `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository. A repeat call for the same (repo, role) is delivered to that task as a follow-up; otherwise a new child starts. Roles and resume behavior are under "Multi-turn tasks". |
-| `show_agent` | — | Poll one repo's child status (one repo per call; `role` narrows to that agent). Status enum and the poll/state-machine flow are under "Multi-turn tasks". |
-| `stop_agent` | — | Cancel an in-progress child; its session is preserved for later read-only context restoration. |
+| `spawn_agent` | — | Start a child task, or send a follow-up to an active task, in another repository; returns a delegation id. A repeat call for the same (repo, role) is delivered to that task as a follow-up; otherwise a new child starts. See `reference/delegation.md`. |
+| `show_agent` | — | Poll by repo or delegation id; unwaited reads return the child's result. Waited calls are for the poller subagent, not the main conversation. See `reference/delegation.md`. |
+| `stop_agent` | — | Cancel an in-progress child by delegation id; its session is preserved for later read-only context restoration. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
@@ -75,7 +75,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 
 {% if platform == "claude" or platform == "opencode" %}
 
-**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in the "Initialize or Join Polygraph Session" section. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` and `show_agent` MUST ALWAYS be called via {% if platform == "claude" %}background Task subagents (`run_in_background: true`){% else %}`@polygraph-delegate-subagent`{% endif %} as described in the delegation sections below — NEVER call them directly in the main conversation.{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}
+**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in the "Initialize or Join Polygraph Session" section. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` is a fast, non-blocking call and IS allowed directly in the main conversation — it returns a delegation id. Waited `show_agent` POLLING must run in a background {% if platform == "claude" %}Task subagent (`run_in_background: true`){% else %}`@polygraph-delegate-subagent`{% endif %}, never inline. One-off unwaited `show_agent` reads in the main conversation are fine and expected — that is how you read a child's result. See [`reference/delegation.md`](reference/delegation.md).{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}
 {% elsif platform == "codex" %}
 
 **Routing reminder:** Per the Critical Routing Rule above, the parent conversation must use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` for new sessions and `agent_type: "polygraph-delegate-subagent"` for repo work — not the Polygraph MCP tools shown in the table. `wait_agent` collects results when needed.
@@ -110,13 +110,13 @@ The delegate/monitor/stop steps apply only when working across repos. A single-r
 {% if has_subagents %}
 
 0. **Initialize or join Polygraph session** - If you were spawned inside an existing session (the startup banner names a session ID), reuse it. Call `show_session` first; if it already has repos and the user did not ask to add more, you're done. If the user asks to add exact repo refs, call `add_repo` directly and skip candidate discovery. If the session has no repos and no exact refs were provided, launch the `polygraph-init-subagent` with that `sessionId` so it discovers candidates and uses `add_repo` (NOT `start_session`). Only when there is no session ID at all should the init subagent create a new session.
-1. **Delegate work to each repo** - Use the `polygraph-delegate-subagent` to start child agents. With the default role, delegate only to *other* repos — never to the repo you are in; work on it directly (your regular subagents are fine for local work — only Polygraph delegation is reserved for other repos). Delegating into the repo you are in is allowed only with an explicit non-default `role`. Parallel delegation across repos is encouraged. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below based on whether the child may need clarification.
+1. **Delegate work to each repo** - Call `spawn_agent` for each repo to get a delegation id, then launch one background `polygraph-delegate-subagent` per id to wait on it. With the default role, delegate only to *other* repos — never to the repo you are in; work on it directly (your regular subagents are fine for local work — only Polygraph delegation is reserved for other repos). Delegating into the repo you are in is allowed only with an explicit non-default `role`. Parallel delegation across repos is encouraged. Read [`reference/delegation.md`](reference/delegation.md) before delegating.
    {% else %}
 2. **Initialize or join Polygraph session** - If you already have a session ID, call `show_session` to fetch details. If the user asks to add exact repo refs, call `add_repo` directly and skip candidate discovery. Otherwise, discover candidate repos, select relevant repositories, and create a new session via `list_repos` and `start_session`.
-3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately). With the default role, delegate only to *other* repos — never to the repo you are in; work on it directly. Delegating into the repo you are in is allowed only with an explicit non-default `role`. Parallel delegation across repos is encouraged. Choose the Simple (fire-and-forget) or Multi-turn (interactive) pattern described below.
+3. **Delegate work to each repo** - Use `spawn_agent` to start child agents in other repositories (returns immediately with a delegation id). With the default role, delegate only to *other* repos — never to the repo you are in; work on it directly. Delegating into the repo you are in is allowed only with an explicit non-default `role`. Parallel delegation across repos is encouraged. Read [`reference/delegation.md`](reference/delegation.md) before delegating.
    {% endif %}
-4. **Monitor child agents** - Use `show_agent` to poll one repo's children (`repo` is required; pass `role` to narrow to one agent) and read each entry's `status` and `lastOutputLines` from the `children[]` array.
-5. **Stop child agents** (if needed) - Use `stop_agent` (with `role` when targeting a non-default agent) to cancel an in-progress child agent. The agent's session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
+4. **Monitor child agents** - Let the background poller subagent do the waiting. When it exits, read that child's answer with a single unwaited `show_agent(sessionId, id)` — `result.text` is the child's final message.
+5. **Stop child agents** (if needed) - Use `stop_agent` with the delegation id to cancel an in-progress child agent. The agent's session is preserved for later read-only context restoration; after a resume, wait for explicit user instructions before making changes.
 6. **Push branches** - Use `push_branch` after making commits. A required `description` must follow the Session Description Policy.
 7. **Create draft PRs** - Use `create_pr` to create linked draft PRs. Always pass `description` following the Session Description Policy.
 8. **Associate existing PRs** (optional) - Use `associate_pr` to link PRs created outside Polygraph.
@@ -226,125 +226,9 @@ Inspect the PR commits/diff and investigate the requested behavior. Report findi
 Use this workflow when the user asks which Polygraph session produced, is behind, or changed a particular commit — or a particular line of code. 
 **Read [`reference/session-by-commit.md`](reference/session-by-commit.md) before running any lookup.** That reference file holds clear, reliable steps for answering questions related to this.
 
-## Agent roles
+## Delegating to other repos
 
-A repository in a session can host multiple child agents at once, distinguished by **role**:
-
-- **Omit by default.** Set a `role` only when the user very explicitly asked for a named one, or when a skill the user invoked prescribes one (e.g. `adversarial-review` uses `reviewer`). Never pick one yourself.
-- **Purpose.** Roles let independent streams of work run concurrently in one repo — e.g. a default agent implementing a feature while a `reviewer` or `ci-investigator` runs alongside. Each (repo, role) pair has at most one active child.
-- **Default role.** An omitted `role` means the default role: `spawn_agent` without `role` starts or follows up with the repo's default-role agent.
-- **Logs.** Only default-role agents upload logs to the cloud and appear in the multiplexed log stream (`polygraph session logs`). Inspect non-default agents locally with `polygraph agent attach --role <role>`.
-
-## Simple tasks (fire-and-forget)
-
-Use this pattern when the task is well-defined and the child is not expected to need clarification. It is a single-round delegation: kick it off, poll until terminal, then push branch + create PR.
-
-{% if platform == "claude" %}
-
-Delegate through a background `Task` subagent rather than calling `spawn_agent`/`show_agent` in the main conversation — direct calls flood the context with polling noise. This is a hard requirement, not a suggestion.
-
-1. Launch one background `Task` per repo with `subagent_type: "polygraph:polygraph-delegate-subagent"` and `run_in_background: true`, passing `sessionId`, `repo`, `instruction`, and optional `role`/`context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
-2. Delegate to several repos in parallel by launching multiple background Tasks at once — one delegation per (repo, role). Read their output files later for progress.
-3. Each subagent watches `child.status` on its `children[]` entry (matching its repo and role) and exits at a terminal status — `'completed'`, `'failed'`, or `'cancelled'`.
-4. Once all report terminal, continue to `push_branch` + `create_pr`.
-
-To debug a stuck subagent you can call `show_agent` as a one-off, but routine polling belongs in the background subagents.
-
-{% elsif platform == "opencode" %}
-
-**CRITICAL:** `spawn_agent` and `show_agent` MUST ALWAYS be called via `@polygraph-delegate-subagent`, NEVER directly from the main conversation. Direct calls flood the context window with polling noise and degrade the user experience. This is a hard requirement, not a suggestion.
-
-1. For each repo, invoke `@polygraph-delegate-subagent` with `sessionId`, `repo`, `instruction`, optional `role`, and optional `context`. The subagent calls `spawn_agent`, then polls `show_agent` via chained `waitForTransitionMs` long-poll calls until terminal.
-2. Delegate to multiple repos in parallel by launching multiple `@polygraph-delegate-subagent` invocations — one delegation per (repo, role) at a time.
-3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
-4. Once all subagents report a terminal status, continue to `push_branch` + `create_pr`.
-
-To debug a stuck subagent you can call `show_agent` as a one-off, but routine polling belongs in the background subagents.
-
-{% elsif platform == "codex" %}
-
-**CRITICAL:** Routine Polygraph MCP `spawn_agent` and `show_agent` calls MUST run inside the custom Codex `polygraph-delegate-subagent`, not directly in the main conversation. Codex `spawn_agent` launches a local subagent; the Polygraph MCP `spawn_agent` starts work in another repository. Keeping the MCP delegate-and-poll loop inside `polygraph-delegate-subagent` prevents polling noise from filling the user's context.
-
-1. For each repo, launch `polygraph-delegate-subagent` via Codex's `spawn_agent`:
-
-{% raw %}
-
-```
-spawn_agent(
-  agent_type: "polygraph-delegate-subagent",
-  message: """
-    Parameters:
-    - sessionId: "<session-id>"
-    - repo: "<org/repo-name>"
-    - instruction: "<the task instruction>"
-    - role: "<optional role>"
-    - context: "<optional context>"
-
-    Call the Polygraph MCP spawn_agent for the repo, then poll show_agent via chained waitForTransitionMs long-poll calls until terminal. Return a structured summary with repo, status, session ID, and result text.
-  """
-)
-```
-
-{% endraw %}
-
-2. Delegate to multiple repos in parallel by launching multiple `polygraph-delegate-subagent` instances before waiting for results — one delegation per (repo, role) at a time.
-3. The subagent watches `child.status` on its delegation's `children[]` entry — the one matching its repo and role — and exits when it sees a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
-4. Collect completed results with `wait_agent` when the main flow needs them, then continue to `push_branch` + `create_pr`.
-
-To debug a stuck subagent you can call `show_agent` as a one-off, but routine polling belongs in the background subagents.
-
-{% else %}
-
-1. Call `spawn_agent` with `sessionId`, `repo`, `instruction`, and optionally `role` for each repo. The call returns immediately.
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (one call per repo — `repo` is required; pass `role` to narrow to one agent); watch `child.status` on the `children[]` entry for your delegation until it reaches a terminal status — typically `'completed'` or `'failed'` (and `'cancelled'` if it was stopped).
-3. Review `child.lastOutputLines` for the final log tail.
-4. Continue to `push_branch` + `create_pr`.
-
-{% endif %}
-
-Use Simple when the task is well-defined and the child will not need clarification.
-
-## Multi-turn tasks (interactive)
-
-Use this pattern when the child may need clarification, the task is exploratory, or interactive collaboration is desired. The orchestrator exposes paused children via the `'input-required'` status.
-
-1. Call `spawn_agent` with the initial `instruction` (and optionally `role`). Parse the response:
-
-   ```json
-   { "taskId": "…", "message": "…", "status": "delegated" }
-   ```
-
-2. Poll `show_agent` via chained `waitForTransitionMs` long-poll calls (`repo` is required; pass the same `role` you spawned with to narrow to that agent). The response shape is `{ children: PolygraphChildStatusItem[] }` with one entry per matching agent in that repo. On your delegation's entry, inspect:
-
-   - `child.status` — one of `'created'`, `'in-progress'`, `'input-required'`, `'permission-required'`, `'completed'`, `'failed'`, `'cancelled'` (British double-L on `'cancelled'`).
-   - `child.inputRequiredQuestion` — populated only when `child.status === 'input-required'`.
-   - `child.lastOutputLines` — recent log tail.
-   - `child.repoFullName` — which repo is talking.
-
-   Drive the state machine:
-
-   - `child.status === 'in-progress'` or `'created'` — continue polling.
-   - `child.status === 'input-required'` — read `child.inputRequiredQuestion`, surface it to the user verbatim (e.g. "The child agent in `{child.repoFullName}` needs input: {child.inputRequiredQuestion}"), get the answer, then call `spawn_agent` again with the same `repo`, the same `role`, and `instruction: <answer>` — it is routed to that (repo, role)'s active task automatically. Continue polling.
-   - `child.status === 'completed'` — read `child.lastOutputLines`, proceed to `push_branch` + `create_pr`.
-   - `child.status === 'failed'` — read `child.lastOutputLines`, surface the failure.
-   - `child.status === 'cancelled'` — the child was stopped via `stop_agent`; see below.
-   - `child.status === 'permission-required'` — the child is waiting on a permission decision; see "Handling permission requests" below.
-
-3. To abort mid-flight, call `stop_agent` with `{ sessionId, repo, role? }`. The response is:
-
-   ```json
-   {
-     "taskId": "…",
-     "state": "cancelled",
-     "sessionPreserved": true,
-     "output": "…",
-     "message": "…"
-   }
-   ```
-
-   Because `sessionPreserved: true`, the stopped agent's session can be restored later for context. After resuming, do not make changes or continue prior work until the user explicitly asks for changes.
-
-Use Multi-turn when the child may need clarification, the task is exploratory, or interactive collaboration is desired. Otherwise use Simple.
+Working across more than one repo, or delegating any task? Read [`reference/delegation.md`](reference/delegation.md) first — required. Delegation is the only way to act on other repos, and the reference holds the contract that keeps it cheap and trackable: skipping it leads to re-pasting briefs, polling in the main conversation, and touching other repos' clones directly — each of which burns tokens or breaks session tracking.
 
 {% if platform == "opencode" %}
 <!-- opencode-only gate. Claude and Codex parents handle permission gates via the native
@@ -486,23 +370,24 @@ If the session has a description timeline, also display:
 
 {% if platform == "claude" %}
 
-1. **Delegate via background subagents** — run every `spawn_agent`/`show_agent` through `Task(run_in_background: true)`; direct calls flood the context with polling noise.
+1. **Wait in background subagents** — `spawn_agent` is fine to call directly, but every waited `show_agent` poll belongs in a `Task(run_in_background: true)`; inline polling floods the context with status noise.
    {% elsif platform == "opencode" %}
-1. **MUST delegate via subagents** — You MUST use `@polygraph-delegate-subagent` for every `spawn_agent` and `show_agent` call. NEVER call these directly in the main conversation — it floods the context window with polling noise.
+1. **Wait in background subagents** — `spawn_agent` is fine to call directly, but every waited `show_agent` poll MUST go through `@polygraph-delegate-subagent`; inline polling floods the context window with status noise.
    {% elsif platform == "codex" %}
-1. **MUST route through Codex Polygraph subagents** — Use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` to create new sessions and `agent_type: "polygraph-delegate-subagent"` for every routine Polygraph MCP `spawn_agent` / `show_agent` delegate-and-poll loop. Collect results with `wait_agent` when needed.
+1. **Route waiting through Codex Polygraph subagents** — Use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` to create new sessions, and `agent_type: "polygraph-delegate-subagent"` to wait on each delegation id. The Polygraph MCP `spawn_agent` and unwaited `show_agent` reads are yours to call directly; collect poller results with `wait_agent`.
    {% else %}
-1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately, then poll with `show_agent`.
+1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately with a delegation id, then poll with `show_agent`.
    {% endif %}
-1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) via `show_agent` before pushing branches or creating PRs
+1. **Read each result once** — when a poller exits, read that child with a single unwaited `show_agent(sessionId, id)`; `result.text` is the child's final message. Only reach for an explicit `tail` if that is not enough.
+1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
 1. **Always pass `description`** when calling `create_pr`, `associate_pr`, or `update_session` — it is required and must follow the Session Description Policy
 1. **Test integration** before marking PRs ready
 1. **Coordinate merge order** if there are deployment dependencies
    {% if platform == "opencode" %}
-1. **NEVER call `spawn_agent` or `show_agent` directly**. These MUST ALWAYS go through `@polygraph-delegate-subagent`.
+1. **NEVER run a waited `show_agent` loop in the main conversation**. Waiting MUST always go through `@polygraph-delegate-subagent`.
    {% elsif platform == "codex" %}
-1. **NEVER call the Polygraph MCP `spawn_agent` or `show_agent` directly for routine delegation**. These MUST run inside `polygraph-delegate-subagent`.
+1. **NEVER run a waited `show_agent` loop in the main conversation**. Waiting MUST run inside `polygraph-delegate-subagent`.
    {% endif %}
-1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed (pass `role` to target a non-default agent). The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
+1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed (pass the delegation id). The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
