@@ -59,7 +59,7 @@ One-off unwaited reads like this are cheap and expected inline. It is the *waiti
 Only if `result.text` is missing, truncated, or the child failed in a way you cannot explain from it:
 
 - Pass an explicit `tail` to `show_agent` to pull recent log lines.
-- Page further back with the `page` param: `tail: 20, page: 2` returns the 20 lines before the newest 20, `page: 3` the window before that.
+- Page further back with the `page` param: `tail: 5, page: 2` returns the 5 lines before the newest 5, `page: 3` the window before that.
 - If the user wants to watch the run live, point them at `polygraph agent attach <repo>` (plus `--role <role>` for a non-default agent) — an interactive terminal view for humans, not a command for you to run.
 
 These are deliberate, targeted follow-ups. None of them belongs in a polling loop, and none of them is a reason to go looking at transcript files, `~/.polygraph/sessions`, or anything a harness saved to disk because a tool result was too large. `show_agent` is the supported interface.
