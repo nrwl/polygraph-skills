@@ -35,6 +35,8 @@ The main agent provides these parameters in the prompt:
 | `instruction` | The task instruction for the child agent                                     |
 | `role`        | (Optional) Agent slot within the repo; omit for the default role and never invent one. Pass the SAME role on every `spawn_agent`/`show_agent`/`stop_agent` call for this delegation. |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
+| `agent`       | (Optional) `claude`, `codex`, or `opencode` — harness for the child; forward verbatim to `spawn_agent` |
+| `model`       | (Optional) Model override for the child; forward verbatim to `spawn_agent`   |
 
 ## Delegating work
 
@@ -50,11 +52,13 @@ spawn_agent(
   repo: "<repo>",
   instruction: "<instruction>",
   role: "<role, if any>",
-  context: "<context>"
+  context: "<context>",
+  agent: "<agent, if any>",
+  model: "<model, if any>"
 )
 ```
 
-The call returns immediately — the child agent runs asynchronously.
+Include `agent` and `model` only when the parent supplied them. The call returns immediately — the child agent runs asynchronously.
 
 **Polling with long-poll waits:**
 

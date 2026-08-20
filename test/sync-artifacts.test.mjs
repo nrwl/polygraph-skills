@@ -446,6 +446,9 @@ test('delegation own-repo rule is scoped to the default role', () => {
       /non-default `role` \(e\.g\. `reviewer`\), delegating into the parent's own repo IS allowed/
     );
     assert.doesNotMatch(agent, /never delegate into the parent's own repo\./);
+    assert.match(agent, /\| `agent`\s+\| \(Optional\) `claude`, `codex`, or `opencode`/);
+    assert.match(agent, /\| `model`\s+\| \(Optional\) Model override for the child; forward verbatim to `spawn_agent`/);
+    assert.match(agent, /Include `agent` and `model` only when the parent supplied them\./);
 
     const skill = renderSkill('polygraph', platform);
     assert.match(
