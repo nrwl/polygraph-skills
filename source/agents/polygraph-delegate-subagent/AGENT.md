@@ -34,6 +34,7 @@ The main agent provides these parameters in the prompt:
 | `repo`        | Repository to delegate to (e.g., `org/repo-name`)                            |
 | `instruction` | The task instruction for the child agent                                     |
 | `role`        | (Optional) Agent slot within the repo; omit for the default role and never invent one. Pass the SAME role on every `spawn_agent`/`show_agent`/`stop_agent` call for this delegation. |
+| `agent`       | (Optional) AI agent implementation for the child: `claude`, `codex`, or `opencode`. Pass it through to `spawn_agent` exactly as given; omit when not provided and never pick one yourself. |
 | `context`     | (Optional) Additional context to pass to the child agent                     |
 
 ## Delegating work
@@ -50,6 +51,7 @@ spawn_agent(
   repo: "<repo>",
   instruction: "<instruction>",
   role: "<role, if any>",
+  agent: "<agent, if any>",
   context: "<context>"
 )
 ```
