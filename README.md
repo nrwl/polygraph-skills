@@ -38,7 +38,7 @@ It detects your AI agent — Claude Code, Codex, OpenCode, and more — and inst
 ## Skills
 
 - **polygraph** — Comprehensive guidance for Polygraph sessions: shared context, repository graph visibility, PR/CI state, delegation, and session management.
-- **adversarial-review** — Second-opinion review of a session's work by independent reviewer agents, one per repo, running under a read-only `reviewer` role.
+- **adversarial-review** — Second-opinion review by independent per-repo agents that presents and attaches one consolidated review artifact.
 - **await-polygraph-ci** — Wait for CI pipelines to settle across all repos in a session, investigate failures, and present fix options.
 - **get-latest-ci** — One-shot fetch of the latest CI pipeline execution for the current branch.
 - **session-debrief** — Analyze the raw logs of past Polygraph sessions and produce structured, rank-ordered debriefs for use in a different session.
