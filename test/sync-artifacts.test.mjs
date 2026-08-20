@@ -414,7 +414,10 @@ test('adversarial-review skill stays the seven requested steps', () => {
     assert.match(rendered, /`upload_artifact`/);
 
     // Both skip conditions.
-    assert.match(rendered, /Skip if the user already named one\./);
+    assert.match(
+      rendered,
+      /Skip if the user or the launch instruction already named one — never re-ask a choice that was already made\./
+    );
     assert.match(rendered, /Skip if the user already said\./);
 
     // The initiator repo is reviewed by a delegated reviewer like any other,
