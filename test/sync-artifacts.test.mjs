@@ -31,6 +31,13 @@ function assertNoNonCodexDelegationText(rendered) {
   assert.doesNotMatch(rendered, /@polygraph-delegate-subagent/);
 }
 
+function readDelegationReference() {
+  return readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'delegation.md'),
+    'utf8'
+  );
+}
+
 function sectionBetween(content, start, end) {
   const startIndex = content.indexOf(start);
   assert.notEqual(startIndex, -1);
@@ -251,9 +258,16 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
-  assert.match(rendered, /- repo: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
+  // The spawn_agent call shape moved to reference/delegation.md. The parameter
+  // is `repo`, never `target`.
+  const delegationReference = readFileSync(
+    join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'delegation.md'),
+    'utf8'
+  );
+  assert.match(delegationReference, /repo: "<org\/repo-name>"/);
+  assert.doesNotMatch(delegationReference, /target: "<org\/repo-name>"/);
   const publishReference = readFileSync(
     join(rootDir, 'source', 'skills', 'polygraph', 'reference', 'publish-changes.md'),
     'utf8'
@@ -372,9 +386,11 @@ test('codex CI skills include built-in subagent guidance', () => {
 
   assert.match(awaitPolygraphCi, /Codex subagent wrapper/);
   assert.match(awaitPolygraphCi, /agent_type: "polygraph-delegate-subagent"/);
-  assert.match(awaitPolygraphCi, /the delegate-and-poll loop should run inside `polygraph-delegate-subagent`/);
-  assert.match(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", repo: "frontend"\)/);
+  assert.match(awaitPolygraphCi, /the waiting runs inside `polygraph-delegate-subagent`/);
+  assert.match(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", id: "<delegation-id>"\)/);
   assert.doesNotMatch(awaitPolygraphCi, /show_agent\(sessionId: "<session-id>", target: "frontend"\)/);
+  // The old instruction to pull log tails while polling must stay gone.
+  assert.doesNotMatch(awaitPolygraphCi, /Use the `tail` parameter to retrieve recent output lines/);
   assert.match(awaitPolygraphCi, /`wait_agent`/);
 
   assertNoNonCodexDelegationText(getLatestCi);
@@ -433,19 +449,20 @@ test('adversarial-review skill stays the seven requested steps', () => {
   assertNoNonCodexDelegationText(codex);
 });
 
+// The own-repo rule moved out of the (now id-only) subagent prompt and into the
+// delegation reference, which is where the spawning contract lives.
 test('delegation own-repo rule is scoped to the default role', () => {
-  for (const platform of ['claude', 'codex', 'opencode']) {
-    const agent = renderAgent('polygraph-delegate-subagent', platform);
-    assert.match(
-      agent,
-      /When `role` is omitted \(the default role\), `repo` must be a repository other than the one the parent agent is working in — never delegate into the parent's own repo with the default role\./
-    );
-    assert.match(
-      agent,
-      /non-default `role` \(e\.g\. `reviewer`\), delegating into the parent's own repo IS allowed/
-    );
-    assert.doesNotMatch(agent, /never delegate into the parent's own repo\./);
+  const reference = readDelegationReference();
+  assert.match(
+    reference,
+    /With the default role, `repo` must be a repository other than the one you are working in — never delegate into your own repo with the default role/
+  );
+  assert.match(
+    reference,
+    /Delegating into your own repo IS allowed with an explicit non-default `role`/
+  );
 
+  for (const platform of ['claude', 'codex', 'opencode']) {
     const skill = renderSkill('polygraph', platform);
     assert.match(
       skill,
@@ -458,74 +475,122 @@ test('delegation own-repo rule is scoped to the default role', () => {
   }
 });
 
-// Ocean's polygraph-native-subagents.ts parses `**Repo:**` out of this block to
-// join a finished delegation back to its child agent. The heading and the field
+// Ocean's polygraph-native-subagents.ts parses `**Repo:**` out of the exit
+// message to join a finished delegation back to its child agent. The field
 // labels are a cross-repo contract, not cosmetic formatting.
-test('delegate subagent pins the delegation result summary shape', () => {
+test('delegate subagent pins the exit message shape', () => {
   for (const platform of ['claude', 'codex', 'opencode']) {
     const agent = renderAgent('polygraph-delegate-subagent', platform);
 
-    assert.match(agent, /^## Polygraph Delegation Result$/m);
-    assert.match(agent, /^\*\*Repo:\*\* <repo>$/m);
-    assert.match(agent, /^\*\*Role:\*\* <role, or "default" when none was given>$/m);
-    assert.match(agent, /^\*\*Status:\*\* <success \| failed \| cancelled>$/m);
-    assert.match(agent, /^\*\*Session ID:\*\* <sessionId>$/m);
-    assert.match(agent, /^### Result$/m);
+    assert.match(agent, /^Child agent <id> is done\.$/m);
+    assert.match(agent, /^\*\*Repo:\*\* <repoFullName>$/m);
+    assert.match(agent, /^\*\*Delegation id:\*\* <id>$/m);
+    assert.match(agent, /^\*\*Status:\*\* <status>$/m);
+    assert.match(agent, /^Read the result with show_agent \(id: "<id>"\)\.$/m);
+    assert.match(agent, /replace "is done\." with "needs attention\."/);
 
-    // The timeout variant reuses the same heading and the same Repo/Status/
-    // Session ID labels, so the parser sees one shape either way.
-    assert.equal(agent.match(/^## Polygraph Delegation Result$/gm).length, 2);
-    assert.match(agent, /^\*\*Status:\*\* timeout$/m);
-    assert.match(agent, /^### Suggestions$/m);
+    // The verbose summary the poller used to build is gone — it echoed the
+    // child's output back through a second context for no reason.
+    assert.doesNotMatch(agent, /## Polygraph Delegation Result/);
+    assert.doesNotMatch(agent, /### Result/);
+    assert.doesNotMatch(agent, /### Suggestions/);
   }
 });
 
-// Regression guard for the token blowout measured in multi-repo runs: waited
-// polls must request 5-minute waits, must not ask for log tails, and must never
-// send the delegate hunting through transcripts when a poll comes back thin.
+// The poller is a doorbell, not a reporter: one tool, one argument shape, no
+// log fetching, no summarizing. This is what keeps multi-repo runs cheap.
 test('delegate subagent polling contract keeps status polls cheap', () => {
   for (const platform of ['claude', 'codex', 'opencode']) {
     const agent = renderAgent('polygraph-delegate-subagent', platform);
 
-    assert.match(agent, /waitForTransitionMs: 300000/);
+    assert.match(agent, /`waitForTransitionMs`: 300000/);
     assert.doesNotMatch(agent, /50000/);
-    assert.match(agent, /blocks up to ~5 minutes/);
+    assert.match(agent, /Each call blocks up to 5 minutes/);
 
-    // A mid-flight poll carries status only — that is the contract, not a fault.
-    assert.match(agent, /the response carries status only/);
-    assert.match(agent, /has no `lastOutputLines` on the child entry/);
-    assert.match(agent, /Do not pass a `tail` argument while polling/);
+    // Addressed by delegation id, never by repo + role.
+    assert.match(agent, /The delegation id returned by `spawn_agent`/);
+    assert.match(agent, /`children\[0\]`/);
 
-    // Recovery is exactly one call with a fixed small tail.
-    assert.match(agent, /exactly ONE more `show_agent` call/);
-    assert.match(agent, /`tail: 20`/);
-    assert.match(agent, /not a loop, and never an escalating `tail`/);
-
-    // No transcript spelunking when a result overflows the harness cap.
+    // It cannot fetch logs, and must not narrate the child's work.
     assert.match(
       agent,
-      /`show_agent` is the only supported way to learn a child's status or output/
+      /Never pass `tail`\. Never call any other tool\. Never read files, transcripts, or logs\./
     );
-    assert.match(agent, /~\/\.polygraph\/sessions/);
-    assert.match(agent, /\.harness-config/);
-    assert.match(agent, /\*\.jsonl/);
-    assert.match(agent, /`tail: 10`/);
+    assert.match(agent, /you never fetch logs/);
+    assert.match(agent, /Do not summarize, quote, or describe the child's work/);
+
+    // Spawning, stopping, and log paging are the main agent's job now.
+    assert.doesNotMatch(agent, /stop_agent/);
+    assert.doesNotMatch(agent, /lastOutputLines/);
+    assert.doesNotMatch(agent, /inputRequiredQuestion/);
   }
 });
 
-// Bash was vestigial — nothing in the documented flow shells out, and leaving it
-// granted is what let delegates grep saved results and raw child transcripts
-// after a poll overflowed the harness tool-result cap.
-test('delegate subagent is not granted Bash', () => {
+// One tool. Removing everything else is what makes "never read logs"
+// enforceable rather than advisory.
+test('delegate subagent is granted only the show_agent tool', () => {
   const claude = renderAgent('polygraph-delegate-subagent', 'claude');
   const frontmatter = claude.match(/^---\n([\s\S]*?)\n---/)[1];
 
   assert.match(frontmatter, /^name: polygraph-delegate-subagent$/m);
+  assert.match(frontmatter, /^model: haiku$/m);
   assert.match(frontmatter, /^tools:$/m);
-  assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__spawn_agent/);
   assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__show_agent/);
-  assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__stop_agent/);
+  assert.match(frontmatter, /description: Waits for one Polygraph child agent/);
+
+  // Exactly one tool entry, and it is not Bash / spawn_agent / stop_agent.
+  assert.equal((frontmatter.match(/^\s*-\s+\S+$/gm) || []).length, 1);
+  assert.doesNotMatch(frontmatter, /spawn_agent/);
+  assert.doesNotMatch(frontmatter, /stop_agent/);
   assert.doesNotMatch(frontmatter, /^\s*-\s*Bash\s*$/m);
+});
+
+test('delegation reference ships to every platform dist skill folder', () => {
+  for (const platform of ['claude', 'opencode', 'codex']) {
+    const outputDir = mkdtempSync(join(tmpdir(), `polygraph-${platform}-skills-`));
+    processSkills(platform, {
+      outputDir,
+      skillsDir: 'skills',
+      skillsFile: 'SKILL.md',
+    });
+
+    const reference = readFileSync(
+      join(outputDir, 'skills', 'polygraph', 'reference', 'delegation.md'),
+      'utf8'
+    );
+
+    // Reference files are copied verbatim, so they must carry no liquid.
+    assert.doesNotMatch(reference, /\{%|\{\{/);
+
+    // The pointer-based contract lives here in full.
+    assert.match(reference, /^## The delegation id$/m);
+    assert.match(reference, /^## Spawning$/m);
+    assert.match(reference, /^## Waiting$/m);
+    assert.match(reference, /^## Reading the result$/m);
+    assert.match(reference, /^## Follow-ups$/m);
+    assert.match(reference, /^## Roles$/m);
+    assert.match(reference, /^## Stopping$/m);
+    assert.match(reference, /Call `spawn_agent` directly from the main conversation/);
+    assert.match(reference, /`result\.text` is the child's final message/);
+    assert.match(reference, /returns a \*\*new\*\* delegation id/);
+    assert.match(reference, /Routine polling never happens in the main conversation/);
+    assert.match(reference, /never `cd` into them/);
+    assert.match(reference, /Restoring is read-only/);
+    assert.match(reference, /description `Delegate to <repo>`/);
+
+    // The skill keeps only the required-reading pointer.
+    const rendered = renderSkill('polygraph', platform);
+    assert.match(
+      rendered,
+      /Read \[`reference\/delegation\.md`\]\(reference\/delegation\.md\) first — required\./
+    );
+    assert.match(rendered, /burns tokens or breaks session tracking/);
+
+    // The moved doctrine must not be duplicated back into the skill.
+    assert.doesNotMatch(rendered, /## Simple tasks \(fire-and-forget\)/);
+    assert.doesNotMatch(rendered, /## Multi-turn tasks \(interactive\)/);
+    assert.doesNotMatch(rendered, /## Agent roles/);
+  }
 });
 
 test('pack-and-copy skill keeps consumer CI installable', () => {
@@ -563,16 +628,23 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(initAgent.developer_instructions, /Do NOT call `spawn_agent`/);
 
   assert.equal(delegateAgent.name, 'polygraph-delegate-subagent');
-  assert.match(delegateAgent.description, /Delegates work to a child agent/);
+  assert.match(delegateAgent.description, /Waits for one Polygraph child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
-  assert.match(delegateAgent.developer_instructions, /Polling with long-poll waits/);
-  assert.match(delegateAgent.developer_instructions, /waitForTransitionMs: 300000/);
+  assert.match(delegateAgent.developer_instructions, /^## Loop$/m);
+  assert.match(delegateAgent.developer_instructions, /`waitForTransitionMs`: 300000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /backoff/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /fallback/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /sleep/i);
-  assert.match(delegateAgent.developer_instructions, /Resume\/reconstruction is read-only/);
-  assert.match(delegateAgent.developer_instructions, /After resuming, wait for explicit user instructions/);
+
+  // Resume-is-read-only doctrine moved to the delegation reference along with
+  // the rest of the spawning contract.
+  const reference = readDelegationReference();
+  assert.match(reference, /Restoring is read-only/);
+  assert.match(
+    reference,
+    /do not continue the prior work or make further changes until the user explicitly asks for them/
+  );
 });
 
 test('opencode agents render as markdown subagents for plugin registration', () => {
@@ -593,10 +665,12 @@ test('opencode agents render as markdown subagents for plugin registration', () 
   assert.match(initAgent, /# Polygraph Init Subagent/);
   assert.doesNotMatch(initAgent, /^name = /m);
 
-  assert.match(delegateAgent, /^---\n\s*description: Delegates work to a child agent/);
+  assert.match(delegateAgent, /^---\n\s*description: Waits for one Polygraph child agent/);
   assert.match(delegateAgent, /\nmode: subagent\n\s*---\n/);
   assert.match(delegateAgent, /# Polygraph Delegate Subagent/);
   assert.doesNotMatch(delegateAgent, /^developer_instructions = /m);
+  // OpenCode gets no `tools:` list, so the one-tool guarantee is Claude-side.
+  assert.doesNotMatch(delegateAgent, /^tools:$/m);
 });
 
 test('opencode skill names are native-compatible and match their directories', () => {
