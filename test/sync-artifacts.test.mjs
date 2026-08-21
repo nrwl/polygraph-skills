@@ -514,7 +514,7 @@ test('delegate subagent polling contract keeps status polls cheap', () => {
     // It cannot fetch logs, and must not narrate the child's work.
     assert.match(
       agent,
-      /Never pass `tail`\. Never call any other tool\. Never read files, transcripts, or logs\./
+      /Never pass `tail`\. Apart from the CLI fallback above, never call any other tool, and never read files, transcripts, or logs\./
     );
     assert.match(agent, /you never fetch logs/);
     assert.match(agent, /Do not summarize, quote, or describe the child's work/);
@@ -526,9 +526,10 @@ test('delegate subagent polling contract keeps status polls cheap', () => {
   }
 });
 
-// One tool. Removing everything else is what makes "never read logs"
-// enforceable rather than advisory.
-test('delegate subagent is granted only the show_agent tool', () => {
+// One status call plus a shell to run its CLI equivalent. Withholding
+// everything else is what makes "never read logs" enforceable rather than
+// advisory.
+test('delegate subagent is granted only show_agent and a shell', () => {
   const claude = renderAgent('polygraph-delegate-subagent', 'claude');
   const frontmatter = claude.match(/^---\n([\s\S]*?)\n---/)[1];
 
@@ -536,13 +537,30 @@ test('delegate subagent is granted only the show_agent tool', () => {
   assert.match(frontmatter, /^model: haiku$/m);
   assert.match(frontmatter, /^tools:$/m);
   assert.match(frontmatter, /mcp__plugin_polygraph_polygraph-mcp__show_agent/);
+  assert.match(frontmatter, /^\s*-\s*Bash\s*$/m);
   assert.match(frontmatter, /description: Waits for one Polygraph child agent/);
 
-  // Exactly one tool entry, and it is not Bash / spawn_agent / stop_agent.
-  assert.equal((frontmatter.match(/^\s*-\s+\S+$/gm) || []).length, 1);
+  // Exactly those two entries — no spawning, stopping, or log paging.
+  assert.equal((frontmatter.match(/^\s*-\s+\S+$/gm) || []).length, 2);
   assert.doesNotMatch(frontmatter, /spawn_agent/);
   assert.doesNotMatch(frontmatter, /stop_agent/);
-  assert.doesNotMatch(frontmatter, /^\s*-\s*Bash\s*$/m);
+});
+
+// The MCP server can be uninstalled, or still be starting up when a spawned
+// subagent takes its first turn — in which case show_agent is simply absent
+// from the tool list. The CLI is the same call by another route.
+test('delegate subagent falls back to the polygraph CLI', () => {
+  for (const platform of ['claude', 'codex', 'opencode']) {
+    const agent = renderAgent('polygraph-delegate-subagent', platform);
+
+    assert.match(
+      agent,
+      /polygraph agent show --session <sessionId> --id <id> --wait-for-transition-ms 300000/
+    );
+    assert.match(agent, /Prefer the MCP tool/);
+    assert.match(agent, /Check your available tools before the first poll/);
+    assert.match(agent, /use the CLI for the rest of the loop and do not switch back/);
+  }
 });
 
 test('delegation reference ships to every platform dist skill folder', () => {
@@ -634,8 +652,11 @@ test('codex agents render as valid custom agent TOML', () => {
   assert.match(delegateAgent.developer_instructions, /`waitForTransitionMs`: 300000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /waitForTransitionMs: 50000/);
   assert.doesNotMatch(delegateAgent.developer_instructions, /backoff/i);
-  assert.doesNotMatch(delegateAgent.developer_instructions, /fallback/i);
   assert.doesNotMatch(delegateAgent.developer_instructions, /sleep/i);
+  assert.match(
+    delegateAgent.developer_instructions,
+    /polygraph agent show --session <sessionId> --id <id> --wait-for-transition-ms 300000/
+  );
 
   // Resume-is-read-only doctrine moved to the delegation reference along with
   // the rest of the spawning contract.
@@ -669,7 +690,7 @@ test('opencode agents render as markdown subagents for plugin registration', () 
   assert.match(delegateAgent, /\nmode: subagent\n\s*---\n/);
   assert.match(delegateAgent, /# Polygraph Delegate Subagent/);
   assert.doesNotMatch(delegateAgent, /^developer_instructions = /m);
-  // OpenCode gets no `tools:` list, so the one-tool guarantee is Claude-side.
+  // OpenCode gets no `tools:` list, so the tool guarantee is Claude-side.
   assert.doesNotMatch(delegateAgent, /^tools:$/m);
 });
 
