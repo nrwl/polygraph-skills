@@ -397,13 +397,14 @@ test('codex CI skills include built-in subagent guidance', () => {
   assertNoNonCodexDelegationText(awaitPolygraphCi);
 });
 
-test('adversarial-review skill stays the seven requested steps', () => {
+test('adversarial-review skill presents and attaches one dedicated review artifact', () => {
   const claude = renderSkill('adversarial-review', 'claude');
   const codex = renderSkill('adversarial-review', 'codex');
   const opencode = renderSkill('adversarial-review', 'opencode');
 
   for (const rendered of [claude, codex, opencode]) {
     assert.match(rendered, /^---\n[\s\S]*?name: adversarial-review[\s\S]*?\n---\n/);
+    assert.match(rendered, /^description: Review a Polygraph session with independent per-repo reviewers and attach one consolidated review artifact\./m);
     assert.doesNotMatch(rendered, /\{%|\{\{/);
 
     // Density guard: the user's numbered steps and nothing else. Several
@@ -418,7 +419,7 @@ test('adversarial-review skill stays the seven requested steps', () => {
       '2. **Get the session description.**',
       '3. **Get each repo\'s plan.**',
       '4. **Delegate one reviewer per repo**',
-      '5. **Summarize.**',
+      '5. **Summarize and attach.**',
       '6. **Ask what next.**',
     ]);
     assert.match(rendered, /^7\. If the user selects "address the feedback"/m);
@@ -427,7 +428,15 @@ test('adversarial-review skill stays the seven requested steps', () => {
     // Tool names and parameters needed to execute the steps.
     assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
     assert.match(rendered, /`role: "reviewer"`/);
-    assert.match(rendered, /`upload_artifact`/);
+    assert.match(rendered, /one consolidated Markdown review with per-repo sections/);
+    assert.match(rendered, /present it to the user\. Then call `upload_artifact` once/);
+    assert.match(rendered, /`sessionId`/);
+    assert.match(rendered, /that review as `content`/);
+    assert.match(rendered, /`kind: "review"`/);
+    assert.match(rendered, /`format: "markdown"`/);
+    assert.match(rendered, /`adversarial-review-YYYY-MM-DDTHH-mm-ssZ\.md`/);
+    assert.match(rendered, /If the upload fails, report that separately without suppressing the review\./);
+    assert.doesNotMatch(rendered, /upload the summary/);
 
     // Both skip conditions.
     assert.match(rendered, /Skip if the user already named one\./);
