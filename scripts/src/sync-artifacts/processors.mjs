@@ -81,7 +81,7 @@ function writeArtifact(destPath, content) {
   writeFileSync(destPath, content);
 }
 
-function renderCodexAgentToml(agentDir, raw, platformKey) {
+export function renderCodexAgentToml(agentDir, raw, platformKey) {
   const description = extractAgentDescription(raw);
   const developerInstructions = stripLeadingFrontmatter(
     renderArtifact(raw, platformKey)

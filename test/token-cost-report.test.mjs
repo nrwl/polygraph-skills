@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -16,6 +17,15 @@ import {
   parseCliArgs,
   renderTokenCostReport,
 } from '../scripts/report-token-costs.mjs';
+import {
+  createPlatformConfigs,
+  renderArtifact,
+} from '../scripts/src/sync-artifacts/common.mjs';
+import {
+  processAgents,
+  processSkills,
+  renderCodexAgentToml,
+} from '../scripts/src/sync-artifacts/processors.mjs';
 
 test('counts Unicode characters and rounds token estimates up', () => {
   assert.equal(countCharacters('four\n'), 5);
@@ -43,17 +53,20 @@ test('lists polygraph references immediately after the main skill', () => {
     writeFixture(rootDir, 'source/skills/zeta/SKILL.md', 'zeta');
     writeFixture(rootDir, 'source/agents/worker/AGENT.md', 'worker');
 
-    const entries = collectTokenCostEntries({ rootDir });
+    const entries = collectTokenCostEntries({
+      rootDir,
+      platforms: ['claude'],
+    });
 
     assert.deepEqual(
-      entries.map(({ kind, name }) => [kind, name]),
+      entries.map(({ platform, kind, name }) => [platform, kind, name]),
       [
-        ['Skill', 'alpha'],
-        ['Skill', 'polygraph'],
-        ['Reference', '↳ polygraph/reference/a-first.md'],
-        ['Reference', '↳ polygraph/reference/z-last.md'],
-        ['Skill', 'zeta'],
-        ['Subagent', 'worker'],
+        ['claude', 'Skill', 'alpha'],
+        ['claude', 'Skill', 'polygraph'],
+        ['claude', 'Reference', '↳ polygraph/reference/a-first.md'],
+        ['claude', 'Reference', '↳ polygraph/reference/z-last.md'],
+        ['claude', 'Skill', 'zeta'],
+        ['claude', 'Subagent', 'worker'],
       ]
     );
     assert.deepEqual(
@@ -75,16 +88,112 @@ test('lists polygraph references immediately after the main skill', () => {
   }
 });
 
+test('measures the same compiled content produced for each agent', () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'polygraph-compiled-costs-'));
+  const skill = [
+    '---',
+    'name: conditional',
+    'description: Conditional skill',
+    '---',
+    '{% if platform == "claude" %}Claude only{% elsif platform == "codex" %}Codex only{% else %}OpenCode only{% endif %}',
+    '',
+  ].join('\n');
+  const agent = [
+    '---',
+    'description: Conditional agent',
+    '---',
+    '{% if platform == "claude" %}Claude agent{% elsif platform == "codex" %}Codex agent{% else %}OpenCode agent{% endif %}',
+    '',
+  ].join('\n');
+
+  try {
+    writeFixture(rootDir, 'source/skills/conditional/SKILL.md', skill);
+    writeFixture(rootDir, 'source/agents/conditional/AGENT.md', agent);
+
+    const entries = collectTokenCostEntries({ rootDir });
+
+    for (const platform of ['claude', 'codex', 'opencode']) {
+      const skillEntry = entries.find(
+        (entry) =>
+          entry.platform === platform &&
+          entry.kind === 'Skill' &&
+          entry.name === 'conditional'
+      );
+      const agentEntry = entries.find(
+        (entry) =>
+          entry.platform === platform &&
+          entry.kind === 'Subagent' &&
+          entry.name === 'conditional'
+      );
+      const compiledAgent =
+        platform === 'codex'
+          ? renderCodexAgentToml('conditional', agent, platform)
+          : renderArtifact(agent, platform);
+
+      assert.equal(
+        skillEntry.characters,
+        countCharacters(renderArtifact(skill, platform))
+      );
+      assert.equal(agentEntry.characters, countCharacters(compiledAgent));
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('every report row matches the corresponding built artifact', () => {
+  const rootDir = resolve(import.meta.dirname, '..');
+  const outputRoot = mkdtempSync(join(tmpdir(), 'polygraph-report-dist-'));
+  const configs = createPlatformConfigs();
+
+  try {
+    for (const platform of ['claude', 'codex', 'opencode']) {
+      const outputDir = join(outputRoot, platform);
+      const config = { ...configs[platform], outputDir };
+      processSkills(platform, config);
+      processAgents(platform, config);
+
+      const entries = collectTokenCostEntries({
+        rootDir,
+        platforms: [platform],
+      });
+      for (const entry of entries) {
+        const artifactPath =
+          entry.kind === 'Subagent'
+            ? join(
+                outputDir,
+                config.agentsDir,
+                `${entry.name}${config.agentsExt}`
+              )
+            : join(
+                outputDir,
+                entry.path.replace(/^source\/skills\//, 'skills/')
+              );
+
+        assert.equal(
+          entry.characters,
+          countCharacters(readFileSync(artifactPath, 'utf8')),
+          `${platform}:${entry.name}`
+        );
+      }
+    }
+  } finally {
+    rmSync(outputRoot, { recursive: true, force: true });
+  }
+});
+
 test('renders a Markdown report with totals and the estimation ratio', () => {
   const report = renderTokenCostReport(
     [
       {
+        platform: 'claude',
         kind: 'Skill',
         name: 'polygraph',
         characters: 1234,
         estimatedTokens: 309,
       },
       {
+        platform: 'claude',
         kind: 'Subagent',
         name: 'worker',
         characters: 10,
@@ -95,6 +204,8 @@ test('renders a Markdown report with totals and the estimation ratio', () => {
   );
 
   assert.match(report, /1 estimated token per 4 characters/);
+  assert.match(report, /## Claude Code/);
+  assert.doesNotMatch(report, /## Codex/);
   assert.match(report, /\| Skill \| polygraph \| 1,234 \| 309 \|/);
   assert.match(
     report,
@@ -105,6 +216,7 @@ test('renders a Markdown report with totals and the estimation ratio', () => {
 test('escapes generated names before placing them in the Markdown table', () => {
   const report = renderTokenCostReport([
     {
+      platform: 'claude',
       kind: 'Skill',
       name: 'unsafe|@mention\n<img>',
       characters: 4,

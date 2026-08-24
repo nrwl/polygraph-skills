@@ -82,7 +82,8 @@ npm install
 npm run sync-artifacts
 ```
 
-Estimate the prompt cost of every canonical skill and subagent:
+Estimate the compiled prompt cost of every skill and subagent for Claude Code,
+Codex, and OpenCode:
 
 ```sh
 npm run report:token-costs

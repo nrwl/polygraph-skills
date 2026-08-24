@@ -48,6 +48,10 @@ jobs:
         with:
           node-version: 22.14.0
 
+      - name: Install trusted report dependencies
+        working-directory: trusted
+        run: npm ci --ignore-scripts
+
       - name: Generate token cost report
         run: >-
           node trusted/scripts/report-token-costs.mjs

@@ -2,9 +2,19 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { renderArtifact } from './src/sync-artifacts/common.mjs';
+import { renderCodexAgentToml } from './src/sync-artifacts/processors.mjs';
+
 const projectRoot = join(import.meta.dirname, '..');
 
 export const DEFAULT_CHARACTERS_PER_TOKEN = 4;
+export const SUPPORTED_PLATFORMS = ['claude', 'codex', 'opencode'];
+
+const platformLabels = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+};
 
 export function countCharacters(content) {
   return [...content].length;
@@ -18,8 +28,10 @@ export function estimateTokens(characterCount, charactersPerToken) {
 export function collectTokenCostEntries({
   rootDir = projectRoot,
   charactersPerToken = DEFAULT_CHARACTERS_PER_TOKEN,
+  platforms = SUPPORTED_PLATFORMS,
 } = {}) {
   validateCharactersPerToken(charactersPerToken);
+  validatePlatforms(platforms);
 
   const sourceDir = join(rootDir, 'source');
   if (!existsSync(sourceDir)) {
@@ -30,52 +42,66 @@ export function collectTokenCostEntries({
   const agentsDir = join(sourceDir, 'agents');
   const entries = [];
 
-  for (const skillName of listDirectories(skillsDir)) {
-    const skillPath = join(skillsDir, skillName, 'SKILL.md');
-    if (!isRegularFile(skillPath)) continue;
+  for (const platform of platforms) {
+    for (const skillName of listDirectories(skillsDir)) {
+      const skillPath = join(skillsDir, skillName, 'SKILL.md');
+      if (!isRegularFile(skillPath)) continue;
 
-    entries.push(
-      createEntry({
-        kind: 'Skill',
-        name: skillName,
-        filePath: skillPath,
-        rootDir,
-        charactersPerToken,
-      })
-    );
+      const raw = readFileSync(skillPath, 'utf8');
+      entries.push(
+        createEntry({
+          platform,
+          kind: 'Skill',
+          name: skillName,
+          sourcePath: skillPath,
+          rootDir,
+          content: renderArtifact(raw, platform),
+          charactersPerToken,
+        })
+      );
 
-    if (skillName === 'polygraph') {
-      const referenceDir = join(skillsDir, skillName, 'reference');
-      for (const referencePath of listMarkdownFiles(referenceDir)) {
-        const referenceName = toPosixPath(
-          relative(join(skillsDir, skillName), referencePath)
-        );
-        entries.push(
-          createEntry({
-            kind: 'Reference',
-            name: `↳ ${skillName}/${referenceName}`,
-            filePath: referencePath,
-            rootDir,
-            charactersPerToken,
-          })
-        );
+      if (skillName === 'polygraph') {
+        const referenceDir = join(skillsDir, skillName, 'reference');
+        for (const referencePath of listMarkdownFiles(referenceDir)) {
+          const referenceName = toPosixPath(
+            relative(join(skillsDir, skillName), referencePath)
+          );
+          entries.push(
+            createEntry({
+              platform,
+              kind: 'Reference',
+              name: `↳ ${skillName}/${referenceName}`,
+              sourcePath: referencePath,
+              rootDir,
+              content: readFileSync(referencePath, 'utf8'),
+              charactersPerToken,
+            })
+          );
+        }
       }
     }
-  }
 
-  for (const agentName of listDirectories(agentsDir)) {
-    const agentPath = join(agentsDir, agentName, 'AGENT.md');
-    if (!isRegularFile(agentPath)) continue;
+    for (const agentName of listDirectories(agentsDir)) {
+      const agentPath = join(agentsDir, agentName, 'AGENT.md');
+      if (!isRegularFile(agentPath)) continue;
 
-    entries.push(
-      createEntry({
-        kind: 'Subagent',
-        name: agentName,
-        filePath: agentPath,
-        rootDir,
-        charactersPerToken,
-      })
-    );
+      const raw = readFileSync(agentPath, 'utf8');
+      const content =
+        platform === 'codex'
+          ? renderCodexAgentToml(agentName, raw, platform)
+          : renderArtifact(raw, platform);
+      entries.push(
+        createEntry({
+          platform,
+          kind: 'Subagent',
+          name: agentName,
+          sourcePath: agentPath,
+          rootDir,
+          content,
+          charactersPerToken,
+        })
+      );
+    }
   }
 
   return entries;
@@ -87,28 +113,42 @@ export function renderTokenCostReport(
 ) {
   validateCharactersPerToken(charactersPerToken);
 
-  const totalCharacters = entries.reduce(
-    (total, entry) => total + entry.characters,
-    0
-  );
-  const totalTokens = entries.reduce(
-    (total, entry) => total + entry.estimatedTokens,
-    0
-  );
-  const rows = entries.map((entry) =>
-    `| ${entry.kind} | ${escapeMarkdownTableCell(entry.name)} | ${formatNumber(entry.characters)} | ${formatNumber(entry.estimatedTokens)} |`
-  );
+  const sections = [];
+  for (const platform of SUPPORTED_PLATFORMS) {
+    const platformEntries = entries.filter(
+      (entry) => entry.platform === platform
+    );
+    if (platformEntries.length === 0) continue;
+
+    const totalCharacters = platformEntries.reduce(
+      (total, entry) => total + entry.characters,
+      0
+    );
+    const totalTokens = platformEntries.reduce(
+      (total, entry) => total + entry.estimatedTokens,
+      0
+    );
+    const rows = platformEntries.map((entry) =>
+      `| ${entry.kind} | ${escapeMarkdownTableCell(entry.name)} | ${formatNumber(entry.characters)} | ${formatNumber(entry.estimatedTokens)} |`
+    );
+
+    sections.push(
+      `## ${platformLabels[platform]}`,
+      '',
+      '| Kind | Skill / subagent | Characters | Estimated tokens |',
+      '| --- | --- | ---: | ---: |',
+      ...rows,
+      `| **Total** | **${formatNumber(platformEntries.length)} files** | **${formatNumber(totalCharacters)}** | **${formatNumber(totalTokens)}** |`,
+      ''
+    );
+  }
 
   return [
-    '# Estimated token costs',
+    '# Estimated compiled token costs',
     '',
-    `Using 1 estimated token per ${formatNumber(charactersPerToken)} characters, rounded up per file. Counts come from the canonical files in \`source/\`.`,
+    `Using 1 estimated token per ${formatNumber(charactersPerToken)} characters, rounded up per compiled file. Each agent table is independent.`,
     '',
-    '| Kind | Skill / subagent | Characters | Estimated tokens |',
-    '| --- | --- | ---: | ---: |',
-    ...rows,
-    `| **Total** | **${formatNumber(entries.length)} files** | **${formatNumber(totalCharacters)}** | **${formatNumber(totalTokens)}** |`,
-    '',
+    ...sections,
   ].join('\n');
 }
 
@@ -180,19 +220,21 @@ export function runTokenCostReport(args = process.argv.slice(2)) {
 }
 
 function createEntry({
+  platform,
   kind,
   name,
-  filePath,
+  sourcePath,
   rootDir,
+  content,
   charactersPerToken,
 }) {
-  const content = readFileSync(filePath, 'utf8');
   const characters = countCharacters(content);
 
   return {
+    platform,
     kind,
     name,
-    path: toPosixPath(relative(rootDir, filePath)),
+    path: toPosixPath(relative(rootDir, sourcePath)),
     characters,
     estimatedTokens: estimateTokens(characters, charactersPerToken),
   };
@@ -234,6 +276,18 @@ function isRegularFile(path) {
 function validateCharactersPerToken(value) {
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error('characters per token must be a positive number');
+  }
+}
+
+function validatePlatforms(platforms) {
+  if (!Array.isArray(platforms) || platforms.length === 0) {
+    throw new Error('at least one platform is required');
+  }
+
+  for (const platform of platforms) {
+    if (!SUPPORTED_PLATFORMS.includes(platform)) {
+      throw new Error(`unsupported platform: ${platform}`);
+    }
   }
 }
 
