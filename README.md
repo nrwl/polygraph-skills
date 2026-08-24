@@ -82,6 +82,17 @@ npm install
 npm run sync-artifacts
 ```
 
+Estimate the prompt cost of every canonical skill and subagent:
+
+```sh
+npm run report:token-costs
+```
+
+The report uses four characters per estimated token by default. Override the
+ratio when needed with `npm run report:token-costs -- --characters-per-token 3.5`.
+Pull requests run the same report when opened or updated and keep the latest
+results in a single collapsible comment.
+
 ## Releasing
 
 Run the `Release PR` GitHub Actions workflow with a version bump (`patch`, `minor`, or `major`).
