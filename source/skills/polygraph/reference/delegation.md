@@ -20,9 +20,13 @@ spawn_agent(
   repo: "<org/repo-name>",
   instruction: "<the task instruction>",
   role: "<optional role>",
-  context: "<optional context>"
+  context: "<optional context>",
+  agent: "<optional: claude | codex | opencode>",
+  model: "<optional model override>"
 )
 ```
+
+`agent` picks the child's harness and `model` overrides its default model; include either only when the user named one.
 
 Write the instruction as if to a competent engineer who cannot see your conversation: state the goal, the constraints, and what "done" looks like. The child has its own repo and its own context; it inherits nothing from yours.
 

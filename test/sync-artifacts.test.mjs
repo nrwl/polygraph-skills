@@ -427,6 +427,7 @@ test('adversarial-review skill presents and attaches one dedicated review artifa
 
     // Tool names and parameters needed to execute the steps.
     assert.match(rendered, /`claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter/);
+    assert.match(rendered, /If the user names a model, pass it via `spawn_agent`'s optional `model` parameter; don't ask about models\./);
     assert.match(rendered, /`role: "reviewer"`/);
     assert.match(rendered, /one consolidated Markdown review with per-repo sections/);
     assert.match(rendered, /present it to the user\. Then call `upload_artifact` once/);
@@ -469,6 +470,12 @@ test('delegation own-repo rule is scoped to the default role', () => {
   assert.match(
     reference,
     /Delegating into your own repo IS allowed with an explicit non-default `role`/
+  );
+  assert.match(reference, /agent: "<optional: claude \| codex \| opencode>"/);
+  assert.match(reference, /model: "<optional model override>"/);
+  assert.match(
+    reference,
+    /`agent` picks the child's harness and `model` overrides its default model; include either only when the user named one\./
   );
 
   for (const platform of ['claude', 'codex', 'opencode']) {

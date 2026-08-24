@@ -14,7 +14,7 @@ allowed-tools:
 
 # Adversarial Review
 
-1. **Pick the agent.** Ask whether Claude, Codex, or OpenCode should review — `claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter. Skip if the user already named one.
+1. **Pick the agent.** Ask whether Claude, Codex, or OpenCode should review — `claude`, `codex`, or `opencode` for `spawn_agent`'s `agent` parameter. Skip if the user already named one. If the user names a model, pass it via `spawn_agent`'s optional `model` parameter; don't ask about models.
 2. **Get the session description.**
 3. **Get each repo's plan.** Ask each repo's agent to provide the plan.
 4. **Delegate one reviewer per repo** in parallel, with `role: "reviewer"`. Pass the overall plan and that repo's plan, and ask it to review the code, identify issues, and return a summary. Do the delegation even for the "initiator" repo.
