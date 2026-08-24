@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { load as parseYaml } from 'js-yaml';
 import { parse } from 'smol-toml';
 
 import { renderArtifact, rootDir } from '../scripts/src/sync-artifacts/common.mjs';
@@ -18,6 +17,7 @@ import {
   buildOpenCodePackageJson,
   readRootPackageJson,
 } from '../scripts/src/sync-artifacts/package-artifacts.mjs';
+import { parseFrontmatter } from '../source/opencode/frontmatter.mjs';
 
 function renderSkill(skillName, platform = 'codex') {
   const raw = readFileSync(join(rootDir, 'source', 'skills', skillName, 'SKILL.md'), 'utf8');
@@ -27,12 +27,6 @@ function renderSkill(skillName, platform = 'codex') {
 function renderAgent(agentName, platform = 'codex') {
   const raw = readFileSync(join(rootDir, 'source', 'agents', agentName, 'AGENT.md'), 'utf8');
   return renderArtifact(raw, platform);
-}
-
-function parseFrontmatter(content) {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
-  assert.ok(match, 'expected rendered artifact to contain leading frontmatter');
-  return parseYaml(match[1]) ?? {};
 }
 
 function assertNoNonCodexDelegationText(rendered) {
@@ -734,7 +728,7 @@ test('codex agent model settings must be non-empty strings', () => {
     () => render('model_reasoning_effort: 3'),
     /"model_reasoning_effort".*non-empty string/
   );
-  assert.throws(() => render('model: 2025-01-01'), /"model".*non-empty string/);
+  assert.throws(() => render('model: true'), /"model".*non-empty string/);
 });
 
 test('codex agent frontmatter errors include the source path', () => {
@@ -773,7 +767,7 @@ Instructions`,
 test('claude session debrief agent uses haiku', () => {
   const rendered = renderAgent('session-debrief', 'claude');
 
-  assert.equal(parseFrontmatter(rendered).model, 'haiku');
+  assert.equal(parseFrontmatter(rendered).data.model, 'haiku');
 });
 
 test('opencode agents render as markdown subagents for plugin registration', () => {
@@ -855,8 +849,15 @@ test('opencode package is published as a native plugin package', () => {
   assert.equal(pkg.type, 'module');
   assert.deepEqual(pkg.exports, { './server': './server.js' });
   assert.equal(pkg.main, './server.js');
-  assert.deepEqual(pkg.dependencies, { 'js-yaml': '^4.1.1' });
-  assert.deepEqual(pkg.files, ['server.js', 'agent-session-link.mjs', 'skills/', 'agents/', 'README.md']);
+  assert.deepEqual(pkg.dependencies, { '@11ty/gray-matter': '^3.0.0' });
+  assert.deepEqual(pkg.files, [
+    'server.js',
+    'agent-session-link.mjs',
+    'frontmatter.mjs',
+    'skills/',
+    'agents/',
+    'README.md',
+  ]);
 });
 
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {

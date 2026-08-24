@@ -90,6 +90,7 @@ export function buildOpenCodePackageJson(pkgJson) {
   return buildPublishPackageJson(pkgJson, '@polygraph/opencode-plugin', [
     'server.js',
     'agent-session-link.mjs',
+    'frontmatter.mjs',
     'skills/',
     'agents/',
     'README.md',
@@ -100,7 +101,7 @@ export function buildOpenCodePackageJson(pkgJson) {
     },
     main: './server.js',
     dependencies: {
-      'js-yaml': pkgJson.devDependencies['js-yaml'],
+      '@11ty/gray-matter': pkgJson.devDependencies['@11ty/gray-matter'],
     },
   });
 }
@@ -213,6 +214,10 @@ export function finalizeOpenCodeDist(pkgJson) {
   cpSync(
     join(sourceDir, 'opencode', 'server.js'),
     join(opencodeDir, 'server.js')
+  );
+  cpSync(
+    join(sourceDir, 'opencode', 'frontmatter.mjs'),
+    join(opencodeDir, 'frontmatter.mjs')
   );
   buildSync({
     entryPoints: [join(sourceDir, 'opencode', 'agent-session-link.mjs')],

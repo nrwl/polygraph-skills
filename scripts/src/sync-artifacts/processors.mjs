@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { load as parseYaml } from 'js-yaml';
 import { stringify as stringifyToml } from 'smol-toml';
+import { parseFrontmatter } from '../../../source/opencode/frontmatter.mjs';
 import {
   renderArtifact,
   sourceDir,
@@ -90,9 +90,13 @@ export function renderCodexAgentToml(
   sourcePath = `${agentDir}/AGENT.md`
 ) {
   const rendered = renderArtifact(raw, platformKey);
-  const { frontmatter, body } = splitLeadingFrontmatter(rendered, sourcePath);
+  const { data: frontmatter, content: body } = parseFrontmatter(rendered, sourcePath);
   const description = extractAgentDescription(raw);
   const developerInstructions = body.trim();
+
+  if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    throw new Error(`Expected frontmatter in ${sourcePath} to be a YAML mapping`);
+  }
 
   const agent = {
     name: agentDir,
@@ -121,23 +125,4 @@ function extractAgentDescription(raw) {
   }
 
   return match[1].trim();
-}
-
-function splitLeadingFrontmatter(content, sourcePath) {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!match) return { frontmatter: {}, body: content };
-
-  let frontmatter;
-  try {
-    frontmatter = parseYaml(match[1]) ?? {};
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse frontmatter in ${sourcePath}: ${message}`);
-  }
-
-  if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
-    throw new Error(`Expected frontmatter in ${sourcePath} to be a YAML mapping`);
-  }
-
-  return { frontmatter, body: content.slice(match[0].length) };
 }

@@ -26,8 +26,8 @@
     "test": "node --test"
   },
   "devDependencies": {
+    "@11ty/gray-matter": "^3.0.0",
     "esbuild": "^0.28.0",
-    "js-yaml": "^4.1.1",
     "liquidjs": "^10.21.0",
     "smol-toml": "^1.6.1"
   }
