@@ -10,12 +10,6 @@ const projectRoot = join(import.meta.dirname, '..');
 export const DEFAULT_CHARACTERS_PER_TOKEN = 4;
 export const SUPPORTED_PLATFORMS = ['claude', 'codex', 'opencode'];
 
-const platformLabels = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};
-
 export function countCharacters(content) {
   return [...content].length;
 }
@@ -113,42 +107,49 @@ export function renderTokenCostReport(
 ) {
   validateCharactersPerToken(charactersPerToken);
 
-  const sections = [];
-  for (const platform of SUPPORTED_PLATFORMS) {
-    const platformEntries = entries.filter(
-      (entry) => entry.platform === platform
-    );
-    if (platformEntries.length === 0) continue;
-
-    const totalCharacters = platformEntries.reduce(
-      (total, entry) => total + entry.characters,
-      0
-    );
-    const totalTokens = platformEntries.reduce(
-      (total, entry) => total + entry.estimatedTokens,
-      0
-    );
-    const rows = platformEntries.map((entry) =>
-      `| ${entry.kind} | ${escapeMarkdownTableCell(entry.name)} | ${formatNumber(entry.characters)} | ${formatNumber(entry.estimatedTokens)} |`
-    );
-
-    sections.push(
-      `## ${platformLabels[platform]}`,
-      '',
-      '| Kind | Skill / subagent | Characters | Estimated tokens |',
-      '| --- | --- | ---: | ---: |',
-      ...rows,
-      `| **Total** | **${formatNumber(platformEntries.length)} files** | **${formatNumber(totalCharacters)}** | **${formatNumber(totalTokens)}** |`,
-      ''
-    );
+  const rowsByKey = new Map();
+  for (const entry of entries) {
+    const key = `${entry.kind}\0${entry.name}`;
+    const row = rowsByKey.get(key) ?? {
+      kind: entry.kind,
+      name: entry.name,
+      tokens: {},
+    };
+    row.tokens[entry.platform] = entry.estimatedTokens;
+    rowsByKey.set(key, row);
   }
+
+  const rows = [...rowsByKey.values()].map(
+    (row) =>
+      `| ${row.kind} | ${escapeMarkdownTableCell(row.name)} | ${formatTokens(row.tokens.claude)} | ${formatTokens(row.tokens.codex)} | ${formatTokens(row.tokens.opencode)} |`
+  );
+  const totals = Object.fromEntries(
+    SUPPORTED_PLATFORMS.map((platform) => {
+      const platformEntries = entries.filter(
+        (entry) => entry.platform === platform
+      );
+      return [
+        platform,
+        platformEntries.length === 0
+          ? undefined
+          : platformEntries.reduce(
+              (total, entry) => total + entry.estimatedTokens,
+              0
+            ),
+      ];
+    })
+  );
 
   return [
     '# Estimated compiled token costs',
     '',
-    `Using 1 estimated token per ${formatNumber(charactersPerToken)} characters, rounded up per compiled file. Each agent table is independent.`,
+    `Estimated at 1 token per ${formatNumber(charactersPerToken)} compiled characters, rounded up per file.`,
     '',
-    ...sections,
+    '| Kind | Skill / subagent | Claude Code | Codex | OpenCode |',
+    '| --- | --- | ---: | ---: | ---: |',
+    ...rows,
+    `| **Total** | **${formatNumber(rowsByKey.size)} files** | **${formatTokens(totals.claude)}** | **${formatTokens(totals.codex)}** | **${formatTokens(totals.opencode)}** |`,
+    '',
   ].join('\n');
 }
 
@@ -293,6 +294,10 @@ function validatePlatforms(platforms) {
 
 function formatNumber(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function formatTokens(value) {
+  return value === undefined ? '—' : formatNumber(value);
 }
 
 function escapeMarkdownTableCell(value) {

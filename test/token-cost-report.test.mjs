@@ -193,24 +193,55 @@ test('renders a Markdown report with totals and the estimation ratio', () => {
         estimatedTokens: 309,
       },
       {
+        platform: 'codex',
+        kind: 'Skill',
+        name: 'polygraph',
+        characters: 1200,
+        estimatedTokens: 300,
+      },
+      {
+        platform: 'opencode',
+        kind: 'Skill',
+        name: 'polygraph',
+        characters: 1000,
+        estimatedTokens: 250,
+      },
+      {
         platform: 'claude',
         kind: 'Subagent',
         name: 'worker',
         characters: 10,
         estimatedTokens: 3,
       },
+      {
+        platform: 'codex',
+        kind: 'Subagent',
+        name: 'worker',
+        characters: 8,
+        estimatedTokens: 2,
+      },
+      {
+        platform: 'opencode',
+        kind: 'Subagent',
+        name: 'worker',
+        characters: 4,
+        estimatedTokens: 1,
+      },
     ],
     4
   );
 
-  assert.match(report, /1 estimated token per 4 characters/);
-  assert.match(report, /## Claude Code/);
-  assert.doesNotMatch(report, /## Codex/);
-  assert.match(report, /\| Skill \| polygraph \| 1,234 \| 309 \|/);
+  assert.match(report, /Estimated at 1 token per 4 compiled characters/);
   assert.match(
     report,
-    /\| \*\*Total\*\* \| \*\*2 files\*\* \| \*\*1,244\*\* \| \*\*312\*\* \|/
+    /\| Kind \| Skill \/ subagent \| Claude Code \| Codex \| OpenCode \|/
   );
+  assert.match(report, /\| Skill \| polygraph \| 309 \| 300 \| 250 \|/);
+  assert.match(
+    report,
+    /\| \*\*Total\*\* \| \*\*2 files\*\* \| \*\*312\*\* \| \*\*302\*\* \| \*\*251\*\* \|/
+  );
+  assert.doesNotMatch(report, /\| Characters \|/);
 });
 
 test('escapes generated names before placing them in the Markdown table', () => {
