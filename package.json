@@ -21,6 +21,7 @@
   ],
   "scripts": {
     "sync-artifacts": "node scripts/sync-artifacts.mjs",
+    "report:token-costs": "node scripts/report-token-costs.mjs",
     "build": "npm run sync-artifacts",
     "test": "node --test"
   },
