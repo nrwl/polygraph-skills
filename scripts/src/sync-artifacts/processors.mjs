@@ -1,5 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { stringify as stringifyToml } from 'smol-toml';
+import { parseFrontmatter } from '../../../source/opencode/frontmatter.mjs';
 import {
   renderArtifact,
   sourceDir,
@@ -30,7 +32,7 @@ export function processAgents(platformKey, config) {
     const raw = readFileSync(srcPath, 'utf-8');
     const content =
       config.agentsFormat === 'toml'
-        ? renderCodexAgentToml(agentDir, raw, platformKey)
+        ? renderCodexAgentToml(agentDir, raw, platformKey, srcPath)
         : renderArtifact(raw, platformKey);
     const destPath = join(destDir, `${agentDir}${config.agentsExt}`);
     writeArtifact(destPath, content);
@@ -81,18 +83,39 @@ function writeArtifact(destPath, content) {
   writeFileSync(destPath, content);
 }
 
-export function renderCodexAgentToml(agentDir, raw, platformKey) {
+export function renderCodexAgentToml(
+  agentDir,
+  raw,
+  platformKey,
+  sourcePath = `${agentDir}/AGENT.md`
+) {
+  const rendered = renderArtifact(raw, platformKey);
+  const { data: frontmatter, content: body } = parseFrontmatter(rendered, sourcePath);
   const description = extractAgentDescription(raw);
-  const developerInstructions = stripLeadingFrontmatter(
-    renderArtifact(raw, platformKey)
-  ).trim();
+  const developerInstructions = body.trim();
 
-  return [
-    `name = ${tomlString(agentDir)}`,
-    `description = ${tomlString(description)}`,
-    `developer_instructions = ${tomlMultilineLiteral(developerInstructions)}`,
-    '',
-  ].join('\n');
+  if (typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    throw new Error(`Expected frontmatter in ${sourcePath} to be a YAML mapping`);
+  }
+
+  const agent = {
+    name: agentDir,
+    description,
+  };
+
+  for (const field of ['model', 'model_reasoning_effort']) {
+    const value = frontmatter[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`Expected "${field}" in ${sourcePath} to be a non-empty string`);
+    }
+
+    agent[field] = value.trim();
+  }
+
+  agent.developer_instructions = developerInstructions;
+
+  return stringifyToml(agent);
 }
 
 function extractAgentDescription(raw) {
@@ -102,20 +125,4 @@ function extractAgentDescription(raw) {
   }
 
   return match[1].trim();
-}
-
-function stripLeadingFrontmatter(content) {
-  return content.replace(/^---\n[\s\S]*?\n---\n?/, '');
-}
-
-function tomlString(value) {
-  return JSON.stringify(value);
-}
-
-function tomlMultilineLiteral(value) {
-  if (value.includes("'''")) {
-    return tomlString(value);
-  }
-
-  return `'''\n${value}\n'''`;
 }

@@ -12,7 +12,6 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import yaml from 'js-yaml';
 
 import {
   createOpenCodeSessionLinker,
@@ -20,6 +19,7 @@ import {
   linkOpenCodeSessionCreatedEvent,
   logHookFailure,
 } from './agent-session-link.mjs';
+import { parseFrontmatter } from './frontmatter.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = __dirname;
@@ -110,7 +110,7 @@ function loadAgents() {
 
     const name = path.basename(entry.name, '.md');
     const raw = readFileSync(path.join(agentsDir, entry.name), 'utf8');
-    const { data, content } = parseFrontmatter(raw);
+    const { data, content } = parseFrontmatter(raw, entry.name);
     const description = stringValue(data.description);
     if (!description) {
       throw new Error(`OpenCode agent ${entry.name} must define a description`);
@@ -128,18 +128,6 @@ function loadAgents() {
   }
 
   return result;
-}
-
-function parseFrontmatter(raw) {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) {
-    return { data: {}, content: raw };
-  }
-
-  return {
-    data: recordValue(yaml.load(match[1])) ?? {},
-    content: match[2],
-  };
 }
 
 function stringValue(value) {

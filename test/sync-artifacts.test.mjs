@@ -6,13 +6,18 @@ import { join } from 'node:path';
 import { parse } from 'smol-toml';
 
 import { renderArtifact, rootDir } from '../scripts/src/sync-artifacts/common.mjs';
-import { processAgents, processSkills } from '../scripts/src/sync-artifacts/processors.mjs';
+import {
+  processAgents,
+  processSkills,
+  renderCodexAgentToml,
+} from '../scripts/src/sync-artifacts/processors.mjs';
 import {
   buildCodexPluginManifest,
   buildMcpConfig,
   buildOpenCodePackageJson,
   readRootPackageJson,
 } from '../scripts/src/sync-artifacts/package-artifacts.mjs';
+import { parseFrontmatter } from '../source/opencode/frontmatter.mjs';
 
 function renderSkill(skillName, platform = 'codex') {
   const raw = readFileSync(join(rootDir, 'source', 'skills', skillName, 'SKILL.md'), 'utf8');
@@ -649,19 +654,32 @@ test('codex agents render as valid custom agent TOML', () => {
     agentsFormat: 'toml',
   });
 
-  const initAgent = parse(
-    readFileSync(join(outputDir, 'agents', 'polygraph-init-subagent.toml'), 'utf8')
-  );
-  const delegateAgent = parse(
-    readFileSync(join(outputDir, 'agents', 'polygraph-delegate-subagent.toml'), 'utf8')
-  );
+  const agentsDir = join(outputDir, 'agents');
+  const agents = new Map();
+  for (const file of readdirSync(agentsDir).filter((entry) => entry.endsWith('.toml'))) {
+    const content = readFileSync(join(agentsDir, file), 'utf8');
+    assert.doesNotThrow(() => agents.set(file, parse(content)), `${file} should contain valid TOML`);
+  }
+
+  const initAgent = agents.get('polygraph-init-subagent.toml');
+  const delegateAgent = agents.get('polygraph-delegate-subagent.toml');
+  const sessionDebriefAgent = agents.get('session-debrief.toml');
+
+  assert.ok(initAgent);
+  assert.ok(delegateAgent);
+  assert.ok(sessionDebriefAgent);
 
   assert.equal(initAgent.name, 'polygraph-init-subagent');
+  assert.deepEqual(Object.keys(initAgent).sort(), ['description', 'developer_instructions', 'name']);
   assert.match(initAgent.description, /initializes a Polygraph session/);
   assert.match(initAgent.developer_instructions, /# Polygraph Init Subagent/);
   assert.match(initAgent.developer_instructions, /Do NOT call `spawn_agent`/);
 
   assert.equal(delegateAgent.name, 'polygraph-delegate-subagent');
+  assert.deepEqual(Object.keys(delegateAgent).sort(), ['description', 'developer_instructions', 'name']);
+  assert.equal(delegateAgent.model, undefined);
+  assert.equal(delegateAgent.mode, undefined);
+  assert.equal(delegateAgent.tools, undefined);
   assert.match(delegateAgent.description, /Waits for one Polygraph child agent/);
   assert.match(delegateAgent.developer_instructions, /# Polygraph Delegate Subagent/);
   assert.match(delegateAgent.developer_instructions, /^## Loop$/m);
@@ -682,6 +700,74 @@ test('codex agents render as valid custom agent TOML', () => {
     reference,
     /do not continue the prior work or make further changes until the user explicitly asks for them/
   );
+
+  assert.equal(sessionDebriefAgent.name, 'session-debrief');
+  assert.deepEqual(Object.keys(sessionDebriefAgent).sort(), [
+    'description',
+    'developer_instructions',
+    'model',
+    'model_reasoning_effort',
+    'name',
+  ]);
+  assert.equal(sessionDebriefAgent.model, 'gpt-5.6-luna');
+  assert.equal(sessionDebriefAgent.model_reasoning_effort, 'medium');
+  assert.match(sessionDebriefAgent.developer_instructions, /# Session Debrief Subagent/);
+});
+
+test('codex agent model settings must be non-empty strings', () => {
+  const render = (frontmatter) =>
+    renderCodexAgentToml(
+      'test-agent',
+      `---\ndescription: Test agent\n${frontmatter}\n---\n\nInstructions`,
+      'codex',
+      'source/agents/test-agent/AGENT.md'
+    );
+
+  assert.throws(() => render('model:'), /"model".*non-empty string/);
+  assert.throws(
+    () => render('model_reasoning_effort: 3'),
+    /"model_reasoning_effort".*non-empty string/
+  );
+  assert.throws(() => render('model: true'), /"model".*non-empty string/);
+});
+
+test('codex agent frontmatter errors include the source path', () => {
+  assert.throws(
+    () =>
+      renderCodexAgentToml(
+        'test-agent',
+        '---\ndescription: "unterminated\n---\n\nInstructions',
+        'codex',
+        'source/agents/test-agent/AGENT.md'
+      ),
+    /Failed to parse frontmatter in source\/agents\/test-agent\/AGENT\.md/
+  );
+});
+
+test('codex agent descriptions preserve the raw source description', () => {
+  const rendered = renderCodexAgentToml(
+    'test-agent',
+    `---
+{% if platform == "claude" %}
+description: Runs inside Claude Code.
+{% elsif platform == "codex" %}
+description: Codex-specific description.
+model: gpt-5.6-luna
+{% endif %}
+---
+
+Instructions`,
+    'codex',
+    'source/agents/test-agent/AGENT.md'
+  );
+
+  assert.equal(parse(rendered).description, 'Runs inside Claude Code.');
+});
+
+test('claude session debrief agent uses haiku', () => {
+  const rendered = renderAgent('session-debrief', 'claude');
+
+  assert.equal(parseFrontmatter(rendered).data.model, 'haiku');
 });
 
 test('opencode agents render as markdown subagents for plugin registration', () => {
@@ -763,8 +849,15 @@ test('opencode package is published as a native plugin package', () => {
   assert.equal(pkg.type, 'module');
   assert.deepEqual(pkg.exports, { './server': './server.js' });
   assert.equal(pkg.main, './server.js');
-  assert.deepEqual(pkg.dependencies, { 'js-yaml': '^4.1.1' });
-  assert.deepEqual(pkg.files, ['server.js', 'agent-session-link.mjs', 'skills/', 'agents/', 'README.md']);
+  assert.deepEqual(pkg.dependencies, { '@11ty/gray-matter': '3.0.0' });
+  assert.deepEqual(pkg.files, [
+    'server.js',
+    'agent-session-link.mjs',
+    'frontmatter.mjs',
+    'skills/',
+    'agents/',
+    'README.md',
+  ]);
 });
 
 test('buildMcpConfig wraps MCP servers under mcpServers', () => {
