@@ -849,7 +849,7 @@ test('opencode package is published as a native plugin package', () => {
   assert.equal(pkg.type, 'module');
   assert.deepEqual(pkg.exports, { './server': './server.js' });
   assert.equal(pkg.main, './server.js');
-  assert.deepEqual(pkg.dependencies, { '@11ty/gray-matter': '^3.0.0' });
+  assert.deepEqual(pkg.dependencies, { '@11ty/gray-matter': '3.0.0' });
   assert.deepEqual(pkg.files, [
     'server.js',
     'agent-session-link.mjs',
