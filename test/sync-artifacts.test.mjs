@@ -418,9 +418,11 @@ test('adversarial-review skill presents and attaches one dedicated review artifa
     const body = rendered.replace(/^---\n[\s\S]*?\n---\n/, '');
     assert.ok(body.split(/\s+/).filter(Boolean).length < 200);
 
-    // Steps 1-6 are bolded and in order; step 7 is not bolded.
+    // Steps 2-6 are bolded and in order; step 1 leads with its skip
+    // condition (NXA-2264) so the bold label sits mid-sentence; step 7 is
+    // not bolded.
+    assert.match(rendered, /^1\. Skip this step entirely if a reviewer agent was already named/m);
     assert.deepEqual(rendered.match(/^\d\. \*\*[^*]+\*\*/gm), [
-      '1. **Pick the agent.**',
       '2. **Get the session description.**',
       '3. **Get each repo\'s plan.**',
       '4. **Delegate one reviewer per repo**',
@@ -444,8 +446,10 @@ test('adversarial-review skill presents and attaches one dedicated review artifa
     assert.match(rendered, /If the upload fails, report that separately without suppressing the review\./);
     assert.doesNotMatch(rendered, /upload the summary/);
 
-    // Both skip conditions.
-    assert.match(rendered, /Skip if the user already named one\./);
+    // Both skip conditions. Step 1's covers a reviewer named by the user or
+    // by the launching instruction (NXA-2264: don't re-ask after the CLI
+    // prompt already collected the choice).
+    assert.match(rendered, /by the user, or in the instruction that launched you \(e\.g\. from `polygraph session review --adversarial`\); in that case use that agent and do not ask\./);
     assert.match(rendered, /Skip if the user already said\./);
 
     // The initiator repo is reviewed by a delegated reviewer like any other,
