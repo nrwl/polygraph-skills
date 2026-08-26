@@ -282,6 +282,62 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assertNoNonCodexDelegationText(rendered);
 });
 
+test('cursor polygraph skill routes waiting through a background Task poller', () => {
+  const rendered = renderSkill('polygraph', 'cursor');
+
+  // Cursor is a subagent-capable parent: it must take the has_subagents
+  // workflow (init + delegate subagents), not the no-subagent fallback.
+  assert.match(rendered, /polygraph-init-subagent/);
+  assert.match(rendered, /polygraph-delegate-subagent/);
+  assert.match(rendered, /launch one background `polygraph-delegate-subagent` per id/);
+
+  // The poller lifecycle: background Task, collected with Await.
+  assert.match(rendered, /subagent_type: "polygraph-delegate-subagent"/);
+  assert.match(rendered, /run_in_background: true/);
+  assert.match(rendered, /`Await`/);
+  assert.match(rendered, /call `Await` again with the same background-task id/);
+
+  // The init subagent's launch mechanics are stated too — a foreground Task,
+  // since the parent needs its summary before continuing.
+  assert.match(rendered, /subagent_type: "polygraph-init-subagent"/);
+  assert.match(rendered, /without `run_in_background`/);
+
+  // The final read stays in the parent conversation, unwaited.
+  assert.match(rendered, /unwaited `show_agent`/);
+  assert.match(rendered, /NEVER run a waited `show_agent` loop in the main conversation/);
+
+  // The no-subagent fallback told the parent to poll inline. That is the exact
+  // instruction this rendering must no longer carry.
+  assert.doesNotMatch(rendered, /then poll with `show_agent`/);
+
+  // No other platform's invocation syntax may leak into the cursor artifact.
+  assert.doesNotMatch(rendered, /@polygraph-delegate-subagent/);
+  // Lookbehind: Cursor's own `subagent_type:` legitimately contains the Codex
+  // `agent_type:` spelling as a substring.
+  assert.doesNotMatch(rendered, /(?<!sub)agent_type: "polygraph-delegate-subagent"/);
+  assert.doesNotMatch(rendered, /(?<!sub)agent_type: "polygraph-init-subagent"/);
+  assert.doesNotMatch(rendered, /wait_agent/);
+  assert.doesNotMatch(rendered, /polygraph:polygraph-delegate-subagent/);
+  assert.doesNotMatch(rendered, /polygraph:polygraph-init-subagent/);
+
+  // Liquid must be fully resolved.
+  assert.doesNotMatch(rendered, /\{%|\{\{/);
+
+  // The shared reference names the cursor form and separates the two ids.
+  const reference = readDelegationReference();
+  assert.match(
+    reference,
+    /\*\*Cursor\*\* — a background `Task` with `subagent_type: "polygraph-delegate-subagent"`, `run_in_background: true`/
+  );
+  assert.match(reference, /Collect it with `Await`/);
+  assert.match(reference, /Collect the same background-task id again/);
+  assert.match(
+    reference,
+    /background-task id is the handle your own harness returned when you launched the poller/
+  );
+  assert.match(reference, /It is not the Polygraph delegation id/);
+});
+
 test('codex session-start skill routes session creation through init subagent', () => {
   const rendered = renderSkill('session-start');
 

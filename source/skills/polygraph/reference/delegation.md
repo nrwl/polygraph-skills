@@ -43,7 +43,9 @@ For each id, launch one background poller subagent whose entire job is to block 
 - **Codex** — launch `agent_type: "polygraph-delegate-subagent"` via Codex's own `spawn_agent`, and collect it with `wait_agent`.
 - **Cursor** — a background `Task` with `subagent_type: "polygraph-delegate-subagent"`, `run_in_background: true`, and description `Delegate to <repo>`. Collect it with `Await`.
 
-A collect step that returns before the child reaches a terminal status has not failed. It has only reached the end of its window. Collect again on the same task id, as many times as it takes. A child that runs for several minutes is the ordinary case, and it is never a reason to take the wait back into the main conversation.
+A collect step that returns while the poller subagent is still running has not failed. It has only reached the end of its collection window. Collect the same background-task id again, as many times as it takes for the poller subagent to stop. A poller that runs for several minutes is ordinary, and it is never a reason to take the wait back into the main conversation.
+
+The background-task id is the handle your own harness returned when you launched the poller. It is not the Polygraph delegation id (`frontend-1`), which addresses the child agent. Once the poller subagent has finished, do not collect it again: read the child instead, as described below. A child that stops for attention also ends the poller, so treat that as a finished poller and not as a collection window running out.
 
 The poller has exactly one tool and cannot read logs. It exits with a few lines naming the repo, the id, and the final status. That message is a doorbell, not a report — it tells you the child is worth reading, and nothing about what the child did.
 
