@@ -41,6 +41,9 @@ For each id, launch one background poller subagent whose entire job is to block 
 - **Claude Code** — a background `Task` with `subagent_type: "polygraph:polygraph-delegate-subagent"`, `run_in_background: true`, and description `Delegate to <repo>`. Fall back to the bare agent name only if the namespaced form is not found.
 - **OpenCode** — invoke `@polygraph-delegate-subagent`.
 - **Codex** — launch `agent_type: "polygraph-delegate-subagent"` via Codex's own `spawn_agent`, and collect it with `wait_agent`.
+- **Cursor** — a background `Task` with `subagent_type: "polygraph-delegate-subagent"`, `run_in_background: true`, and description `Delegate to <repo>`. Collect it with `Await`.
+
+A collect step that returns before the child reaches a terminal status has not failed. It has only reached the end of its window. Collect again on the same task id, as many times as it takes. A child that runs for several minutes is the ordinary case, and it is never a reason to take the wait back into the main conversation.
 
 The poller has exactly one tool and cannot read logs. It exits with a few lines naming the repo, the id, and the final status. That message is a doorbell, not a report — it tells you the child is worth reading, and nothing about what the child did.
 
