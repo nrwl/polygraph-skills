@@ -70,5 +70,16 @@ export function createPlatformConfigs() {
       skillsDir: 'skills',
       skillsFile: 'SKILL.md',
     },
+    cursor: {
+      outputDir: join(distDir, 'cursor'),
+      // cursor-agent loads agents/*.md from a --plugin-dir plugin in the
+      // same subagent format as project .cursor/agents/: markdown with
+      // name/description/model/readonly/is_background frontmatter.
+      supportsAgents: true,
+      agentsDir: 'agents',
+      agentsExt: '.md',
+      skillsDir: 'skills',
+      skillsFile: 'SKILL.md',
+    },
   };
 }

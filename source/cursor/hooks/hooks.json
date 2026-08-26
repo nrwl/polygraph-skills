@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node hooks/record-session-mapping.mjs cursor"
+      }
+    ]
+  }
+}

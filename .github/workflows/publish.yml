@@ -86,6 +86,10 @@ jobs:
         run: npm publish --provenance --access public
         working-directory: dist/codex
 
+      - name: Publish Cursor plugin on npm
+        run: npm publish --provenance --access public
+        working-directory: dist/cursor
+
       - name: Publish OpenCode plugin on npm
         run: npm publish --provenance --access public
         working-directory: dist/opencode

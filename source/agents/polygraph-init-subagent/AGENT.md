@@ -12,6 +12,9 @@ tools:
 {% elsif platform == "opencode" %}
 description: Discovers candidate repositories or adds exact repository refs directly, initializes a Polygraph session, or fetches details of an existing session. Returns a structured summary of the session with repos, repository IDs, and session URL.
 mode: subagent
+{% elsif platform == "cursor" %}
+name: polygraph-init-subagent
+description: Discovers candidate repositories or adds exact repository refs directly, initializes a Polygraph session, or fetches details of an existing session. Returns a structured summary of the session with repos, repository IDs, and session URL.
 {% endif %}
 ---
 
