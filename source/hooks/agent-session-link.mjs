@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
@@ -56,6 +56,17 @@ export function buildLinkAgentSessionArgs({
   return args;
 }
 
+/**
+ * Node runtime for the JS-entry fallback. This shim also runs inside
+ * non-Node hosts (the opencode plugin executes it in-process, and opencode
+ * is a compiled Bun binary), where process.execPath is not a Node
+ * executable — fall back to PATH resolution there.
+ */
+function nodeRuntime() {
+  const base = basename(process.execPath).toLowerCase();
+  return base === 'node' || base === 'node.exe' ? process.execPath : 'node';
+}
+
 export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   if (isManagedChildEnvironment(env)) return false;
 
@@ -67,18 +78,22 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
     delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   }
 
-  // POLYGRAPH_CLI may point at a plain JS entry rather than an executable
-  // (a dev build of the CLI, or a platform that cannot exec scripts
-  // directly). Run it with the current Node executable in that case.
-  const [file, fileArgs] = /\.[cm]?js$/i.test(command)
-    ? [process.execPath, [command, ...args]]
-    : [command, args];
-
-  const result = spawn(file, fileArgs, {
+  const spawnOptions = {
     encoding: 'utf8',
     env: commandEnv,
     stdio: ['ignore', 'ignore', 'pipe'],
-  });
+  };
+
+  let result = spawn(command, args, spawnOptions);
+
+  // POLYGRAPH_CLI may point at a plain JS entry that cannot be spawned
+  // directly: a dev build without the executable bit, or a platform that
+  // cannot exec scripts. A spawn that failed to LAUNCH ran nothing, so the
+  // retry under a Node runtime is side-effect free — and anything that
+  // spawns directly today keeps its exact behavior.
+  if (result?.error && /\.[cm]?js$/i.test(command)) {
+    result = spawn(nodeRuntime(), [command, ...args], spawnOptions);
+  }
 
   if (result?.error) throw result.error;
   if (result?.status !== 0) {

@@ -184,10 +184,10 @@ test('uses the configured Polygraph CLI executable', () => {
   assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
-test('runs a JS Polygraph CLI entry with the current Node executable', () => {
-  // A JS entry (a dev build of the CLI, or a platform that cannot exec
-  // scripts directly) is not directly spawnable; it must run under Node.
-  let invocation;
+test('spawns a directly-runnable JS Polygraph CLI entry unchanged', () => {
+  // An executable JS entry that spawns fine must keep its exact behavior;
+  // the Node fallback exists only for spawns that failed to launch.
+  const invocations = [];
   const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
   assert.equal(
     linkAgentSession(
@@ -197,17 +197,71 @@ test('runs a JS Polygraph CLI entry with the current Node executable', () => {
         source: 'hook',
       },
       (command, args, options) => {
-        invocation = { command, args, options };
+        invocations.push({ command, args, options });
         return { status: 0, stderr: '' };
       },
       env
     ),
     true
   );
-  assert.equal(invocation.command, process.execPath);
-  assert.equal(invocation.args[0], '/workspace/dist/bin/polygraph.js');
-  assert.equal(invocation.args[1], '_link-agent-session');
-  assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].command, '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocations[0].args[0], '_link-agent-session');
+});
+
+test('retries a JS Polygraph CLI entry under Node when the spawn fails to launch', () => {
+  // A JS entry commonly cannot be spawned directly: a dev build without
+  // the executable bit (EACCES) or a platform that cannot exec scripts.
+  // The failed spawn ran nothing, so the retry is side-effect free.
+  const invocations = [];
+  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
+  assert.equal(
+    linkAgentSession(
+      {
+        agentType: 'cursor',
+        agentSessionId: 'cursor-root',
+        source: 'hook',
+      },
+      (command, args, options) => {
+        invocations.push({ command, args, options });
+        return invocations.length === 1
+          ? { error: Object.assign(new Error('spawnSync EACCES'), { code: 'EACCES' }) }
+          : { status: 0, stderr: '' };
+      },
+      env
+    ),
+    true
+  );
+  assert.equal(invocations.length, 2);
+  assert.equal(invocations[0].command, '/workspace/dist/bin/polygraph.js');
+  // The test process is Node, so the fallback runtime is process.execPath.
+  assert.equal(invocations[1].command, process.execPath);
+  assert.equal(invocations[1].args[0], '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocations[1].args[1], '_link-agent-session');
+  assert.equal(invocations[1].options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
+});
+
+test('does not retry a non-JS command that fails to launch', () => {
+  const invocations = [];
+  assert.throws(
+    () =>
+      linkAgentSession(
+        {
+          agentType: 'claude',
+          agentSessionId: 'claude-session',
+          source: 'hook',
+        },
+        (command, args, options) => {
+          invocations.push({ command, args, options });
+          return {
+            error: Object.assign(new Error('spawnSync ENOENT'), { code: 'ENOENT' }),
+          };
+        },
+        { POLYGRAPH_CLI: '/usr/local/bin/polygraph' }
+      ),
+    /ENOENT/
+  );
+  assert.equal(invocations.length, 1);
 });
 
 test('identity-only links strip ambient session and capture-token evidence', () => {
