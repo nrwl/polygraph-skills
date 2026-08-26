@@ -27,8 +27,8 @@
   },
   "devDependencies": {
     "@11ty/gray-matter": "3.0.0",
-    "esbuild": "^0.28.2",
-    "liquidjs": "^10.29.0",
+    "esbuild": "0.28.2",
+    "liquidjs": "10.29.0",
     "smol-toml": "1.6.1"
   }
 }
