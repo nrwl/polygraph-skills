@@ -1,6 +1,6 @@
 # Publishing Changes Reference
 
-The branch-to-PR flow: push branches, create draft PRs, mark them ready, and associate PRs created outside Polygraph. `push_branch`, `create_pr`, and `associate_pr` all require a `description` following the Session Description Policy — read [`session-description.md`](session-description.md) before writing one.
+The branch-to-PR flow: push branches, create draft PRs, mark them ready, associate PRs created outside Polygraph, and update associated PRs. `push_branch`, `create_pr`, and `associate_pr` all require a `description` following the Session Description Policy — read [`session-description.md`](session-description.md) before writing one. `update_pr` does not require a session timeline description.
 
 ## Push Branches
 
@@ -151,3 +151,50 @@ associate_pr(
 ```
 
 **Returns** the list of PRs now associated with the session.
+
+## Update an Associated PR
+
+Use the MCP `update_pr` tool to update one PR already associated with the named Polygraph session. Do not use `gh` or call Ocean HTTP directly. `mark_pr_ready` remains a separate operation.
+
+**Parameters:**
+
+- `sessionId` (required): The Polygraph session ID.
+- `prUrl` (required): The URL of a PR already associated with the session.
+- `title` (optional): Replacement PR title.
+- `body` (optional): Replacement user-authored PR body. Pass an empty string to clear it. The managed Polygraph session footer remains server-owned.
+- `labels` (optional): A collection update with `mode` and `values`.
+- `assignees` (optional): A collection update with `mode` and `values`.
+
+Omitted fields remain unchanged. For `labels` and `assignees`:
+
+- `{ mode: "set", values: [...] }` replaces the complete collection. An empty `values` list clears it. Use `set` only when you intend to replace every value because it can remove labels or assignees applied by humans.
+- `add` and `remove` preserve unrelated values and require a non-empty `values` list.
+
+Set the complete label collection and clear the user-authored body:
+
+```
+update_pr(
+  sessionId: "<session-id>",
+  prUrl: "https://github.com/org/repo/pull/123",
+  body: "",
+  labels: {
+    mode: "set",
+    values: ["documentation", "release-note"]
+  }
+)
+```
+
+Add an assignee while leaving the title, body, labels, and other assignees unchanged:
+
+```
+update_pr(
+  sessionId: "<session-id>",
+  prUrl: "https://github.com/org/repo/pull/123",
+  assignees: {
+    mode: "add",
+    values: ["octocat"]
+  }
+)
+```
+
+Metadata updates do not require a session timeline `description`.

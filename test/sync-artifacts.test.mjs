@@ -181,6 +181,7 @@ test('session description reference ships to every platform dist skill folder', 
     assert.match(reference, /Prefer high-level state over file-by-file changelogs/);
     assert.match(reference, /Mention unresolved decisions or risks when they matter/);
     assert.match(reference, /include only next implementation steps/);
+    assert.match(reference, /Metadata updates through `update_pr` do not require a session timeline description/);
 
     // Dual-audience note.
     assert.match(reference, /humans, in the web UI/i);
@@ -231,6 +232,7 @@ test('publish changes reference ships to every platform dist skill folder', () =
     assert.match(reference, /^## Create Draft PRs$/m);
     assert.match(reference, /^## Mark PRs Ready$/m);
     assert.match(reference, /^## Associate Existing PRs$/m);
+    assert.match(reference, /^## Update an Associated PR$/m);
     assert.match(reference, /pushes from the local checkout/);
     assert.match(reference, /PR titles become squash-merge commit messages/);
     assert.match(reference, /transition PRs from DRAFT to OPEN status/);
@@ -239,6 +241,7 @@ test('publish changes reference ships to every platform dist skill folder', () =
     // The skill keeps only a short on-demand pointer to the reference file.
     const rendered = renderSkill('polygraph', platform);
     assert.match(rendered, /### Publish Changes \(Push Branches, Create PRs, Mark Ready\)/);
+    assert.match(rendered, /`update_pr` \| — \| Update title, user-authored body, labels, or assignees on one PR associated with a session/);
     assert.match(rendered, /read \[`reference\/publish-changes\.md`\]\(reference\/publish-changes\.md\)/);
     assert.doesNotMatch(rendered, /^### \d+\. Push Branches$/m);
     assert.doesNotMatch(rendered, /^### \d+\. Create Draft PRs$/m);
@@ -383,9 +386,14 @@ test('publish changes reference documents PR repository semantics', () => {
     '## Create Draft PRs',
     '## Mark PRs Ready'
   );
-  const associateStart = publishReference.indexOf('## Associate Existing PRs');
-  assert.notEqual(associateStart, -1);
-  const associatePrSection = publishReference.slice(associateStart);
+  const associatePrSection = sectionBetween(
+    publishReference,
+    '## Associate Existing PRs',
+    '## Update an Associated PR'
+  );
+  const updateStart = publishReference.indexOf('## Update an Associated PR');
+  assert.notEqual(updateStart, -1);
+  const updatePrSection = publishReference.slice(updateStart);
 
   assert.match(createPrSection, /`targetRepository` \(optional\): Target GitHub repository for fork PR creation or registration/);
   assert.match(createPrSection, /keep `owner` and `repo` set to the source repository/);
@@ -396,6 +404,26 @@ test('publish changes reference documents PR repository semantics', () => {
   assert.match(associatePrSection, /repo: "org\/repo"/);
   assert.doesNotMatch(associatePrSection, /URL-based association infers|Branch-based association uses/);
   assert.doesNotMatch(associatePrSection, /targetRepo|targetRepository/);
+  assert.doesNotMatch(associatePrSection, /update_pr/);
+
+  assert.match(updatePrSection, /MCP `update_pr` tool/);
+  assert.match(updatePrSection, /one PR already associated with the named Polygraph session/);
+  assert.match(updatePrSection, /Do not use `gh` or call Ocean HTTP directly/);
+  assert.match(updatePrSection, /`mark_pr_ready` remains a separate operation/);
+  assert.match(updatePrSection, /Omitted fields remain unchanged/);
+  assert.match(updatePrSection, /Pass an empty string to clear it/);
+  assert.match(updatePrSection, /managed Polygraph session footer remains server-owned/);
+  assert.match(updatePrSection, /replaces the complete collection/);
+  assert.match(updatePrSection, /An empty `values` list clears it/);
+  assert.match(updatePrSection, /can remove labels or assignees applied by humans/);
+  assert.match(updatePrSection, /`add` and `remove` preserve unrelated values and require a non-empty `values` list/);
+  assert.match(updatePrSection, /do not require a session timeline `description`/);
+  const updateExamples = [...updatePrSection.matchAll(/```\n([\s\S]*?)\n```/g)].map(
+    (match) => match[1]
+  );
+  assert.equal(updateExamples.length, 2);
+  assert.equal(updateExamples.filter((example) => /mode: "set"/.test(example)).length, 1);
+  assert.equal(updateExamples.filter((example) => /mode: "add"/.test(example)).length, 1);
 });
 
 test('polygraph skill points to the sandboxing reference and stays platform-clean', () => {
