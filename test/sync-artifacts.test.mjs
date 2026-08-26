@@ -890,3 +890,36 @@ test('buildMcpConfig can force an MCP server agent type', () => {
     },
   });
 });
+
+test('cursor agents render as markdown subagents in the cursor frontmatter dialect', () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-agents-'));
+
+  processAgents('cursor', {
+    outputDir,
+    supportsAgents: true,
+    agentsDir: 'agents',
+    agentsExt: '.md',
+  });
+
+  const initAgent = readFileSync(join(outputDir, 'agents', 'polygraph-init-subagent.md'), 'utf8');
+  const delegateAgent = readFileSync(join(outputDir, 'agents', 'polygraph-delegate-subagent.md'), 'utf8');
+  const debriefAgent = readFileSync(join(outputDir, 'agents', 'session-debrief.md'), 'utf8');
+
+  // Cursor subagent dialect: name/description (+ is_background for the
+  // background agents). No Claude tools list, no OpenCode mode field.
+  assert.match(initAgent, /^name: polygraph-init-subagent$/m);
+  assert.match(initAgent, /^description: Discovers candidate repositories/m);
+  assert.match(initAgent, /# Polygraph Init Subagent/);
+  assert.doesNotMatch(initAgent, /^is_background:/m);
+
+  assert.match(delegateAgent, /^name: polygraph-delegate-subagent$/m);
+  assert.match(delegateAgent, /^is_background: true$/m);
+  assert.match(debriefAgent, /^name: session-debrief$/m);
+  assert.match(debriefAgent, /^is_background: true$/m);
+
+  for (const rendered of [initAgent, delegateAgent, debriefAgent]) {
+    assert.doesNotMatch(rendered, /^tools:$/m);
+    assert.doesNotMatch(rendered, /^mode: subagent$/m);
+    assert.doesNotMatch(rendered, /^model:/m);
+  }
+});

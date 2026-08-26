@@ -202,6 +202,71 @@ export function finalizeCodexDist(pkgJson) {
   copySharedDocs(codexDir);
 }
 
+function buildCursorPluginManifest(pkgJson) {
+  // Cursor "Agent Plugin" root manifest. A minimal name/description/version
+  // manifest is sufficient for `cursor-agent --plugin-dir` to load the
+  // directory and surface its skills.
+  return {
+    name: 'polygraph',
+    version: pkgJson.version,
+    description: pkgJson.description,
+  };
+}
+
+export function finalizeCursorDist(pkgJson) {
+  const cursorDir = join(distDir, 'cursor');
+  mkdirSync(cursorDir, { recursive: true });
+  bundleCursorInstaller(cursorDir);
+
+  writeJson(
+    join(cursorDir, 'package.json'),
+    buildPublishPackageJson(pkgJson, '@polygraph/cursor-plugin', [
+      'plugin.json',
+      'skills/',
+      'agents/',
+      'hooks/',
+      'bin/',
+      'README.md',
+    ], {
+      bin: {
+        'polygraph-cursor-plugin': './bin/polygraph-cursor-plugin.mjs',
+      },
+    })
+  );
+  writeJson(join(cursorDir, 'plugin.json'), buildCursorPluginManifest(pkgJson));
+
+  // No .mcp.json: Polygraph-launched cursor sessions get the MCP server from
+  // a session-owned --plugin-dir payload with per-session env (prepareCursorRepo
+  // in the Polygraph CLI); MCP servers do not inherit process env, so the
+  // published plugin cannot carry it. A plugin-level entry would register a
+  // second server instance for those sessions. Revisit if the plugin ships to
+  // the Cursor marketplace for IDE-first installs.
+
+  // Lifecycle hooks. Cursor auto-discovers hooks/hooks.json inside a
+  // --plugin-dir plugin and runs each hook command with cwd set to the plugin
+  // root, so the static relative "node hooks/..." command resolves at any
+  // install location. Hook scripts inherit the cursor-agent process env, so
+  // the shared session-link shim reads POLYGRAPH_SESSION_ID /
+  // POLYGRAPH_CAPTURE_TOKEN directly — the same channel the Claude and
+  // Codex plugins use.
+  const cursorHooksDir = join(cursorDir, 'hooks');
+  mkdirSync(cursorHooksDir, { recursive: true });
+  cpSync(
+    join(sourceDir, 'cursor', 'hooks', 'hooks.json'),
+    join(cursorHooksDir, 'hooks.json')
+  );
+  cpSync(
+    join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
+    join(cursorHooksDir, 'record-session-mapping.mjs')
+  );
+  cpSync(
+    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
+    join(cursorHooksDir, 'agent-session-link.mjs')
+  );
+
+  copySharedDocs(cursorDir);
+}
+
 export function finalizeOpenCodeDist(pkgJson) {
   const opencodeDir = join(distDir, 'opencode');
   mkdirSync(opencodeDir, { recursive: true });
@@ -229,6 +294,24 @@ export function finalizeOpenCodeDist(pkgJson) {
     logLevel: 'silent',
   });
   copySharedDocs(opencodeDir);
+}
+
+function bundleCursorInstaller(cursorDir) {
+  const outputPath = join(cursorDir, 'bin', 'polygraph-cursor-plugin.mjs');
+  mkdirSync(join(cursorDir, 'bin'), { recursive: true });
+
+  buildSync({
+    entryPoints: [join(sourceDir, 'cursor', 'bin', 'polygraph-cursor-plugin.mjs')],
+    outfile: outputPath,
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    packages: 'bundle',
+    logLevel: 'silent',
+  });
+
+  chmodSync(outputPath, 0o755);
 }
 
 function bundleCodexInstaller(codexDir) {

@@ -9,6 +9,10 @@ tools:
 {% elsif platform == "opencode" %}
 description: Waits for one Polygraph child agent (addressed by delegation id) to finish or need attention, then exits with a short fixed message. Never reads logs. Runs in the background.
 mode: subagent
+{% elsif platform == "cursor" %}
+name: polygraph-delegate-subagent
+description: Waits for one Polygraph child agent (addressed by delegation id) to finish or need attention, then exits with a short fixed message. Never reads logs. Runs in the background.
+is_background: true
 {% endif %}
 ---
 

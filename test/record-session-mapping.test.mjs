@@ -627,3 +627,139 @@ test('read and failed PostToolUse activity forwards identity without session sem
     assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
   }
 });
+
+test('the cursor plugin registers a static relative sessionStart hook', () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../source/cursor/hooks/hooks.json', import.meta.url), 'utf8')
+  );
+
+  // Cursor's native hook config format, not the Claude/Codex one.
+  assert.equal(manifest.version, 1);
+  const sessionStartHooks = manifest.hooks.sessionStart;
+  assert.equal(sessionStartHooks.length, 1);
+
+  // Cursor runs plugin hook commands with cwd set to the plugin root, so
+  // the command must stay a plain relative invocation: no absolute paths,
+  // no ${PLUGIN_ROOT}-style variables.
+  assert.equal(
+    sessionStartHooks[0].command,
+    'node hooks/record-session-mapping.mjs cursor'
+  );
+});
+
+test('cursor sessionStart forwards lifecycle identity from the cursor payload shape', () => {
+  assert.deepEqual(
+    buildCommandHookLink(
+      {
+        hook_event_name: 'sessionStart',
+        session_id: 'cursor/conversation-id',
+        conversation_id: 'cursor/conversation-id',
+        workspace_roots: ['/workspace/exact repo'],
+        transcript_path: null,
+      },
+      'cursor',
+      { POLYGRAPH_SESSION_ID: 'poly/exact-session' }
+    ),
+    {
+      polygraphSessionId: 'poly/exact-session',
+      agentType: 'cursor',
+      agentSessionId: 'cursor/conversation-id',
+      cwd: '/workspace/exact repo',
+      transcriptPath: undefined,
+      source: 'hook',
+    }
+  );
+});
+
+test('cursor sessionStart falls back to conversation_id for identity', () => {
+  const link = buildCommandHookLink(
+    {
+      hook_event_name: 'sessionStart',
+      conversation_id: 'cursor/only-conversation',
+      workspace_roots: ['/workspace/repo'],
+    },
+    'cursor',
+    {}
+  );
+  assert.equal(link.agentSessionId, 'cursor/only-conversation');
+});
+
+test('ordinary cursor sessionStart submits a speculative identity-only link', () => {
+  let invocation;
+  const result = main({
+    agentType: 'cursor',
+    env: {},
+    pid: 8765,
+    payload: {
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/root-conversation',
+      conversation_id: 'cursor/root-conversation',
+      workspace_roots: ['/workspace/repo'],
+      transcript_path: null,
+    },
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(result, true);
+  assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.args.includes('--session'), false);
+  assert.ok(invocation.args.includes('cursor'));
+  assert.ok(invocation.args.includes('cursor/root-conversation'));
+  assert.ok(invocation.args.includes('/workspace/repo'));
+  assert.equal(invocation.args.includes('--transcript-path'), false);
+  assert.deepEqual(invocation.args.slice(-4), ['--pid', '8765', '--source', 'hook']);
+});
+
+test('polygraph-launched cursor sessionStart links with session and capture evidence', () => {
+  let invocation;
+  const result = main({
+    agentType: 'cursor',
+    env: {
+      POLYGRAPH_SESSION_ID: 'poly/launched-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'capture-token-1',
+    },
+    pid: 8765,
+    payload: {
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/root-conversation',
+      workspace_roots: ['/workspace/repo'],
+      transcript_path: null,
+    },
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(result, true);
+  assert.deepEqual(invocation.args.slice(0, 3), [
+    '_link-agent-session',
+    '--session',
+    'poly/launched-session',
+  ]);
+  // The capture token travels in env; _link-agent-session reads it there.
+  assert.equal(
+    invocation.options.env.POLYGRAPH_CAPTURE_TOKEN,
+    'capture-token-1'
+  );
+});
+
+test('managed cursor children never invoke the shared link command', () => {
+  const result = main({
+    agentType: 'cursor',
+    env: { POLYGRAPH_CHILD_AGENT: '1', POLYGRAPH_SESSION_ID: 'poly/session' },
+    payload: {
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/child-conversation',
+      workspace_roots: ['/workspace/repo'],
+    },
+    spawn() {
+      throw new Error('spawn must not run for managed children');
+    },
+  });
+
+  assert.equal(result, false);
+});

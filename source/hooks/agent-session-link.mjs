@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
-const AGENT_TYPES = new Set(['claude', 'codex', 'opencode']);
+const AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
 const COMMAND_HOOK_TOOL = /^mcp__(?:plugin_polygraph_)?polygraph[-_]mcp__/;
 const OPENCODE_TOOL = /^polygraph(?:(?:-|_)mcp)?_/;
 
@@ -89,18 +89,30 @@ export function buildCommandHookLink(payload, agentType, env = process.env) {
   if (!payload || typeof payload !== 'object') return undefined;
   if (isManagedChildEnvironment(env)) return undefined;
 
-  const agentSessionId = nonEmptyString(payload.session_id);
+  // Cursor payloads carry the id in both session_id and conversation_id;
+  // the fallback keeps the link working if one of them disappears.
+  const agentSessionId =
+    nonEmptyString(payload.session_id) ?? nonEmptyString(payload.conversation_id);
   if (!agentSessionId) return undefined;
+
+  // Cursor has no top-level cwd; workspace_roots[0] is the launch directory.
+  const workspaceRoot = Array.isArray(payload.workspace_roots)
+    ? nonEmptyString(payload.workspace_roots[0])
+    : undefined;
 
   const common = {
     agentType,
     agentSessionId,
-    cwd: nonEmptyString(payload.cwd),
+    cwd: nonEmptyString(payload.cwd) ?? workspaceRoot,
     transcriptPath: nonEmptyString(payload.transcript_path),
     source: 'hook',
   };
 
-  if (payload.hook_event_name === 'SessionStart') {
+  // Claude and Codex send PascalCase event names; cursor sends camelCase.
+  if (
+    payload.hook_event_name === 'SessionStart' ||
+    payload.hook_event_name === 'sessionStart'
+  ) {
     const polygraphSessionId = nonEmptyString(env.POLYGRAPH_SESSION_ID);
     if (polygraphSessionId) return { ...common, polygraphSessionId };
 

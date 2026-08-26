@@ -10,6 +10,10 @@ mode: subagent
 description: Analyze the raw logs of one or more past Polygraph sessions and return a structured, rank-ordered debrief for the current task. Launch as a background agent with a ranked list of relevant Polygraph session IDs/lines and a one-paragraph statement of the current task; it invokes the session-debrief skill, pulls parent and child transcripts via the polygraph CLI, and returns one consolidated debrief. Read-only with respect to the inspected sessions.
 model: gpt-5.6-luna
 model_reasoning_effort: medium
+{% elsif platform == "cursor" %}
+name: session-debrief
+description: Analyze the raw logs of one or more past Polygraph sessions and return a structured, rank-ordered debrief for the current task. Launch as a background agent with a ranked list of relevant Polygraph session IDs/lines and a one-paragraph statement of the current task; it invokes the session-debrief skill, pulls parent and child transcripts via the polygraph CLI, and returns one consolidated debrief. Read-only with respect to the inspected sessions.
+is_background: true
 {% endif %}
 ---
 
