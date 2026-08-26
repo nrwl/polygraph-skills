@@ -67,7 +67,14 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
     delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   }
 
-  const result = spawn(command, args, {
+  // POLYGRAPH_CLI may point at a plain JS entry rather than an executable
+  // (a dev build of the CLI, or a platform that cannot exec scripts
+  // directly). Run it with the current Node executable in that case.
+  const [file, fileArgs] = /\.[cm]?js$/i.test(command)
+    ? [process.execPath, [command, ...args]]
+    : [command, args];
+
+  const result = spawn(file, fileArgs, {
     encoding: 'utf8',
     env: commandEnv,
     stdio: ['ignore', 'ignore', 'pipe'],

@@ -163,7 +163,7 @@ test('builds a PostTool link without a Polygraph session or operation flags', ()
 
 test('uses the configured Polygraph CLI executable', () => {
   let invocation;
-  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
+  const env = { POLYGRAPH_CLI: '/usr/local/bin/polygraph' };
   assert.equal(
     linkAgentSession(
       {
@@ -179,7 +179,34 @@ test('uses the configured Polygraph CLI executable', () => {
     ),
     true
   );
-  assert.equal(invocation.command, '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocation.command, '/usr/local/bin/polygraph');
+  assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
+});
+
+test('runs a JS Polygraph CLI entry with the current Node executable', () => {
+  // A JS entry (a dev build of the CLI, or a platform that cannot exec
+  // scripts directly) is not directly spawnable; it must run under Node.
+  let invocation;
+  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
+  assert.equal(
+    linkAgentSession(
+      {
+        agentType: 'cursor',
+        agentSessionId: 'cursor-root',
+        source: 'hook',
+      },
+      (command, args, options) => {
+        invocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+      env
+    ),
+    true
+  );
+  assert.equal(invocation.command, process.execPath);
+  assert.equal(invocation.args[0], '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocation.args[1], '_link-agent-session');
   assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
