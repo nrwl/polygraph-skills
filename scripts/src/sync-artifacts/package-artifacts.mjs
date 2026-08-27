@@ -263,6 +263,14 @@ export function finalizeCursorDist(pkgJson) {
     join(sourceDir, 'hooks', 'agent-session-link.mjs'),
     join(cursorHooksDir, 'agent-session-link.mjs')
   );
+  // Usage capture. The plugin hooks.json lists it under `stop` for forward
+  // compat, but cursor does not dispatch `stop` from plugin hooks today —
+  // the live registration is the user-scope ~/.cursor/hooks.json entry the
+  // installer merges, pointing at this file by absolute install path.
+  cpSync(
+    join(sourceDir, 'hooks', 'record-cursor-usage.mjs'),
+    join(cursorHooksDir, 'record-cursor-usage.mjs')
+  );
 
   copySharedDocs(cursorDir);
 }

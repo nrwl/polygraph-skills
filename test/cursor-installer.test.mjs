@@ -7,8 +7,10 @@ import { join } from 'node:path';
 
 import {
   checkInstall,
+  getCursorUserHooksPath,
   getPluginInstallPath,
   installPlugin,
+  registerCursorUsageStopHook,
   resolveUserHome,
 } from '../source/cursor/lib/installer.mjs';
 
@@ -137,6 +139,88 @@ test('installPlugin rejects a payload whose manifest is not the polygraph plugin
     () => installPlugin({ packageRoot: fixture.packageRoot, env: { HOME: homeDir } }),
     /Expected plugin\.json name/
   );
+});
+
+test('installPlugin registers the usage stop hook in the user hooks.json', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
+  const fixture = createFixturePackage(homeDir, '1.2.3');
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir },
+  });
+
+  assert.equal(result.userHooks.registered, true);
+  const config = JSON.parse(
+    readFileSync(getCursorUserHooksPath(homeDir), 'utf8')
+  );
+  assert.equal(config.hooks.stop.length, 1);
+  assert.match(config.hooks.stop[0].command, /record-cursor-usage\.mjs/);
+  assert.equal(config.hooks.stop[0].command.includes(result.pluginPath), true);
+});
+
+test('registerCursorUsageStopHook merges without touching other entries and is idempotent', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
+  const hooksPath = getCursorUserHooksPath(homeDir);
+  mkdirSync(join(homeDir, '.cursor'), { recursive: true });
+  writeFileSync(
+    hooksPath,
+    JSON.stringify({
+      version: 1,
+      hooks: {
+        stop: [
+          { command: '/opt/other-tool/hook.sh Stop' },
+          { command: 'node "/old/install/hooks/record-cursor-usage.mjs"' },
+        ],
+        beforeSubmitPrompt: [{ command: '/opt/other-tool/hook.sh Start' }],
+      },
+    })
+  );
+
+  const pluginPath = join(homeDir, '.polygraph', 'plugins', 'cursor', 'polygraph');
+  const first = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
+  assert.equal(first.registered, true);
+  assert.equal(first.changed, true);
+
+  const config = JSON.parse(readFileSync(hooksPath, 'utf8'));
+  // The other tool's entries survive; the stale polygraph path is replaced.
+  assert.equal(config.hooks.beforeSubmitPrompt.length, 1);
+  assert.equal(config.hooks.stop.length, 2);
+  assert.equal(config.hooks.stop[0].command, '/opt/other-tool/hook.sh Stop');
+  assert.equal(config.hooks.stop[1].command.includes(pluginPath), true);
+
+  const second = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
+  assert.equal(second.registered, true);
+  assert.equal(second.changed, false);
+});
+
+test('registerCursorUsageStopHook leaves an unparsable hooks.json untouched', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
+  const hooksPath = getCursorUserHooksPath(homeDir);
+  mkdirSync(join(homeDir, '.cursor'), { recursive: true });
+  writeFileSync(hooksPath, '{not json');
+
+  const result = registerCursorUsageStopHook({
+    userHome: homeDir,
+    pluginPath: join(homeDir, 'plugin'),
+  });
+  assert.equal(result.registered, false);
+  assert.equal(result.reason, 'unparsable');
+  assert.equal(readFileSync(hooksPath, 'utf8'), '{not json');
+});
+
+test('registerCursorUsageStopHook creates the hooks.json when absent', () => {
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
+  const pluginPath = join(homeDir, 'plugin');
+
+  const result = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
+  assert.equal(result.registered, true);
+
+  const config = JSON.parse(
+    readFileSync(getCursorUserHooksPath(homeDir), 'utf8')
+  );
+  assert.equal(config.version, 1);
+  assert.equal(config.hooks.stop.length, 1);
 });
 
 function createFixturePackage(homeDir, version, { manifestName = 'polygraph' } = {}) {

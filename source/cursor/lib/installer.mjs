@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -131,6 +132,8 @@ export function installPlugin({ packageRoot, env = process.env, force = false })
     }
   }
 
+  const userHooks = registerCursorUsageStopHook({ userHome, pluginPath });
+
   return {
     ok: true,
     action: "install",
@@ -141,7 +144,81 @@ export function installPlugin({ packageRoot, env = process.env, force = false })
     copied: shouldCopy,
     overwritten: installAlreadyPresent && force,
     pluginUpdated: installAlreadyPresent && versionMismatch && !force,
+    userHooks,
   };
+}
+
+const USAGE_HOOK_SCRIPT = "record-cursor-usage.mjs";
+
+export function getCursorUserHooksPath(userHome) {
+  return join(userHome, ".cursor", "hooks.json");
+}
+
+/**
+ * Merge the usage-capture `stop` entry into the user-scope
+ * `~/.cursor/hooks.json`. This entry cannot ride the plugin payload alone:
+ * cursor dispatches only a subset of hook events (e.g. sessionStart) from
+ * `--plugin-dir` plugins and `stop` is not among them (live-verified on
+ * 2026.08.25-3e8eec8), while user-scope `stop` fires per turn with the
+ * usage counters Polygraph's token-cost reporting reads back.
+ *
+ * The merge is additive and idempotent: entries owned by other tools are
+ * never touched, a stale entry pointing at an old install path is replaced,
+ * and an unparsable file is left untouched (registration is skipped rather
+ * than clobbering user configuration). Re-running install self-heals the
+ * entry.
+ */
+export function registerCursorUsageStopHook({ userHome, pluginPath }) {
+  const hooksPath = getCursorUserHooksPath(userHome);
+  const command = `node "${join(pluginPath, "hooks", USAGE_HOOK_SCRIPT)}"`;
+
+  let config = { version: 1, hooks: {} };
+  if (existsSync(hooksPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(hooksPath, "utf8"));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { registered: false, reason: "unparsable", hooksPath };
+      }
+      config = parsed;
+    } catch {
+      return { registered: false, reason: "unparsable", hooksPath };
+    }
+  }
+
+  if (
+    !config.hooks ||
+    typeof config.hooks !== "object" ||
+    Array.isArray(config.hooks)
+  ) {
+    config.hooks = {};
+  }
+  const stop = Array.isArray(config.hooks.stop) ? config.hooks.stop : [];
+
+  const isOurs = (entry) =>
+    entry &&
+    typeof entry === "object" &&
+    typeof entry.command === "string" &&
+    entry.command.includes(USAGE_HOOK_SCRIPT);
+  if (stop.some((entry) => isOurs(entry) && entry.command === command)) {
+    return { registered: true, changed: false, hooksPath };
+  }
+
+  const next = stop.filter((entry) => !isOurs(entry));
+  next.push({ command });
+  config.hooks.stop = next;
+  if (config.version === undefined) config.version = 1;
+
+  try {
+    mkdirSync(dirname(hooksPath), { recursive: true });
+    writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
+    return { registered: true, changed: true, hooksPath };
+  } catch (error) {
+    return {
+      registered: false,
+      reason: error instanceof Error ? error.message : String(error),
+      hooksPath,
+    };
+  }
 }
 
 /**

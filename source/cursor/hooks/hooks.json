@@ -5,6 +5,11 @@
       {
         "command": "node hooks/record-session-mapping.mjs cursor"
       }
+    ],
+    "stop": [
+      {
+        "command": "node hooks/record-cursor-usage.mjs"
+      }
     ]
   }
 }
