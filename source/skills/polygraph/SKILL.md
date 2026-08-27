@@ -8,7 +8,7 @@ allowed-tools:
 ---
 
 {% assign has_subagents = false %}
-{% if platform == "claude" or platform == "opencode" or platform == "codex" %}
+{% if platform == "claude" or platform == "opencode" or platform == "codex" or platform == "cursor" %}
 {% assign has_subagents = true %}
 {% endif %}
 
@@ -73,9 +73,9 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `select_account` | `polygraph account select` | Select the organization that future commands run against |
 | `whoami` | `polygraph whoami` | Show current auth status and org |
 
-{% if platform == "claude" or platform == "opencode" %}
+{% if platform == "claude" or platform == "opencode" or platform == "cursor" %}
 
-**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in the "Initialize or Join Polygraph Session" section. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` is a fast, non-blocking call and IS allowed directly in the main conversation — it returns a delegation id. Waited `show_agent` POLLING must run in a background {% if platform == "claude" %}Task subagent (`run_in_background: true`){% else %}`@polygraph-delegate-subagent`{% endif %}, never inline. One-off unwaited `show_agent` reads in the main conversation are fine and expected — that is how you read a child's result. See [`reference/delegation.md`](reference/delegation.md).{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}
+**Delegation rules:** `list_repos` and `start_session` MUST be called via the `polygraph-init-subagent` as described in the "Initialize or Join Polygraph Session" section. Direct `add_repo` is allowed only when the user provides exact repo refs for an existing session. `spawn_agent` is a fast, non-blocking call and IS allowed directly in the main conversation — it returns a delegation id. Waited `show_agent` POLLING must run in a background {% if platform == "claude" %}Task subagent (`run_in_background: true`){% elsif platform == "cursor" %}`Task` (`subagent_type: "polygraph-delegate-subagent"`, `run_in_background: true`), collected with `Await`{% else %}`@polygraph-delegate-subagent`{% endif %}, never inline. One-off unwaited `show_agent` reads in the main conversation are fine and expected — that is how you read a child's result. See [`reference/delegation.md`](reference/delegation.md).{% if platform == "claude" %} The subagents are plugin-namespaced: pass `subagent_type: "polygraph:polygraph-init-subagent"` / `"polygraph:polygraph-delegate-subagent"`; fall back to the bare name only if the namespaced form is not found.{% endif %}{% if platform == "cursor" %} The init subagent is launched the same way, by its bare name: a `Task` with `subagent_type: "polygraph-init-subagent"` — without `run_in_background`, since you need its summary before continuing.{% endif %}
 {% elsif platform == "codex" %}
 
 **Routing reminder:** Per the Critical Routing Rule above, the parent conversation must use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` for new sessions and `agent_type: "polygraph-delegate-subagent"` for repo work — not the Polygraph MCP tools shown in the table. `wait_agent` collects results when needed.
@@ -375,6 +375,8 @@ If the session has a description timeline, also display:
 1. **Wait in background subagents** — `spawn_agent` is fine to call directly, but every waited `show_agent` poll MUST go through `@polygraph-delegate-subagent`; inline polling floods the context window with status noise.
    {% elsif platform == "codex" %}
 1. **Route waiting through Codex Polygraph subagents** — Use Codex `spawn_agent` with `agent_type: "polygraph-init-subagent"` to create new sessions, and `agent_type: "polygraph-delegate-subagent"` to wait on each delegation id. The Polygraph MCP `spawn_agent` and unwaited `show_agent` reads are yours to call directly; collect poller results with `wait_agent`.
+   {% elsif platform == "cursor" %}
+1. **Wait in background subagents** — `spawn_agent` is fine to call directly and returns a delegation id, but every waited `show_agent` poll belongs in a background `Task` with `subagent_type: "polygraph-delegate-subagent"` and `run_in_background: true`. Collect that Task with `Await`, and if `Await` returns while the poller is still running, call `Await` again with the same background-task id. Inline polling floods the context with status noise.
    {% else %}
 1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately with a delegation id, then poll with `show_agent`.
    {% endif %}
@@ -389,5 +391,7 @@ If the session has a description timeline, also display:
 1. **NEVER run a waited `show_agent` loop in the main conversation**. Waiting MUST always go through `@polygraph-delegate-subagent`.
    {% elsif platform == "codex" %}
 1. **NEVER run a waited `show_agent` loop in the main conversation**. Waiting MUST run inside `polygraph-delegate-subagent`.
+   {% elsif platform == "cursor" %}
+1. **NEVER run a waited `show_agent` loop in the main conversation**. Waiting MUST run inside `polygraph-delegate-subagent`, launched as a background `Task` and collected with `Await`.
    {% endif %}
 1. **Use `stop_agent` to clean up** — Stop child agents that are stuck or no longer needed (pass the delegation id). The child's session is preserved (`sessionPreserved: true`) so the context can be restored later, but after resuming you must wait for explicit user instructions before making changes.
