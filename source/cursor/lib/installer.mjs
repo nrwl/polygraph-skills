@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -150,8 +151,24 @@ export function installPlugin({ packageRoot, env = process.env, force = false })
 
 const USAGE_HOOK_SCRIPT = "record-cursor-usage.mjs";
 
+/**
+ * The exact command shape this installer writes:
+ * `node "<install path>/hooks/record-cursor-usage.mjs"`. Ownership of an
+ * existing entry is decided by this ANCHORED shape, never by a substring
+ * match: a user's own wrapper that merely mentions the script (for example
+ * `bash -c 'node .../record-cursor-usage.mjs && notify'`) is not ours to
+ * replace and must survive the merge untouched.
+ */
+const OWNED_USAGE_HOOK_COMMAND = new RegExp(
+  `^node "[^"]*[/\\\\]hooks[/\\\\]${USAGE_HOOK_SCRIPT.replace(/\./g, "\\.")}"$`,
+);
+
 export function getCursorUserHooksPath(userHome) {
   return join(userHome, ".cursor", "hooks.json");
+}
+
+function buildUsageHookCommand(pluginPath) {
+  return `node "${join(pluginPath, "hooks", USAGE_HOOK_SCRIPT)}"`;
 }
 
 /**
@@ -170,7 +187,7 @@ export function getCursorUserHooksPath(userHome) {
  */
 export function registerCursorUsageStopHook({ userHome, pluginPath }) {
   const hooksPath = getCursorUserHooksPath(userHome);
-  const command = `node "${join(pluginPath, "hooks", USAGE_HOOK_SCRIPT)}"`;
+  const command = buildUsageHookCommand(pluginPath);
 
   let config = { version: 1, hooks: {} };
   if (existsSync(hooksPath)) {
@@ -198,7 +215,7 @@ export function registerCursorUsageStopHook({ userHome, pluginPath }) {
     entry &&
     typeof entry === "object" &&
     typeof entry.command === "string" &&
-    entry.command.includes(USAGE_HOOK_SCRIPT);
+    OWNED_USAGE_HOOK_COMMAND.test(entry.command);
   if (stop.some((entry) => isOurs(entry) && entry.command === command)) {
     return { registered: true, changed: false, hooksPath };
   }
@@ -208,17 +225,56 @@ export function registerCursorUsageStopHook({ userHome, pluginPath }) {
   config.hooks.stop = next;
   if (config.version === undefined) config.version = 1;
 
+  // hooks.json holds every tool's user-scope hooks, so the replacement must
+  // be durable before the old content goes away: write the merged document to
+  // a same-directory temp file, then atomically rename it over hooks.json. A
+  // crash, full disk, or concurrent writer can no longer leave a truncated
+  // file that disables every hook; concurrent complete writes degrade to
+  // last-writer-wins of a well-formed document.
+  const tempPath = `${hooksPath}.polygraph-${process.pid}-${Date.now()}.tmp`;
   try {
     mkdirSync(dirname(hooksPath), { recursive: true });
-    writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`);
+    renameSync(tempPath, hooksPath);
     return { registered: true, changed: true, hooksPath };
   } catch (error) {
+    rmSync(tempPath, { force: true });
     return {
       registered: false,
       reason: error instanceof Error ? error.message : String(error),
       hooksPath,
     };
   }
+}
+
+/**
+ * Diagnosis-only probe for the usage stop hook: reports whether the
+ * user-scope hooks.json currently carries the entry for THIS install path.
+ * Never writes. `registered: false` with a `reason` distinguishes an
+ * unparsable file from a merely missing entry.
+ */
+export function checkCursorUsageStopHook({ userHome, pluginPath }) {
+  const hooksPath = getCursorUserHooksPath(userHome);
+  const command = buildUsageHookCommand(pluginPath);
+  if (!existsSync(hooksPath)) {
+    return { registered: false, reason: "missing", hooksPath };
+  }
+  let config;
+  try {
+    config = JSON.parse(readFileSync(hooksPath, "utf8"));
+  } catch {
+    return { registered: false, reason: "unparsable", hooksPath };
+  }
+  const stop = Array.isArray(config?.hooks?.stop) ? config.hooks.stop : [];
+  const registered = stop.some(
+    (entry) =>
+      entry &&
+      typeof entry === "object" &&
+      entry.command === command,
+  );
+  return registered
+    ? { registered: true, hooksPath }
+    : { registered: false, reason: "missing", hooksPath };
 }
 
 /**
@@ -245,5 +301,6 @@ export function checkInstall({ packageRoot = null, env = process.env } = {}) {
       installed && packageVersion !== null
         ? installedVersion === packageVersion
         : null,
+    userHooks: checkCursorUsageStopHook({ userHome, pluginPath }),
   };
 }
