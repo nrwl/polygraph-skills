@@ -8,6 +8,13 @@ const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 const AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
 const COMMAND_HOOK_TOOL = /^mcp__(?:plugin_polygraph_)?polygraph[-_]mcp__/;
 const OPENCODE_TOOL = /^polygraph(?:(?:-|_)mcp)?_/;
+// Cursor reports MCP tools as `MCP:<tool>` with no server namespace, so the
+// shim filters on the claim-worthy tool names to avoid spawning the CLI on
+// every unrelated MCP call. This list is an optimization mirror of
+// PARENT_CLAIM_POLICIES in the Polygraph CLI (parent-session-claim-evidence);
+// classification authority stays in the CLI.
+const CURSOR_MCP_CLAIM_TOOL =
+  /^MCP:(?:add_repo|allow_agent|archive_session|associate_pr|create_pr|deny_agent|git_fetch|link_reference|mark_pr_ready|pack_and_copy|push_branch|spawn_agent|start_session|stop_agent|update_session|upload_artifact)$/;
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value : undefined;
@@ -30,6 +37,7 @@ export function buildLinkAgentSessionArgs({
   transcriptPath,
   pid,
   source,
+  hookOperation,
 }) {
   const session = nonEmptyString(polygraphSessionId);
   const harnessSession = nonEmptyString(agentSessionId);
@@ -50,6 +58,12 @@ export function buildLinkAgentSessionArgs({
 
   if (Number.isSafeInteger(pid) && pid > 0) {
     args.push('--pid', String(pid));
+  }
+
+  // Cursor post-tool evidence rides the hook payload (the transcript stores
+  // no tool results); forwarded verbatim, classified by the CLI.
+  if (hookOperation && typeof hookOperation === 'object') {
+    args.push('--hook-operation', JSON.stringify(hookOperation));
   }
 
   args.push('--source', claimSource);
@@ -146,6 +160,24 @@ export function buildCommandHookLink(payload, agentType, env = process.env) {
 
   if (payload.hook_event_name === 'PostToolUse') {
     return isPolygraphMcpToolName(payload.tool_name) ? common : undefined;
+  }
+
+  // Cursor's camelCase postToolUse: the payload carries the whole operation
+  // (tool_name `MCP:<tool>`, tool_input, tool_output) and is forwarded as
+  // evidence because the cursor transcript stores no tool results and lags
+  // the hook. The CLI classifies the operation; this filter only avoids
+  // spawning the CLI for unrelated tools.
+  if (payload.hook_event_name === 'postToolUse') {
+    const toolName = nonEmptyString(payload.tool_name);
+    if (!toolName || !CURSOR_MCP_CLAIM_TOOL.test(toolName)) return undefined;
+    return {
+      ...common,
+      hookOperation: {
+        toolName,
+        toolInput: payload.tool_input,
+        toolOutput: payload.tool_output,
+      },
+    };
   }
 
   return undefined;

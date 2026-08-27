@@ -96,12 +96,14 @@ test('the hook helper exposes no operation-specific parsing API', () => {
     new URL('../source/hooks/agent-session-link.mjs', import.meta.url),
     'utf8'
   );
+  // Cursor postToolUse forwards tool_input/tool_output VERBATIM as an opaque
+  // --hook-operation payload (the CLI classifies it), so those field reads are
+  // allowed. Parsing helpers and claim derivation must still stay out.
   for (const forbidden of [
     'SESSION_MUTATION_TOOLS',
     'derivePolygraphSessionClaim',
     'extractStartedSessionId',
     'parsePolygraphMutationTool',
-    'tool_input',
     'tool_response',
     '--set-resume-target',
   ]) {
@@ -709,7 +711,7 @@ test('read and failed PostToolUse activity forwards identity without session sem
   }
 });
 
-test('the cursor plugin registers a static relative sessionStart hook', () => {
+test('the cursor plugin registers static relative sessionStart and postToolUse hooks', () => {
   const manifest = JSON.parse(
     readFileSync(new URL('../source/cursor/hooks/hooks.json', import.meta.url), 'utf8')
   );
@@ -724,6 +726,16 @@ test('the cursor plugin registers a static relative sessionStart hook', () => {
   // no ${PLUGIN_ROOT}-style variables.
   assert.equal(
     sessionStartHooks[0].command,
+    'node hooks/record-session-mapping.mjs cursor'
+  );
+
+  // Claim evidence rides postToolUse (plugin scope dispatches it; stop does
+  // not fire from plugins, which is why usage capture lives in a user-scope
+  // hook instead).
+  const postToolUseHooks = manifest.hooks.postToolUse;
+  assert.equal(postToolUseHooks.length, 1);
+  assert.equal(
+    postToolUseHooks[0].command,
     'node hooks/record-session-mapping.mjs cursor'
   );
 });
@@ -837,6 +849,123 @@ test('managed cursor children never invoke the shared link command', () => {
       session_id: 'cursor/child-conversation',
       workspace_roots: ['/workspace/repo'],
     },
+    spawn() {
+      throw new Error('spawn must not run for managed children');
+    },
+  });
+
+  assert.equal(result, false);
+});
+
+// Cursor postToolUse payload shape from a live probe (2026-08-27): MCP tools
+// report as `MCP:<tool>` with no server namespace, tool_input is an object,
+// and tool_output is the JSON-encoded MCP result string.
+const CURSOR_POST_TOOL_USE_PAYLOAD = {
+  hook_event_name: 'postToolUse',
+  conversation_id: 'cursor/conversation-id',
+  session_id: 'cursor/conversation-id',
+  generation_id: 'gen-1',
+  tool_name: 'MCP:start_session',
+  tool_input: { description: 'Fix flaky tests', repos: ['org/repo'] },
+  tool_output:
+    '{"content":[{"type":"text","text":"Session poly-started (new)"}],"isError":false}',
+  duration: 1234,
+  tool_use_id: 'tool-use-1',
+  workspace_roots: ['/workspace/repo'],
+  transcript_path: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+};
+
+test('cursor postToolUse forwards the whole operation as verbatim hook evidence', () => {
+  assert.deepEqual(
+    buildCommandHookLink(CURSOR_POST_TOOL_USE_PAYLOAD, 'cursor', {}),
+    {
+      agentType: 'cursor',
+      agentSessionId: 'cursor/conversation-id',
+      cwd: '/workspace/repo',
+      transcriptPath:
+        '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+      source: 'hook',
+      hookOperation: {
+        toolName: 'MCP:start_session',
+        toolInput: CURSOR_POST_TOOL_USE_PAYLOAD.tool_input,
+        toolOutput: CURSOR_POST_TOOL_USE_PAYLOAD.tool_output,
+      },
+    }
+  );
+});
+
+test('cursor postToolUse skips tools outside the claim-worthy MCP set', () => {
+  for (const toolName of [
+    'MCP:list_sessions', // read-only Polygraph tool: no claim policy
+    'MCP:show_session',
+    'Read', // built-in tool
+    'Shell',
+    'MCP:', // malformed
+    'start_session', // missing the MCP: prefix
+    undefined,
+  ]) {
+    assert.equal(
+      buildCommandHookLink(
+        { ...CURSOR_POST_TOOL_USE_PAYLOAD, tool_name: toolName },
+        'cursor',
+        {}
+      ),
+      undefined,
+      String(toolName)
+    );
+  }
+});
+
+test('buildLinkAgentSessionArgs serializes the hook operation before the source', () => {
+  const args = buildLinkAgentSessionArgs({
+    agentType: 'cursor',
+    agentSessionId: 'cursor/conversation-id',
+    source: 'hook',
+    hookOperation: {
+      toolName: 'MCP:start_session',
+      toolInput: { description: 'Fix flaky tests' },
+      toolOutput: '{"content":[],"isError":false}',
+    },
+  });
+
+  const flagIndex = args.indexOf('--hook-operation');
+  assert.notEqual(flagIndex, -1);
+  assert.deepEqual(JSON.parse(args[flagIndex + 1]), {
+    toolName: 'MCP:start_session',
+    toolInput: { description: 'Fix flaky tests' },
+    toolOutput: '{"content":[],"isError":false}',
+  });
+  assert.deepEqual(args.slice(-2), ['--source', 'hook']);
+});
+
+test('cursor postToolUse invokes the link command with the hook operation', () => {
+  let invocation;
+  const result = main({
+    agentType: 'cursor',
+    env: {},
+    pid: 8765,
+    payload: CURSOR_POST_TOOL_USE_PAYLOAD,
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+  });
+
+  assert.equal(result, true);
+  assert.equal(invocation.args[0], '_link-agent-session');
+  const flagIndex = invocation.args.indexOf('--hook-operation');
+  assert.notEqual(flagIndex, -1);
+  assert.equal(
+    JSON.parse(invocation.args[flagIndex + 1]).toolName,
+    'MCP:start_session'
+  );
+});
+
+test('managed cursor children never forward postToolUse evidence', () => {
+  const result = main({
+    agentType: 'cursor',
+    env: { POLYGRAPH_CHILD_AGENT: '1' },
+    payload: CURSOR_POST_TOOL_USE_PAYLOAD,
     spawn() {
       throw new Error('spawn must not run for managed children');
     },
