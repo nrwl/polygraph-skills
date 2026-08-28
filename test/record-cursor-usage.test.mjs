@@ -66,12 +66,22 @@ test('main skips managed child agents', () => {
   );
 });
 
-test('main ignores non-stop payloads and payloads without counters', () => {
+test('main ignores non-stop payloads', () => {
   const { env } = makeLedgerEnv();
   assert.equal(
     main({ payload: { ...STOP_PAYLOAD, hook_event_name: 'sessionStart' }, env }),
     false
   );
+  // null skips the stdin-reading default without being a usable payload.
+  assert.equal(main({ payload: null, env }), false);
+});
+
+test('a stop payload without counters records an explicit partial marker', () => {
+  const { dir, env } = makeLedgerEnv();
+  // A counter-less stop payload means the schema drifted (live-verified stop
+  // payloads always carry counters). Recording nothing would silently
+  // undercount with partial:false on the reader side; the zeroed record with
+  // countersPartial keeps the turn visible and flags the accounting.
   assert.equal(
     main({
       payload: {
@@ -79,11 +89,21 @@ test('main ignores non-stop payloads and payloads without counters', () => {
         hook_event_name: 'stop',
       },
       env,
+      now: 9,
     }),
-    false
+    true
   );
-  // null skips the stdin-reading default without being a usable payload.
-  assert.equal(main({ payload: null, env }), false);
+  const lines = readFileSync(
+    join(dir, `${STOP_PAYLOAD.conversation_id}.jsonl`),
+    'utf8'
+  )
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].countersPartial, true);
+  assert.equal(lines[0].inputTokens, 0);
+  assert.equal(lines[0].outputTokens, 0);
 });
 
 test('buildCursorUsageRecord rejects hostile conversation ids', () => {
@@ -100,7 +120,7 @@ test('buildCursorUsageRecord rejects hostile conversation ids', () => {
   }
 });
 
-test('buildCursorUsageRecord falls back to session_id and zero-fills partial counters', () => {
+test('buildCursorUsageRecord falls back to session_id and marks missing counters partial', () => {
   const record = buildCursorUsageRecord(
     {
       session_id: STOP_PAYLOAD.session_id,
@@ -120,7 +140,14 @@ test('buildCursorUsageRecord falls back to session_id and zero-fills partial cou
     outputTokens: 12,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    countersPartial: true,
   });
+});
+
+test('buildCursorUsageRecord omits the partial marker when every counter is intact', () => {
+  const record = buildCursorUsageRecord(STOP_PAYLOAD, 5);
+  assert.equal(record.countersPartial, undefined);
+  assert.equal('countersPartial' in record, false);
 });
 
 test('pruneLedgerDir removes only files older than the age limit', () => {

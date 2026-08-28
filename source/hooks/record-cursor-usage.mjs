@@ -77,16 +77,16 @@ export function buildCursorUsageRecord(payload, now = Date.now()) {
   const outputTokens = counter(payload.output_tokens);
   const cacheReadTokens = counter(payload.cache_read_tokens);
   const cacheWriteTokens = counter(payload.cache_write_tokens);
-  // A payload with no counters at all records nothing; individual missing
-  // counters read as zero so a partial payload still lands.
-  if (
-    inputTokens === null &&
-    outputTokens === null &&
-    cacheReadTokens === null &&
-    cacheWriteTokens === null
-  ) {
-    return null;
-  }
+  // The counters rely on an undocumented cursor payload schema, so a missing,
+  // renamed, or invalid counter must not become an authoritative zero: the
+  // record still lands (the turn happened), but carries the explicit
+  // countersPartial marker the ocean-side reader propagates as partial
+  // accounting instead of silently undercounting on a format change.
+  const countersPartial =
+    inputTokens === null ||
+    outputTokens === null ||
+    cacheReadTokens === null ||
+    cacheWriteTokens === null;
 
   return {
     recordedAt: now,
@@ -105,6 +105,7 @@ export function buildCursorUsageRecord(payload, now = Date.now()) {
     outputTokens: outputTokens ?? 0,
     cacheReadTokens: cacheReadTokens ?? 0,
     cacheWriteTokens: cacheWriteTokens ?? 0,
+    ...(countersPartial ? { countersPartial: true } : {}),
   };
 }
 
