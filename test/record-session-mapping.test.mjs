@@ -112,17 +112,17 @@ test('the hook helper exposes no operation-specific parsing API', () => {
 });
 
 test('builds a lifecycle link with exact session and capture metadata', () => {
-  assert.deepEqual(
-    buildLinkAgentSessionArgs({
-      polygraphSessionId: 'poly/session?exact=true',
-      agentType: 'codex',
-      agentSessionId: 'codex/thread/root',
-      cwd: '/workspace/repo with spaces',
-      transcriptPath: '/tmp/rollout exact.jsonl',
-      pid: 1234,
-      source: 'hook',
-    }),
-    [
+  const { args, input } = buildLinkAgentSessionArgs({
+    polygraphSessionId: 'poly/session?exact=true',
+    agentType: 'codex',
+    agentSessionId: 'codex/thread/root',
+    cwd: '/workspace/repo with spaces',
+    transcriptPath: '/tmp/rollout exact.jsonl',
+    pid: 1234,
+    source: 'hook',
+  });
+  assert.equal(input, undefined);
+  assert.deepEqual(args, [
       '_link-agent-session',
       '--session',
       'poly/session?exact=true',
@@ -138,29 +138,27 @@ test('builds a lifecycle link with exact session and capture metadata', () => {
       '1234',
       '--source',
       'hook',
-    ]
-  );
+  ]);
 });
 
 test('builds a PostTool link without a Polygraph session or operation flags', () => {
-  assert.deepEqual(
-    buildLinkAgentSessionArgs({
-      agentType: 'opencode',
-      agentSessionId: 'oc-root',
-      source: 'hook',
-      setResumeTarget: true,
-      operation: 'start_session',
-    }),
-    [
-      '_link-agent-session',
-      '--agent-type',
-      'opencode',
-      '--agent-session-id',
-      'oc-root',
-      '--source',
-      'hook',
-    ]
-  );
+  const { args, input } = buildLinkAgentSessionArgs({
+    agentType: 'opencode',
+    agentSessionId: 'oc-root',
+    source: 'hook',
+    setResumeTarget: true,
+    operation: 'start_session',
+  });
+  assert.equal(input, undefined);
+  assert.deepEqual(args, [
+    '_link-agent-session',
+    '--agent-type',
+    'opencode',
+    '--agent-session-id',
+    'oc-root',
+    '--source',
+    'hook',
+  ]);
 });
 
 test('uses the configured Polygraph CLI executable', () => {
@@ -919,8 +917,8 @@ test('cursor postToolUse skips tools outside the claim-worthy MCP set', () => {
   }
 });
 
-test('buildLinkAgentSessionArgs serializes the hook operation before the source', () => {
-  const args = buildLinkAgentSessionArgs({
+test('buildLinkAgentSessionArgs sends the hook operation on stdin, never argv', () => {
+  const { args, input } = buildLinkAgentSessionArgs({
     agentType: 'cursor',
     agentSessionId: 'cursor/conversation-id',
     source: 'hook',
@@ -931,14 +929,40 @@ test('buildLinkAgentSessionArgs serializes the hook operation before the source'
     },
   });
 
-  const flagIndex = args.indexOf('--hook-operation');
-  assert.notEqual(flagIndex, -1);
-  assert.deepEqual(JSON.parse(args[flagIndex + 1]), {
+  assert.notEqual(args.indexOf('--hook-operation-stdin'), -1);
+  assert.equal(args.indexOf('--hook-operation'), -1);
+  assert.deepEqual(JSON.parse(input), {
     toolName: 'MCP:start_session',
     toolInput: { description: 'Fix flaky tests' },
     toolOutput: '{"content":[],"isError":false}',
   });
   assert.deepEqual(args.slice(-2), ['--source', 'hook']);
+});
+
+test('an oversized hook operation stays off argv entirely', () => {
+  // Linux caps one argv string at 128KB (MAX_ARG_STRLEN); a full
+  // upload_artifact content in toolInput would kill the spawn with E2BIG if
+  // it rode an argument. On stdin, size is the CLI's problem, not exec's.
+  const content = 'x'.repeat(300_000);
+  const { args, input } = buildLinkAgentSessionArgs({
+    agentType: 'cursor',
+    agentSessionId: 'cursor/conversation-id',
+    source: 'hook',
+    hookOperation: {
+      toolName: 'MCP:upload_artifact',
+      toolInput: { content },
+      toolOutput: '{"content":[],"isError":false}',
+    },
+  });
+
+  assert.equal(input.length > content.length, true);
+  for (const arg of args) {
+    assert.equal(
+      arg.length < 4096,
+      true,
+      `argv entry unexpectedly large: ${arg.slice(0, 80)}...`
+    );
+  }
 });
 
 test('cursor postToolUse invokes the link command with the hook operation', () => {
@@ -956,12 +980,14 @@ test('cursor postToolUse invokes the link command with the hook operation', () =
 
   assert.equal(result, true);
   assert.equal(invocation.args[0], '_link-agent-session');
-  const flagIndex = invocation.args.indexOf('--hook-operation');
-  assert.notEqual(flagIndex, -1);
+  assert.notEqual(invocation.args.indexOf('--hook-operation-stdin'), -1);
+  assert.equal(invocation.args.indexOf('--hook-operation'), -1);
   assert.equal(
-    JSON.parse(invocation.args[flagIndex + 1]).toolName,
+    JSON.parse(invocation.options.input).toolName,
     'MCP:start_session'
   );
+  // stdin must actually be wired for the input to reach the CLI.
+  assert.equal(invocation.options.stdio[0], 'pipe');
 });
 
 test('managed cursor children never forward postToolUse evidence', () => {

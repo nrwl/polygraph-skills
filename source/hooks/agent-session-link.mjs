@@ -61,13 +61,20 @@ export function buildLinkAgentSessionArgs({
   }
 
   // Cursor post-tool evidence rides the hook payload (the transcript stores
-  // no tool results); forwarded verbatim, classified by the CLI.
+  // no tool results); forwarded verbatim, classified by the CLI. The
+  // operation travels on STDIN, never argv: toolInput can carry an entire
+  // upload_artifact document and Linux caps one argv string at 128KB, so an
+  // inline argument would kill the spawn with E2BIG and silently lose the
+  // evidence. The flag tells the CLI to read stdin; older strict CLIs
+  // reject it, which is why publication is gated on the Ocean deployment.
+  let input;
   if (hookOperation && typeof hookOperation === 'object') {
-    args.push('--hook-operation', JSON.stringify(hookOperation));
+    args.push('--hook-operation-stdin');
+    input = JSON.stringify(hookOperation);
   }
 
   args.push('--source', claimSource);
-  return args;
+  return { args, input };
 }
 
 /**
@@ -84,7 +91,7 @@ function nodeRuntime() {
 export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   if (isManagedChildEnvironment(env)) return false;
 
-  const args = buildLinkAgentSessionArgs(claim);
+  const { args, input } = buildLinkAgentSessionArgs(claim);
   const command = nonEmptyString(env?.POLYGRAPH_CLI) ?? 'polygraph';
   const commandEnv = nonEmptyString(claim.polygraphSessionId) ? env : { ...env };
   if (commandEnv !== env) {
@@ -95,7 +102,8 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
   const spawnOptions = {
     encoding: 'utf8',
     env: commandEnv,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: [input === undefined ? 'ignore' : 'pipe', 'ignore', 'pipe'],
+    ...(input === undefined ? {} : { input }),
   };
 
   let result = spawn(command, args, spawnOptions);
