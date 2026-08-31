@@ -5,6 +5,11 @@
       {
         "command": "node hooks/record-session-mapping.mjs cursor"
       }
+    ],
+    "postToolUse": [
+      {
+        "command": "node hooks/record-session-mapping.mjs cursor"
+      }
     ]
   }
 }

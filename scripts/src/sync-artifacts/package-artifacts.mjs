@@ -263,7 +263,6 @@ export function finalizeCursorDist(pkgJson) {
     join(sourceDir, 'hooks', 'agent-session-link.mjs'),
     join(cursorHooksDir, 'agent-session-link.mjs')
   );
-
   copySharedDocs(cursorDir);
 }
 

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -137,6 +142,30 @@ test('installPlugin rejects a payload whose manifest is not the polygraph plugin
     () => installPlugin({ packageRoot: fixture.packageRoot, env: { HOME: homeDir } }),
     /Expected plugin\.json name/
   );
+});
+
+test('installPlugin never touches shared Cursor user settings', () => {
+  // Cursor token accounting is intentionally unsupported, so there is no
+  // user-scope hook to register: the installer materializes the payload and
+  // nothing else. ~/.cursor must not even be created.
+  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
+  const fixture = createFixturePackage(homeDir, '1.2.3');
+
+  const result = installPlugin({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal('userHooks' in result, false);
+  assert.equal(existsSync(join(homeDir, '.cursor')), false);
+
+  const check = checkInstall({
+    packageRoot: fixture.packageRoot,
+    env: { HOME: homeDir },
+  });
+  assert.equal('userHooks' in check, false);
+  assert.equal(existsSync(join(homeDir, '.cursor')), false);
 });
 
 function createFixturePackage(homeDir, version, { manifestName = 'polygraph' } = {}) {
