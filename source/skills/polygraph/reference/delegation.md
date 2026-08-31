@@ -40,7 +40,7 @@ For each id, launch one background poller subagent whose entire job is to block 
 
 - **Claude Code** — a background `Task` with `subagent_type: "polygraph:polygraph-delegate-subagent"`, `run_in_background: true`, and description `Delegate to <repo>`. Fall back to the bare agent name only if the namespaced form is not found.
 - **OpenCode** — invoke `@polygraph-delegate-subagent`.
-- **Codex** — launch `agent_type: "polygraph-delegate-subagent"` via Codex's own `spawn_agent`, and collect it with `wait_agent`.
+- **Codex** — launch `agent_type: "polygraph-delegate-subagent"` via Codex's own `spawn_agent`, and collect it with `wait_agent`, passing a long `timeout_ms` (five minutes or more): `wait_agent` returns as soon as the poller stops, so a short timeout only adds wake-ups that burn tokens and fill the user-visible transcript with waiting noise.
 - **Cursor** — a background `Task` with `subagent_type: "polygraph-delegate-subagent"`, `run_in_background: true`, and description `Delegate to <repo>`. Collect it with `Await`.
 
 A collect step that returns while the poller subagent is still running has not failed. It has only reached the end of its collection window. Collect the same background-task id again, as many times as it takes for the poller subagent to stop. A poller that runs for several minutes is ordinary, and it is never a reason to take the wait back into the main conversation.
