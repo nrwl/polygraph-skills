@@ -468,8 +468,15 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
   assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
 });
 
-test('SessionEnd launcher is synchronous, strips ambient evidence, and excludes children', () => {
+test('SessionEnd hook detaches finalization, strips ambient evidence, and excludes children', () => {
+  const source = readFileSync(
+    new URL('../source/hooks/agent-session-finalize.mjs', import.meta.url),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /\bspawnSync\b/);
+
   let invocation;
+  let unrefCount = 0;
   const env = {
     POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js',
     POLYGRAPH_SESSION_ID: 'ambient-session',
@@ -477,7 +484,14 @@ test('SessionEnd launcher is synchronous, strips ambient evidence, and excludes 
   };
   const spawn = (command, args, options) => {
     invocation = { command, args, options };
-    return { status: 0, stderr: '' };
+    return {
+      once() {
+        return this;
+      },
+      unref() {
+        unrefCount += 1;
+      },
+    };
   };
 
   assert.equal(
@@ -498,7 +512,10 @@ test('SessionEnd launcher is synchronous, strips ambient evidence, and excludes 
   assert.equal(invocation.args[0], '_finalize-agent-session');
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
-  assert.deepEqual(invocation.options.stdio, ['ignore', 'ignore', 'pipe']);
+  assert.equal(invocation.options.detached, true);
+  assert.equal(invocation.options.stdio, 'ignore');
+  assert.equal(Object.hasOwn(invocation.options, 'encoding'), false);
+  assert.equal(unrefCount, 1);
 
   let childSpawnCount = 0;
   assert.equal(
@@ -510,13 +527,77 @@ test('SessionEnd launcher is synchronous, strips ambient evidence, and excludes 
       },
       () => {
         childSpawnCount += 1;
-        return { status: 0, stderr: '' };
+        return {};
       },
       { POLYGRAPH_CHILD_AGENT: '' }
     ),
     false
   );
   assert.equal(childSpawnCount, 0);
+});
+
+test('SessionEnd hook reports detached child failures best-effort', () => {
+  const listeners = {};
+  const failures = [];
+  const result = finalizeMain({
+    agentType: 'claude',
+    env: {},
+    payload: {
+      hook_event_name: 'SessionEnd',
+      session_id: 'claude-session',
+    },
+    spawn() {
+      return {
+        once(event, listener) {
+          listeners[event] = listener;
+          return this;
+        },
+        unref() {},
+      };
+    },
+    logFailure(hook, error, meta) {
+      failures.push({ hook, error, meta });
+    },
+  });
+
+  assert.equal(result, true);
+
+  const spawnError = new Error('spawn failed');
+  listeners.error(spawnError);
+  listeners.exit(2, null);
+
+  assert.equal(failures.length, 2);
+  assert.equal(failures[0].hook, 'claude:finalize-agent-session');
+  assert.equal(failures[0].error, spawnError);
+  assert.deepEqual(failures[0].meta, {
+    hookEventName: 'SessionEnd',
+    agentSessionId: 'claude-session',
+  });
+  assert.match(failures[1].error.message, /exited with status 2/);
+});
+
+test('SessionEnd hook contains synchronous handoff failures', () => {
+  const failure = new Error('handoff failed');
+  let loggedError;
+
+  assert.equal(
+    finalizeMain({
+      agentType: 'claude',
+      env: {},
+      payload: {
+        hook_event_name: 'SessionEnd',
+        session_id: 'claude-session',
+      },
+      spawn() {
+        throw failure;
+      },
+      logFailure(_hook, error) {
+        loggedError = error;
+      },
+    }),
+    false
+  );
+  assert.equal(loggedError, failure);
 });
 
 test('PostToolUse ignores tool inputs, results, and ambient Polygraph session IDs', () => {

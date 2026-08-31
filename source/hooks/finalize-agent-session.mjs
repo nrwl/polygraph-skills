@@ -21,7 +21,14 @@ export function main({
   agentType = process.argv[2],
   env = process.env,
   spawn,
+  logFailure = logHookFailure,
 } = {}) {
+  const reportFailure = (error) =>
+    logFailure(`${agentType || 'unknown'}:finalize-agent-session`, error, {
+      hookEventName: payload?.hook_event_name,
+      agentSessionId: payload?.session_id,
+    });
+
   try {
     const finalize = buildCommandHookFinalize(payload, agentType, env);
     if (!finalize) return false;
@@ -31,13 +38,11 @@ export function main({
         cwd: finalize.cwd ?? process.cwd(),
       },
       spawn,
-      env
+      env,
+      reportFailure
     );
   } catch (error) {
-    logHookFailure(`${agentType || 'unknown'}:finalize-agent-session`, error, {
-      hookEventName: payload?.hook_event_name,
-      agentSessionId: payload?.session_id,
-    });
+    reportFailure(error);
     return false;
   }
 }

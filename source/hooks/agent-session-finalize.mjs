@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn as spawnChild } from 'node:child_process';
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value : undefined;
@@ -39,7 +39,20 @@ export function buildFinalizeAgentSessionArgs({
   return args;
 }
 
-export function finalizeAgentSession(claim, spawn = spawnSync, env = process.env) {
+function reportFailure(onFailure, error) {
+  try {
+    onFailure(error);
+  } catch {
+    // Detached finalization must never delay or fail harness shutdown.
+  }
+}
+
+export function finalizeAgentSession(
+  claim,
+  spawn = spawnChild,
+  env = process.env,
+  onFailure = () => {}
+) {
   if (isManagedChildEnvironment(env)) return false;
 
   const command = nonEmptyString(env?.POLYGRAPH_CLI) ?? 'polygraph';
@@ -47,20 +60,22 @@ export function finalizeAgentSession(claim, spawn = spawnSync, env = process.env
   delete commandEnv.POLYGRAPH_SESSION_ID;
   delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
 
-  const result = spawn(command, buildFinalizeAgentSessionArgs(claim), {
-    encoding: 'utf8',
+  const child = spawn(command, buildFinalizeAgentSessionArgs(claim), {
+    detached: true,
     env: commandEnv,
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: 'ignore',
   });
 
-  if (result?.error) throw result.error;
-  if (result?.status !== 0) {
-    const detail = nonEmptyString(result?.stderr);
-    throw new Error(
-      `polygraph _finalize-agent-session exited with status ${String(result?.status)}` +
-        (detail ? `: ${detail}` : '')
+  child.once('error', (error) => reportFailure(onFailure, error));
+  child.once('exit', (status, signal) => {
+    if (status === 0) return;
+    const outcome = signal ? `signal ${signal}` : `status ${String(status)}`;
+    reportFailure(
+      onFailure,
+      new Error(`polygraph _finalize-agent-session exited with ${outcome}`)
     );
-  }
+  });
+  child.unref();
 
   return true;
 }
