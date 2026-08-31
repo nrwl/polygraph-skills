@@ -729,15 +729,18 @@ test('the cursor plugin registers static relative sessionStart and postToolUse h
     'node hooks/record-session-mapping.mjs cursor'
   );
 
-  // Claim evidence rides postToolUse (plugin scope dispatches it; stop does
-  // not fire from plugins, which is why usage capture lives in a user-scope
-  // hook instead).
+  // Claim evidence rides postToolUse (plugin scope dispatches it, unlike
+  // stop, which cursor does not fire from plugin hooks).
   const postToolUseHooks = manifest.hooks.postToolUse;
   assert.equal(postToolUseHooks.length, 1);
   assert.equal(
     postToolUseHooks[0].command,
     'node hooks/record-session-mapping.mjs cursor'
   );
+
+  // No stop hook: cursor token-usage capture is intentionally unsupported and
+  // nothing may prompt a user-scope ~/.cursor/hooks.json registration.
+  assert.equal('stop' in manifest.hooks, false);
 });
 
 test('cursor sessionStart forwards lifecycle identity from the cursor payload shape', () => {

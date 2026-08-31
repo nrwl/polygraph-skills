@@ -64,7 +64,6 @@ async function main() {
       console.log("Polygraph Cursor plugin is materialized.");
       console.log(`Plugin path: ${result.pluginPath}`);
       console.log(`Installed version: ${result.installedVersion ?? "unknown"}`);
-      warnOnMissingUsageHook(result.userHooks);
     } else {
       console.error(
         `Polygraph Cursor plugin check failed: no complete payload at ${result.pluginPath}.`,
@@ -77,35 +76,11 @@ async function main() {
       "The Polygraph CLI loads it automatically; manual runs: " +
         `cursor-agent --plugin-dir ${result.pluginPath}`,
     );
-    warnOnMissingUsageHook(result.userHooks);
   }
 
   if (command === "check" && !result.ok) {
     process.exitCode = 1;
   }
-}
-
-/**
- * The payload can materialize while the user-scope stop hook fails to
- * register (unparsable or unwritable hooks.json). That is a partial install:
- * cursor token usage from interactive sessions goes unrecorded until it is
- * fixed, so say so instead of reporting plain success. Exit code stays 0:
- * the payload itself is usable and the Polygraph CLI must not treat the
- * launch-path install as failed.
- */
-function warnOnMissingUsageHook(userHooks) {
-  if (!userHooks || userHooks.registered) return;
-  const detail =
-    userHooks.reason === "unparsable"
-      ? `${userHooks.hooksPath} could not be parsed as JSON`
-      : userHooks.reason === "missing"
-        ? `no entry found in ${userHooks.hooksPath}`
-        : `${userHooks.hooksPath}: ${userHooks.reason}`;
-  console.error(
-    `Warning: the token-usage stop hook is not registered (${detail}). ` +
-      "Cursor token usage from interactive sessions will not be recorded. " +
-      "Fix the file, then rerun: npx @polygraph/cursor-plugin install",
-  );
 }
 
 main().catch((error) => {

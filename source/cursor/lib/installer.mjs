@@ -3,9 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -133,8 +131,6 @@ export function installPlugin({ packageRoot, env = process.env, force = false })
     }
   }
 
-  const userHooks = registerCursorUsageStopHook({ userHome, pluginPath });
-
   return {
     ok: true,
     action: "install",
@@ -145,136 +141,7 @@ export function installPlugin({ packageRoot, env = process.env, force = false })
     copied: shouldCopy,
     overwritten: installAlreadyPresent && force,
     pluginUpdated: installAlreadyPresent && versionMismatch && !force,
-    userHooks,
   };
-}
-
-const USAGE_HOOK_SCRIPT = "record-cursor-usage.mjs";
-
-/**
- * The exact command shape this installer writes:
- * `node "<install path>/hooks/record-cursor-usage.mjs"`. Ownership of an
- * existing entry is decided by this ANCHORED shape, never by a substring
- * match: a user's own wrapper that merely mentions the script (for example
- * `bash -c 'node .../record-cursor-usage.mjs && notify'`) is not ours to
- * replace and must survive the merge untouched.
- */
-const OWNED_USAGE_HOOK_COMMAND = new RegExp(
-  `^node "[^"]*[/\\\\]hooks[/\\\\]${USAGE_HOOK_SCRIPT.replace(/\./g, "\\.")}"$`,
-);
-
-export function getCursorUserHooksPath(userHome) {
-  return join(userHome, ".cursor", "hooks.json");
-}
-
-function buildUsageHookCommand(pluginPath) {
-  return `node "${join(pluginPath, "hooks", USAGE_HOOK_SCRIPT)}"`;
-}
-
-/**
- * Merge the usage-capture `stop` entry into the user-scope
- * `~/.cursor/hooks.json`. This entry cannot ride the plugin payload alone:
- * cursor dispatches only a subset of hook events (e.g. sessionStart) from
- * `--plugin-dir` plugins and `stop` is not among them (live-verified on
- * 2026.08.25-3e8eec8), while user-scope `stop` fires per turn with the
- * usage counters Polygraph's token-cost reporting reads back.
- *
- * The merge is additive and idempotent: entries owned by other tools are
- * never touched, a stale entry pointing at an old install path is replaced,
- * and an unparsable file is left untouched (registration is skipped rather
- * than clobbering user configuration). Re-running install self-heals the
- * entry.
- */
-export function registerCursorUsageStopHook({ userHome, pluginPath }) {
-  const hooksPath = getCursorUserHooksPath(userHome);
-  const command = buildUsageHookCommand(pluginPath);
-
-  let config = { version: 1, hooks: {} };
-  if (existsSync(hooksPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(hooksPath, "utf8"));
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { registered: false, reason: "unparsable", hooksPath };
-      }
-      config = parsed;
-    } catch {
-      return { registered: false, reason: "unparsable", hooksPath };
-    }
-  }
-
-  if (
-    !config.hooks ||
-    typeof config.hooks !== "object" ||
-    Array.isArray(config.hooks)
-  ) {
-    config.hooks = {};
-  }
-  const stop = Array.isArray(config.hooks.stop) ? config.hooks.stop : [];
-
-  const isOurs = (entry) =>
-    entry &&
-    typeof entry === "object" &&
-    typeof entry.command === "string" &&
-    OWNED_USAGE_HOOK_COMMAND.test(entry.command);
-  if (stop.some((entry) => isOurs(entry) && entry.command === command)) {
-    return { registered: true, changed: false, hooksPath };
-  }
-
-  const next = stop.filter((entry) => !isOurs(entry));
-  next.push({ command });
-  config.hooks.stop = next;
-  if (config.version === undefined) config.version = 1;
-
-  // hooks.json holds every tool's user-scope hooks, so the replacement must
-  // be durable before the old content goes away: write the merged document to
-  // a same-directory temp file, then atomically rename it over hooks.json. A
-  // crash, full disk, or concurrent writer can no longer leave a truncated
-  // file that disables every hook; concurrent complete writes degrade to
-  // last-writer-wins of a well-formed document.
-  const tempPath = `${hooksPath}.polygraph-${process.pid}-${Date.now()}.tmp`;
-  try {
-    mkdirSync(dirname(hooksPath), { recursive: true });
-    writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`);
-    renameSync(tempPath, hooksPath);
-    return { registered: true, changed: true, hooksPath };
-  } catch (error) {
-    rmSync(tempPath, { force: true });
-    return {
-      registered: false,
-      reason: error instanceof Error ? error.message : String(error),
-      hooksPath,
-    };
-  }
-}
-
-/**
- * Diagnosis-only probe for the usage stop hook: reports whether the
- * user-scope hooks.json currently carries the entry for THIS install path.
- * Never writes. `registered: false` with a `reason` distinguishes an
- * unparsable file from a merely missing entry.
- */
-export function checkCursorUsageStopHook({ userHome, pluginPath }) {
-  const hooksPath = getCursorUserHooksPath(userHome);
-  const command = buildUsageHookCommand(pluginPath);
-  if (!existsSync(hooksPath)) {
-    return { registered: false, reason: "missing", hooksPath };
-  }
-  let config;
-  try {
-    config = JSON.parse(readFileSync(hooksPath, "utf8"));
-  } catch {
-    return { registered: false, reason: "unparsable", hooksPath };
-  }
-  const stop = Array.isArray(config?.hooks?.stop) ? config.hooks.stop : [];
-  const registered = stop.some(
-    (entry) =>
-      entry &&
-      typeof entry === "object" &&
-      entry.command === command,
-  );
-  return registered
-    ? { registered: true, hooksPath }
-    : { registered: false, reason: "missing", hooksPath };
 }
 
 /**
@@ -301,6 +168,5 @@ export function checkInstall({ packageRoot = null, env = process.env } = {}) {
       installed && packageVersion !== null
         ? installedVersion === packageVersion
         : null,
-    userHooks: checkCursorUsageStopHook({ userHome, pluginPath }),
   };
 }

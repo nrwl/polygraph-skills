@@ -1,11 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   writeFileSync,
 } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
@@ -13,12 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  checkCursorUsageStopHook,
   checkInstall,
-  getCursorUserHooksPath,
   getPluginInstallPath,
   installPlugin,
-  registerCursorUsageStopHook,
   resolveUserHome,
 } from '../source/cursor/lib/installer.mjs';
 
@@ -149,7 +144,10 @@ test('installPlugin rejects a payload whose manifest is not the polygraph plugin
   );
 });
 
-test('installPlugin registers the usage stop hook in the user hooks.json', () => {
+test('installPlugin never touches shared Cursor user settings', () => {
+  // Cursor token accounting is intentionally unsupported, so there is no
+  // user-scope hook to register: the installer materializes the payload and
+  // nothing else. ~/.cursor must not even be created.
   const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
   const fixture = createFixturePackage(homeDir, '1.2.3');
 
@@ -158,173 +156,16 @@ test('installPlugin registers the usage stop hook in the user hooks.json', () =>
     env: { HOME: homeDir },
   });
 
-  assert.equal(result.userHooks.registered, true);
-  const config = JSON.parse(
-    readFileSync(getCursorUserHooksPath(homeDir), 'utf8')
-  );
-  assert.equal(config.hooks.stop.length, 1);
-  assert.match(config.hooks.stop[0].command, /record-cursor-usage\.mjs/);
-  assert.equal(config.hooks.stop[0].command.includes(result.pluginPath), true);
-});
+  assert.equal(result.ok, true);
+  assert.equal('userHooks' in result, false);
+  assert.equal(existsSync(join(homeDir, '.cursor')), false);
 
-test('registerCursorUsageStopHook merges without touching other entries and is idempotent', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const hooksPath = getCursorUserHooksPath(homeDir);
-  mkdirSync(join(homeDir, '.cursor'), { recursive: true });
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({
-      version: 1,
-      hooks: {
-        stop: [
-          { command: '/opt/other-tool/hook.sh Stop' },
-          { command: 'node "/old/install/hooks/record-cursor-usage.mjs"' },
-        ],
-        beforeSubmitPrompt: [{ command: '/opt/other-tool/hook.sh Start' }],
-      },
-    })
-  );
-
-  const pluginPath = join(homeDir, '.polygraph', 'plugins', 'cursor', 'polygraph');
-  const first = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
-  assert.equal(first.registered, true);
-  assert.equal(first.changed, true);
-
-  const config = JSON.parse(readFileSync(hooksPath, 'utf8'));
-  // The other tool's entries survive; the stale polygraph path is replaced.
-  assert.equal(config.hooks.beforeSubmitPrompt.length, 1);
-  assert.equal(config.hooks.stop.length, 2);
-  assert.equal(config.hooks.stop[0].command, '/opt/other-tool/hook.sh Stop');
-  assert.equal(config.hooks.stop[1].command.includes(pluginPath), true);
-
-  const second = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
-  assert.equal(second.registered, true);
-  assert.equal(second.changed, false);
-});
-
-test('registerCursorUsageStopHook leaves an unparsable hooks.json untouched', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const hooksPath = getCursorUserHooksPath(homeDir);
-  mkdirSync(join(homeDir, '.cursor'), { recursive: true });
-  writeFileSync(hooksPath, '{not json');
-
-  const result = registerCursorUsageStopHook({
-    userHome: homeDir,
-    pluginPath: join(homeDir, 'plugin'),
-  });
-  assert.equal(result.registered, false);
-  assert.equal(result.reason, 'unparsable');
-  assert.equal(readFileSync(hooksPath, 'utf8'), '{not json');
-});
-
-test('registerCursorUsageStopHook creates the hooks.json when absent', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const pluginPath = join(homeDir, 'plugin');
-
-  const result = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
-  assert.equal(result.registered, true);
-
-  const config = JSON.parse(
-    readFileSync(getCursorUserHooksPath(homeDir), 'utf8')
-  );
-  assert.equal(config.version, 1);
-  assert.equal(config.hooks.stop.length, 1);
-  // Atomic write: the temp file never survives a successful merge.
-  assert.deepEqual(
-    readdirSync(join(homeDir, '.cursor')).filter((name) =>
-      name.endsWith('.tmp')
-    ),
-    []
-  );
-});
-
-test('registerCursorUsageStopHook only claims entries with the exact installed shape', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const hooksPath = getCursorUserHooksPath(homeDir);
-  mkdirSync(join(homeDir, '.cursor'), { recursive: true });
-  // A user wrapper that mentions the script is NOT ours: a substring match
-  // would delete it, the anchored shape match must preserve it.
-  const userWrapper =
-    "bash -c 'node /home/user/custom/record-cursor-usage.mjs && notify-send done'";
-  writeFileSync(
-    hooksPath,
-    JSON.stringify({
-      version: 1,
-      hooks: { stop: [{ command: userWrapper }] },
-    })
-  );
-
-  const pluginPath = join(homeDir, 'plugin');
-  const result = registerCursorUsageStopHook({ userHome: homeDir, pluginPath });
-  assert.equal(result.registered, true);
-
-  const config = JSON.parse(readFileSync(hooksPath, 'utf8'));
-  assert.equal(config.hooks.stop.length, 2);
-  assert.equal(config.hooks.stop[0].command, userWrapper);
-  assert.equal(config.hooks.stop[1].command.includes(pluginPath), true);
-});
-
-test('registerCursorUsageStopHook leaves the original file intact when the write fails', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const cursorDir = join(homeDir, '.cursor');
-  const hooksPath = getCursorUserHooksPath(homeDir);
-  mkdirSync(cursorDir, { recursive: true });
-  const original = JSON.stringify({
-    version: 1,
-    hooks: { stop: [{ command: '/opt/other-tool/hook.sh Stop' }] },
-  });
-  writeFileSync(hooksPath, original);
-
-  // A read-only directory rejects the temp-file write; the merge must fail
-  // closed without truncating or replacing hooks.json.
-  chmodSync(cursorDir, 0o555);
-  try {
-    const result = registerCursorUsageStopHook({
-      userHome: homeDir,
-      pluginPath: join(homeDir, 'plugin'),
-    });
-    assert.equal(result.registered, false);
-    assert.ok(result.reason);
-  } finally {
-    chmodSync(cursorDir, 0o755);
-  }
-  assert.equal(readFileSync(hooksPath, 'utf8'), original);
-  assert.deepEqual(
-    readdirSync(cursorDir).filter((name) => name.endsWith('.tmp')),
-    []
-  );
-});
-
-test('checkInstall and checkCursorUsageStopHook report the usage-hook state', () => {
-  const homeDir = mkdtempSync(join(tmpdir(), 'polygraph-cursor-home-'));
-  const fixture = createFixturePackage(homeDir, '1.2.3');
-
-  installPlugin({ packageRoot: fixture.packageRoot, env: { HOME: homeDir } });
-  const present = checkInstall({
+  const check = checkInstall({
     packageRoot: fixture.packageRoot,
     env: { HOME: homeDir },
   });
-  assert.equal(present.userHooks.registered, true);
-
-  // Losing the hook entry is detectable without reinstalling.
-  writeFileSync(
-    getCursorUserHooksPath(homeDir),
-    JSON.stringify({ version: 1, hooks: { stop: [] } })
-  );
-  const missing = checkInstall({
-    packageRoot: fixture.packageRoot,
-    env: { HOME: homeDir },
-  });
-  assert.equal(missing.userHooks.registered, false);
-  assert.equal(missing.userHooks.reason, 'missing');
-
-  writeFileSync(getCursorUserHooksPath(homeDir), '{not json');
-  const unparsable = checkCursorUsageStopHook({
-    userHome: homeDir,
-    pluginPath: getPluginInstallPath(homeDir),
-  });
-  assert.equal(unparsable.registered, false);
-  assert.equal(unparsable.reason, 'unparsable');
+  assert.equal('userHooks' in check, false);
+  assert.equal(existsSync(join(homeDir, '.cursor')), false);
 });
 
 function createFixturePackage(homeDir, version, { manifestName = 'polygraph' } = {}) {
