@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildCommandHookFinalize,
-  finalizeAgentSession,
+  launchAgentSessionFinalize,
 } from './agent-session-finalize.mjs';
 import { logHookFailure } from './agent-session-link.mjs';
 
@@ -22,6 +22,8 @@ export function main({
   env = process.env,
   spawn,
   logFailure = logHookFailure,
+  cwd = process.cwd(),
+  launcherOptions = {},
 } = {}) {
   const reportFailure = (error) =>
     logFailure(`${agentType || 'unknown'}:finalize-agent-session`, error, {
@@ -32,14 +34,14 @@ export function main({
   try {
     const finalize = buildCommandHookFinalize(payload, agentType, env);
     if (!finalize) return false;
-    return finalizeAgentSession(
+    return launchAgentSessionFinalize(
       {
         ...finalize,
-        cwd: finalize.cwd ?? process.cwd(),
+        cwd: finalize.cwd ?? cwd,
       },
       spawn,
       env,
-      reportFailure
+      { ...launcherOptions, onFailure: reportFailure }
     );
   } catch (error) {
     reportFailure(error);

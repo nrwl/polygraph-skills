@@ -67,7 +67,16 @@ export function deferOpenCodeToolActivity(
   schedule = setTimeout
 ) {
   schedule(() => {
-    Promise.resolve(sessionLinker.fromToolActivity(input)).catch(onError);
+    return Promise.resolve()
+      .then(() => sessionLinker.fromToolActivity(input))
+      .catch((error) => {
+        try {
+          return onError(error);
+        } catch {
+          // Deferred proof reads are best-effort and cannot reject the host hook.
+        }
+      })
+      .catch(() => {});
   }, 0);
 }
 

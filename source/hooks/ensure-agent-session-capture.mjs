@@ -22,11 +22,19 @@ export function main({
   env = process.env,
   spawn,
   logFailure = logHookFailure,
+  cwd = process.cwd(),
 } = {}) {
   try {
     const claim = buildCommandHookEnsureCapture(payload, agentType, env);
     if (!claim) return false;
-    return ensureAgentSessionCapture(claim, spawn, env);
+    return ensureAgentSessionCapture(
+      {
+        ...claim,
+        cwd: claim.cwd ?? cwd,
+      },
+      spawn,
+      env
+    );
   } catch (error) {
     logFailure(`${agentType || 'unknown'}:ensure-agent-session-capture`, error, {
       hookEventName: payload?.hook_event_name,

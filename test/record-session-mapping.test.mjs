@@ -468,15 +468,10 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
   assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
 });
 
-test('SessionEnd hook detaches finalization, strips ambient evidence, and excludes children', () => {
-  const source = readFileSync(
-    new URL('../source/hooks/agent-session-finalize.mjs', import.meta.url),
-    'utf8'
-  );
-  assert.doesNotMatch(source, /\bspawnSync\b/);
-
+test('SessionEnd hook hands off to a detached worker, strips ambient evidence, and excludes children', () => {
   let invocation;
   let unrefCount = 0;
+  const logEvents = [];
   const env = {
     POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js',
     POLYGRAPH_SESSION_ID: 'ambient-session',
@@ -484,6 +479,7 @@ test('SessionEnd hook detaches finalization, strips ambient evidence, and exclud
   };
   const spawn = (command, args, options) => {
     invocation = { command, args, options };
+    logEvents.push('spawn');
     return {
       once() {
         return this;
@@ -501,21 +497,45 @@ test('SessionEnd hook detaches finalization, strips ambient evidence, and exclud
       payload: {
         hook_event_name: 'SessionEnd',
         session_id: 'claude-session',
-        cwd: '/workspace/repo',
-        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/workspace/repo with spaces',
+        transcript_path: '/tmp/transcript exact.jsonl',
       },
       spawn,
+      launcherOptions: {
+        execPath: '/runtime/node',
+        openLog: () => {
+          logEvents.push('open');
+          return 42;
+        },
+        closeLog: (fd) => {
+          logEvents.push(['close', fd]);
+        },
+      },
     }),
     true
   );
-  assert.equal(invocation.command, env.POLYGRAPH_CLI);
-  assert.equal(invocation.args[0], '_finalize-agent-session');
+
+  assert.equal(invocation.command, '/runtime/node');
+  assert.match(invocation.args[0], /finalize-agent-session-worker\.mjs$/);
+  assert.deepEqual(JSON.parse(invocation.args[1]), {
+    agentType: 'claude',
+    agentSessionId: 'claude-session',
+    cwd: '/workspace/repo with spaces',
+    transcriptPath: '/tmp/transcript exact.jsonl',
+    source: 'hook',
+  });
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
+  assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
   assert.equal(invocation.options.detached, true);
-  assert.equal(invocation.options.stdio, 'ignore');
-  assert.equal(Object.hasOwn(invocation.options, 'encoding'), false);
+  assert.equal(invocation.options.shell, false);
+  assert.equal(invocation.options.windowsHide, true);
+  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.deepEqual(invocation.options.stdio, ['ignore', 42, 42]);
   assert.equal(unrefCount, 1);
+  // The log stays open across the launch, then the parent's copy closes; the
+  // worker keeps its inherited descriptors for durable failure logging.
+  assert.deepEqual(logEvents, ['open', 'spawn', ['close', 42]]);
 
   let childSpawnCount = 0;
   assert.equal(
@@ -536,7 +556,7 @@ test('SessionEnd hook detaches finalization, strips ambient evidence, and exclud
   assert.equal(childSpawnCount, 0);
 });
 
-test('SessionEnd hook reports detached child failures best-effort', () => {
+test('SessionEnd hook observes only worker launch failures', () => {
   const listeners = {};
   const failures = [];
   const result = finalizeMain({
@@ -558,22 +578,24 @@ test('SessionEnd hook reports detached child failures best-effort', () => {
     logFailure(hook, error, meta) {
       failures.push({ hook, error, meta });
     },
+    launcherOptions: { openLog: () => 1, closeLog: () => {} },
   });
 
   assert.equal(result, true);
+  // CLI exit handling belongs to the detached worker: the short-lived hook
+  // registers no exit listener because it cannot outlive harness shutdown.
+  assert.deepEqual(Object.keys(listeners), ['error']);
 
   const spawnError = new Error('spawn failed');
   listeners.error(spawnError);
-  listeners.exit(2, null);
 
-  assert.equal(failures.length, 2);
+  assert.equal(failures.length, 1);
   assert.equal(failures[0].hook, 'claude:finalize-agent-session');
   assert.equal(failures[0].error, spawnError);
   assert.deepEqual(failures[0].meta, {
     hookEventName: 'SessionEnd',
     agentSessionId: 'claude-session',
   });
-  assert.match(failures[1].error.message, /exited with status 2/);
 });
 
 test('SessionEnd hook contains synchronous handoff failures', () => {
@@ -594,6 +616,7 @@ test('SessionEnd hook contains synchronous handoff failures', () => {
       logFailure(_hook, error) {
         loggedError = error;
       },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
     }),
     false
   );
