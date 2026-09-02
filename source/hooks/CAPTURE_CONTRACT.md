@@ -33,14 +33,21 @@ using the lifecycle events its plugin API actually exposes:
   multi-message turn wakes more than once, and the transcript alone decides
   where steps begin and end.
 
-Every wake calls `_ensure-agent-session-capture` with only the agent type and
-harness session ID. Mutable working-directory and transcript-path evidence
-must not narrow an ensure lookup. There is no `--source` on the ensure
-command: a liveness poke has no mapping provenance. Which event fired is
-never forwarded — prompt-submit and agent-done wakes are identical
-invocations. The legacy `_link-agent-session` compatibility fallback keeps
-the working directory, transcript path, and `--source hook` because it still
-records a mapping.
+Every wake calls `_ensure-agent-session-capture` with the agent type, the
+harness session ID, and `--observed-at <ms>`: the epoch-millisecond time at
+which the hook fired, read synchronously in the hook process (for OpenCode,
+in the event handler) before any deferral or worker detach. Ocean uses it to
+refresh the exact mapping and to compare terminal-marker freshness. It is
+lifecycle/liveness metadata only — never a step boundary and never data —
+and a worker's own start time is never used, so a delayed worker cannot
+present its startup as evidence that the harness was still live. Mutable
+working-directory and transcript-path evidence must not narrow an ensure
+lookup. There is no `--source` on the ensure command: a liveness poke has no
+mapping provenance. Which event fired is never forwarded — prompt-submit and
+agent-done wakes are identical invocations apart from the timestamp. The
+legacy `_link-agent-session` compatibility fallback keeps the working
+directory, transcript path, and `--source hook` because it still records a
+mapping; neither it nor `_finalize-agent-session` carries `--observed-at`.
 
 ## Process identity
 
@@ -122,12 +129,14 @@ asynchronous hooks: ensure/link and finalize are idempotent for an agent
 session, finalize dominates an in-flight or later wake, and a wake after
 finalization does not resurrect capture. Concretely, Ocean keeps a terminal
 marker for each finalized harness session and applies a freshness guard to
-it: a delayed or reordered wake that names a harness session with a terminal
-marker is a no-op and never resurrects capture, while a genuinely newer
-session mapping for that identity — a later SessionStart/sessionStart link
-recorded after the marker — may supersede the older terminal marker and
-start fresh capture. The plugin never distinguishes the two cases; it
-issues the same identity-only wake either way. Ocean should emit
+it: a delayed or reordered wake whose `--observed-at` does not postdate a
+harness session's terminal marker is a no-op and never resurrects capture,
+while a genuinely newer session mapping for that identity — a later
+SessionStart/sessionStart link recorded after the marker — may supersede
+the older terminal marker and start fresh capture. The plugin never
+distinguishes the two cases; it issues the same identity-plus-timestamp
+wake either way. Ocean must accept `--observed-at` on
+`_ensure-agent-session-capture`. Ocean should emit
 `POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED` when a CLI
 intentionally cannot serve the ensure command; the plugin also recognizes
 the legacy Shell 0.1.x stdout response: root `Usage: polygraph`, followed by

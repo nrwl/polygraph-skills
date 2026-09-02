@@ -14,6 +14,7 @@ import {
 } from '../source/hooks/agent-session-finalize.mjs';
 
 const sourceDir = resolve(import.meta.dirname, '..', 'source');
+const HOOK_FIRED_AT = 1_767_225_600_000;
 
 // One wake contract for every harness manifest: prompt-submit and agent-done
 // register the same identity-only command, made non-blocking either by the
@@ -208,7 +209,12 @@ test('prompt-submit and every agent-done payload reduce to one identical identit
   for (const [harness, spec] of Object.entries(HARNESSES)) {
     const argvByEvent = spec.wakeEvents.map((eventName) => {
       const payload = WAKE_PAYLOADS[harness][eventName];
-      const claim = buildCommandHookEnsureCapture(payload, harness, {});
+      const claim = buildCommandHookEnsureCapture(
+        payload,
+        harness,
+        {},
+        () => HOOK_FIRED_AT
+      );
       assert.ok(claim, `${harness} ${eventName}`);
       return buildEnsureAgentSessionCaptureArgs(claim);
     });
@@ -222,6 +228,8 @@ test('prompt-submit and every agent-done payload reduce to one identical identit
       harness,
       '--agent-session-id',
       WAKE_PAYLOADS[harness][spec.wakeEvents[0]].session_id,
+      '--observed-at',
+      String(HOOK_FIRED_AT),
     ]);
 
     const joined = argvByEvent[0].join('\n');
@@ -236,7 +244,7 @@ test('the legacy mapping fallback keeps path evidence and provenance the ensure 
   for (const [harness, spec] of Object.entries(HARNESSES)) {
     for (const eventName of spec.wakeEvents) {
       const payload = WAKE_PAYLOADS[harness][eventName];
-      const claim = buildCommandHookEnsureCapture(payload, harness, {});
+      const claim = buildCommandHookEnsureCapture(payload, harness, {}, () => HOOK_FIRED_AT);
       const cwd = payload.cwd ?? payload.workspace_roots[0];
 
       assert.deepEqual(buildLegacyCaptureWakeArgs(claim), [

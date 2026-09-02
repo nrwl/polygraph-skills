@@ -13,6 +13,10 @@ import {
 } from '../source/hooks/agent-session-capture.mjs';
 import { main } from '../source/hooks/ensure-agent-session-capture.mjs';
 
+// A fixed hook-fire time: every wake forwards the hook's own clock reading.
+const HOOK_FIRED_AT = 1_767_225_600_000;
+const OBSERVED_AT_ARGS = ['--observed-at', String(HOOK_FIRED_AT)];
+
 const OLD_CLI_UNSUPPORTED_STDOUT = `Usage: polygraph
 Polygraph CLI for cross-repo coordination
 
@@ -89,7 +93,8 @@ test('UserPromptSubmit wakes capture with the same claim as Stop and forwards no
       prompt: 'must-never-leave-the-transcript',
     },
     'claude',
-    {}
+    {},
+    () => HOOK_FIRED_AT
   );
 
   assert.deepEqual(claim, {
@@ -97,6 +102,7 @@ test('UserPromptSubmit wakes capture with the same claim as Stop and forwards no
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo with spaces',
     transcriptPath: '/tmp/transcript exact.jsonl',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.equal(
     buildEnsureAgentSessionCaptureArgs(claim).some((arg) =>
@@ -115,21 +121,23 @@ test('Stop payload forwards exact Claude session metadata', () => {
     stop_hook_active: false,
   };
 
-  const claim = buildCommandHookEnsureCapture(payload, 'claude', {});
+  const claim = buildCommandHookEnsureCapture(payload, 'claude', {}, () => HOOK_FIRED_AT);
   assert.deepEqual(claim, {
     agentType: 'claude',
     agentSessionId: 'claude/root session?exact=true',
     cwd: '/workspace/repo with spaces',
     transcriptPath: '/tmp/transcript exact.jsonl',
+    observedAt: HOOK_FIRED_AT,
   });
-  // Identity only: no --source on the ensure command — a liveness poke
-  // carries no mapping provenance and no semantic status.
+  // Identity plus the hook-fire time: no --source on the ensure command — a
+  // liveness poke carries no mapping provenance and no semantic status.
   assert.deepEqual(buildEnsureAgentSessionCaptureArgs(claim), [
     '_ensure-agent-session-capture',
     '--agent-type',
     'claude',
     '--agent-session-id',
     'claude/root session?exact=true',
+    ...OBSERVED_AT_ARGS,
   ]);
   assert.deepEqual(buildLegacyCaptureWakeArgs(claim), [
     '_link-agent-session',
@@ -155,7 +163,8 @@ test('Stop payload omits absent optional metadata', () => {
       transcript_path: undefined,
     },
     'claude',
-    {}
+    {},
+    () => HOOK_FIRED_AT
   );
 
   assert.deepEqual(claim, {
@@ -163,6 +172,7 @@ test('Stop payload omits absent optional metadata', () => {
     agentSessionId: 'claude-session',
     cwd: undefined,
     transcriptPath: undefined,
+    observedAt: HOOK_FIRED_AT,
   });
   assert.deepEqual(buildEnsureAgentSessionCaptureArgs(claim), [
     '_ensure-agent-session-capture',
@@ -170,7 +180,32 @@ test('Stop payload omits absent optional metadata', () => {
     'claude',
     '--agent-session-id',
     'claude-session',
+    ...OBSERVED_AT_ARGS,
   ]);
+});
+
+test('an ensure wake without the hook-captured time is refused, never guessed', () => {
+  for (const observedAt of [undefined, null, 0, -1, 1.5, NaN, '1767225600000']) {
+    assert.throws(
+      () =>
+        buildEnsureAgentSessionCaptureArgs({
+          agentType: 'claude',
+          agentSessionId: 'claude-session',
+          observedAt,
+        }),
+      /observedAt is required/,
+      String(observedAt)
+    );
+  }
+  // The legacy mapping command never carries the timestamp at all.
+  assert.deepEqual(
+    buildLegacyCaptureWakeArgs({
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      observedAt: HOOK_FIRED_AT,
+    }),
+    ['_link-agent-session', '--agent-type', 'claude', '--agent-session-id', 'claude-session', '--source', 'hook']
+  );
 });
 
 test('capture hook accepts only complete Claude wake payloads', () => {
@@ -206,13 +241,15 @@ test('codex wakes on the same PascalCase events as Claude', () => {
           transcript_path: '/tmp/rollout exact.jsonl',
         },
         'codex',
-        {}
+        {},
+        () => HOOK_FIRED_AT
       ),
       {
         agentType: 'codex',
         agentSessionId: 'codex/root-thread',
         cwd: '/workspace/repo with spaces',
         transcriptPath: '/tmp/rollout exact.jsonl',
+        observedAt: HOOK_FIRED_AT,
       },
       eventName
     );
@@ -243,13 +280,15 @@ test('cursor wakes on camelCase events with cursor payload identity', () => {
           text: 'must-never-leave-the-transcript',
         },
         'cursor',
-        {}
+        {},
+        () => HOOK_FIRED_AT
       ),
       {
         agentType: 'cursor',
         agentSessionId: 'cursor/conversation-id',
         cwd: '/workspace/repo with spaces',
         transcriptPath: undefined,
+        observedAt: HOOK_FIRED_AT,
       },
       eventName
     );
@@ -318,6 +357,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
         invocation = { command, args, options };
         return { status: 0, stderr: '' };
       },
+      now: () => HOOK_FIRED_AT,
     }),
     true
   );
@@ -329,6 +369,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
     'claude',
     '--agent-session-id',
     'claude-session',
+    ...OBSERVED_AT_ARGS,
   ]);
   assert.equal(invocation.options.cwd, '/workspace/repo');
   assert.deepEqual(invocation.options.stdio, ['ignore', 'pipe', 'pipe']);
@@ -388,6 +429,7 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
+    observedAt: HOOK_FIRED_AT,
   };
 
   assert.equal(
@@ -411,7 +453,9 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
   assert.equal(invocations.length, 2);
   assert.equal(invocations[0].args[0], '_ensure-agent-session-capture');
   assert.equal(invocations[0].args.includes('--source'), false);
+  assert.deepEqual(invocations[0].args.slice(-2), OBSERVED_AT_ARGS);
   assert.equal(invocations[1].args[0], '_link-agent-session');
+  assert.equal(invocations[1].args.includes('--observed-at'), false);
   // The legacy mapping command keeps mutable mapping evidence and provenance.
   assert.deepEqual(invocations[1].args.slice(1, -2), [
     '--agent-type',
@@ -451,6 +495,7 @@ test('the observed Shell 0.1.x usage response triggers one compatibility fallbac
       logFailure(...failure) {
         failures.push(failure);
       },
+      now: () => HOOK_FIRED_AT,
     }),
     true
   );
@@ -462,6 +507,7 @@ test('the observed Shell 0.1.x usage response triggers one compatibility fallbac
     'claude',
     '--agent-session-id',
     'claude-session',
+    ...OBSERVED_AT_ARGS,
   ]);
   assert.deepEqual(invocations[1].args, [
     '_link-agent-session',
@@ -501,7 +547,7 @@ test('arbitrary CLI failures that mention the hidden command never trigger fallb
     assert.throws(
       () =>
         ensureAgentSessionCapture(
-          { agentType: 'claude', agentSessionId: 'claude-session' },
+          { agentType: 'claude', agentSessionId: 'claude-session', observedAt: HOOK_FIRED_AT },
           () => {
             spawnCount += 1;
             return result;
@@ -525,6 +571,7 @@ test('Stop never retries a timed-out or ambiguously executed command', () => {
           agentType: 'claude',
           agentSessionId: 'claude-session',
           cwd: '/workspace/repo',
+          observedAt: HOOK_FIRED_AT,
         },
         () => {
           spawnCount += 1;
@@ -548,6 +595,7 @@ test('a JS CLI entry wakes through Node up front, in exactly one process', () =>
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
+    observedAt: HOOK_FIRED_AT,
   };
 
   assert.equal(
@@ -576,7 +624,7 @@ test('a spawn that throws launch errors synchronously (Bun) is contained after o
   assert.throws(
     () =>
       ensureAgentSessionCapture(
-        { agentType: 'opencode', agentSessionId: 'opencode-root' },
+        { agentType: 'opencode', agentSessionId: 'opencode-root', observedAt: HOOK_FIRED_AT },
         () => {
           spawnCount += 1;
           throw thrown;
@@ -598,6 +646,7 @@ test('repeated Stop wakes remain identical and do not mutate ambient evidence', 
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
+    observedAt: HOOK_FIRED_AT,
   };
   const invocations = [];
   const spawn = (command, args, options) => {
@@ -650,6 +699,7 @@ test('a detached wake hands the claim to a worker and observes launch errors onl
           },
         };
       },
+      now: () => HOOK_FIRED_AT,
       launcherOptions: {
         execPath: '/runtime/node',
         openLog: () => {
@@ -671,6 +721,7 @@ test('a detached wake hands the claim to a worker and observes launch errors onl
     agentSessionId: 'codex-session',
     cwd: '/workspace/repo with spaces',
     transcriptPath: '/tmp/rollout exact.jsonl',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
@@ -786,6 +837,7 @@ test('cursor prompt and agent-done wakes never carry a PID, detached or inline',
           return { once() { return this; }, unref() {} };
         },
         launcherOptions: { openLog: () => 1, closeLog: () => {} },
+        now: () => HOOK_FIRED_AT,
       }),
       true,
       eventName
@@ -795,6 +847,7 @@ test('cursor prompt and agent-done wakes never carry a PID, detached or inline',
       agentSessionId: 'cursor/conversation-id',
       cwd: '/workspace/repo',
       transcriptPath: '/tmp/cursor transcript.jsonl',
+      observedAt: HOOK_FIRED_AT,
     });
 
     // Inline, through the old-CLI compatibility fallback: neither the ensure
@@ -818,7 +871,9 @@ test('cursor prompt and agent-done wakes never carry a PID, detached or inline',
     );
     assert.equal(invocations.length, 2);
     assert.equal(invocations[0].args[0], '_ensure-agent-session-capture');
+    assert.equal(invocations[0].args.includes('--observed-at'), true, eventName);
     assert.equal(invocations[1].args[0], '_link-agent-session');
+    assert.equal(invocations[1].args.includes('--observed-at'), false, eventName);
     for (const { args } of invocations) {
       assert.equal(args.includes('--pid'), false, eventName);
       assert.equal(args.includes(hookRunnerPid), false, eventName);

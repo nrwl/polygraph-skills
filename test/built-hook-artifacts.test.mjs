@@ -221,6 +221,7 @@ for (const [harness, workerPath] of [
             agentType: harness,
             agentSessionId: `${harness}-session`,
             cwd: home,
+            observedAt: Date.now(),
           }),
         ],
         {

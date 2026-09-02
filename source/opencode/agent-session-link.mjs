@@ -99,17 +99,21 @@ export function deferOpenCodeToolActivity(
  * Deferred, liveness-only capture wake. Fired on prompt submission
  * (chat.message) and on session.idle; neither event carries step semantics —
  * the transcript alone decides step boundaries. Deferral keeps the host hook
- * from ever waiting on the CLI.
+ * from ever waiting on the CLI. The observation time is read here, while the
+ * event is being handled, so a delayed wake still reports when the host
+ * actually fired it.
  */
 export function deferOpenCodeCaptureWake(
   sessionId,
   sessionLinker,
   onError,
-  schedule = setTimeout
+  schedule = setTimeout,
+  now = Date.now
 ) {
+  const observedAt = now();
   schedule(() => {
     return Promise.resolve()
-      .then(() => sessionLinker.wakeCapture(sessionId))
+      .then(() => sessionLinker.wakeCapture(sessionId, { observedAt }))
       .catch((error) => {
         try {
           return onError(error);
@@ -129,6 +133,7 @@ export function createOpenCodeSessionLinker({
   link,
   ensure,
   spawn,
+  now = Date.now,
 } = {}) {
   const roots = new Map();
   const linkedLifecycleSessions = new Set();
@@ -203,7 +208,7 @@ export function createOpenCodeSessionLinker({
     // Identity-only capture liveness. Resolves the root session (subagent
     // activity wakes the parent's capture) and pokes the sidecar; it records
     // no mapping, no provenance, and no step boundary.
-    async wakeCapture(openCodeSessionId, cwd) {
+    async wakeCapture(openCodeSessionId, { cwd, observedAt = now() } = {}) {
       if (
         !openCodeSessionId ||
         (env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'))
@@ -218,6 +223,7 @@ export function createOpenCodeSessionLinker({
         agentType: 'opencode',
         agentSessionId,
         cwd: cwd || directory || process.cwd(),
+        observedAt,
       });
     },
   };

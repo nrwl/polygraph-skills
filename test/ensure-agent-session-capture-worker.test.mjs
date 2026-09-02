@@ -19,6 +19,7 @@ test('worker wakes capture from a parsed claim and reports success', () => {
     serializedClaim: JSON.stringify({
       agentType: 'codex',
       agentSessionId: 'codex-session',
+      observedAt: 1767225600000,
       cwd: '/workspace/repo with spaces',
       transcriptPath: '/tmp/rollout exact.jsonl',
     }),
@@ -43,6 +44,8 @@ test('worker wakes capture from a parsed claim and reports success', () => {
     'codex',
     '--agent-session-id',
     'codex-session',
+    '--observed-at',
+    '1767225600000',
   ]);
   assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
   assert.equal(invocation.options.shell, false);
@@ -58,6 +61,7 @@ test('worker owns wake failures: durable log plus inherited stream, never a thro
     serializedClaim: JSON.stringify({
       agentType: 'cursor',
       agentSessionId: 'cursor-session',
+      observedAt: 1767225600000,
     }),
     env: { POLYGRAPH_CLI: '/opt/polygraph' },
     spawn: () => ({ status: 3, stderr: 'capture refused' }),
@@ -137,6 +141,7 @@ test('detached worker process handles the actual old-CLI usage shape end to end'
         JSON.stringify({
           agentType: 'opencode',
           agentSessionId: 'opencode-session',
+          observedAt: 1767225600000,
           cwd: workDir,
         }),
       ],
@@ -163,6 +168,7 @@ test('detached worker process durably logs a wake failure on its own', () => {
         JSON.stringify({
           agentType: 'codex',
           agentSessionId: 'codex-session',
+          observedAt: 1767225600000,
           cwd: home,
         }),
       ],

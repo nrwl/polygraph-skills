@@ -597,6 +597,32 @@ test('OpenCode wakes capture on chat.message, deferred and identity-only', async
   assert.deepEqual(wakes, ['ses_root']);
 });
 
+test('a deferred wake reads the observation time when the event fires, not when it runs', async () => {
+  const wakes = [];
+  let scheduled;
+  let clock = 1_767_225_600_000;
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture(sessionId, options) {
+        wakes.push({ sessionId, ...options });
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    },
+    () => clock
+  );
+
+  // The host loop moves on; the deferred wake runs much later.
+  clock += 45_000;
+  await scheduled();
+  assert.deepEqual(wakes, [{ sessionId: 'ses_root', observedAt: 1_767_225_600_000 }]);
+});
+
 test('a deferred wake contains rejections and even a throwing error handler', async () => {
   let scheduled;
   const seen = [];
@@ -630,6 +656,7 @@ test('wakeCapture resolves subagent sessions to their root before waking', async
     client,
     directory: '/workspace/repo with spaces',
     env: {},
+    now: () => 1_767_225_600_000,
     ensure(claim) {
       ensured.push(claim);
       return true;
@@ -642,6 +669,7 @@ test('wakeCapture resolves subagent sessions to their root before waking', async
       agentType: 'opencode',
       agentSessionId: 'ses_root',
       cwd: '/workspace/repo with spaces',
+      observedAt: 1_767_225_600_000,
     },
   ]);
 
@@ -662,6 +690,7 @@ test('the default OpenCode wake detaches a worker instead of running the CLI in 
       client: fakeClient({ ses_root: { id: 'ses_root' } }),
       directory: '/workspace/repo with spaces',
       env: { HOME: home, POLYGRAPH_CLI: '/opt/polygraph' },
+      now: () => 1_767_225_600_000,
       spawn(command, args, options) {
         invocation = { command, args, options };
         return {
@@ -686,6 +715,7 @@ test('the default OpenCode wake detaches a worker instead of running the CLI in 
       agentType: 'opencode',
       agentSessionId: 'ses_root',
       cwd: '/workspace/repo with spaces',
+      observedAt: 1_767_225_600_000,
     });
     assert.equal(invocation.options.detached, true);
     assert.equal(invocation.options.shell, false);

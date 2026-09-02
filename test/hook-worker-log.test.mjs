@@ -236,6 +236,7 @@ for (const [script, payload, expectedCommand] of [
         `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(2)));\nprocess.exit(0);\n`
       );
       const [file, ...args] = script.split(' ');
+      const hookFiredAfter = Date.now();
 
       const hook = spawnSync(process.execPath, [join(hooksDir, file), ...args], {
         cwd: hooksDir,
@@ -262,6 +263,15 @@ for (const [script, payload, expectedCommand] of [
       ]);
       assert.equal(argv.includes('--pid'), false);
       assert.equal(argv.includes('answer text that stays in the transcript'), false);
+      // Only the ensure wake carries the hook-captured observation time.
+      const observedAtIndex = argv.indexOf('--observed-at');
+      if (expectedCommand === '_ensure-agent-session-capture') {
+        assert.notEqual(observedAtIndex, -1);
+        const observedAt = Number(argv[observedAtIndex + 1]);
+        assert.ok(observedAt >= hookFiredAfter && observedAt <= Date.now());
+      } else {
+        assert.equal(observedAtIndex, -1);
+      }
     });
   });
 }

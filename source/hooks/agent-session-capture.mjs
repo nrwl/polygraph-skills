@@ -39,32 +39,50 @@ function boundedEnsureTimeout(timeoutMs) {
   return Math.min(Math.floor(timeoutMs), ENSURE_CAPTURE_TIMEOUT_MS);
 }
 
-export function buildEnsureAgentSessionCaptureArgs({
-  agentType,
-  agentSessionId,
-}) {
+function wakeIdentityArgs({ agentType, agentSessionId }) {
   const harnessSession = nonEmptyString(agentSessionId);
   if (!WAKE_AGENT_TYPES.has(agentType)) {
     throw new Error(`Unsupported agent type: ${agentType}`);
   }
   if (!harnessSession) throw new Error('agentSessionId is required');
 
+  return ['--agent-type', agentType, '--agent-session-id', harnessSession];
+}
+
+function observedAtValue(value) {
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+// The ensure command carries stable harness identity plus the moment the
+// hook fired. Ocean refreshes the exact mapping and compares terminal-marker
+// freshness against that timestamp, so it must be the hook's own clock
+// reading, never the detached worker's start time: a delayed worker cannot
+// present its startup as evidence that the harness was still live.
+export function buildEnsureAgentSessionCaptureArgs({
+  agentType,
+  agentSessionId,
+  observedAt,
+}) {
+  const identity = wakeIdentityArgs({ agentType, agentSessionId });
+  const observed = observedAtValue(observedAt);
+  if (observed === undefined) {
+    throw new Error('observedAt is required: a wake must carry the hook-captured time');
+  }
+
   return [
     '_ensure-agent-session-capture',
-    '--agent-type',
-    agentType,
-    '--agent-session-id',
-    harnessSession,
+    ...identity,
+    '--observed-at',
+    String(observed),
   ];
 }
 
 // The legacy mapping command keeps its mutable path evidence and `--source`
-// provenance. The preferred ensure command above deliberately carries only
-// stable harness identity so a cwd or transcript-path change cannot narrow a
-// liveness lookup to zero mappings.
+// provenance and never carries `--observed-at`. The preferred ensure command
+// above deliberately carries only stable harness identity so a cwd or
+// transcript-path change cannot narrow a liveness lookup to zero mappings.
 export function buildLegacyCaptureWakeArgs(claim) {
-  const ensureArgs = buildEnsureAgentSessionCaptureArgs(claim);
-  const args = ['_link-agent-session', ...ensureArgs.slice(1)];
+  const args = ['_link-agent-session', ...wakeIdentityArgs(claim)];
 
   const workingDirectory = nonEmptyString(claim.cwd);
   if (workingDirectory) args.push('--cwd', workingDirectory);
@@ -159,7 +177,12 @@ export function launchAgentSessionCaptureWake(
   });
 }
 
-export function buildCommandHookEnsureCapture(payload, agentType, env = process.env) {
+export function buildCommandHookEnsureCapture(
+  payload,
+  agentType,
+  env = process.env,
+  now = Date.now
+) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return undefined;
   }
@@ -180,10 +203,12 @@ export function buildCommandHookEnsureCapture(payload, agentType, env = process.
       ? nonEmptyString(payload.workspace_roots[0])
       : undefined;
 
+  // Captured here, synchronously in the hook process, before any detach.
   return {
     agentType,
     agentSessionId,
     cwd: nonEmptyString(payload.cwd) ?? workspaceRoot,
     transcriptPath: nonEmptyString(payload.transcript_path),
+    observedAt: now(),
   };
 }

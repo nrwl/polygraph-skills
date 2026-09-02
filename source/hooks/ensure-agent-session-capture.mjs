@@ -30,6 +30,7 @@ export function main({
   logFailure = logHookFailure,
   cwd = process.cwd(),
   launcherOptions = {},
+  now = Date.now,
 } = {}) {
   const reportFailure = (error) =>
     logFailure(`${agentType || 'unknown'}:ensure-agent-session-capture`, error, {
@@ -38,7 +39,7 @@ export function main({
     });
 
   try {
-    const built = buildCommandHookEnsureCapture(payload, agentType, env);
+    const built = buildCommandHookEnsureCapture(payload, agentType, env, now);
     if (!built) return false;
 
     const claim = { ...built, cwd: built.cwd ?? cwd };
