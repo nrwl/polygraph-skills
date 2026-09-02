@@ -75,23 +75,37 @@ runs through a Node runtime — never executed directly — so exactly one
 process launches per wake even on hosts (Bun in OpenCode) that throw spawn
 launch errors synchronously instead of reporting them on the result.
 
-Detached command hooks, OpenCode wakes, and Claude's SessionEnd finalization
-hand off to a detached worker. A wake worker enforces the shared five-second
-CLI kill deadline; the finalization worker allows at most 90 seconds. Each
+Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
+off to a detached worker. A wake worker enforces the shared five-second CLI
+kill deadline; the finalization worker allows at most 90 seconds. Each
 worker owns the complete CLI invocation and writes failures durably to
-`~/.polygraph/logs`; the harness event loop observes launch errors only.
-Workers always launch through a Node runtime — `process.execPath` when it is
-Node, otherwise `node` from PATH — because OpenCode hosts the plugin inside
-a compiled Bun binary.
+`~/.polygraph/logs/hooks.log`; the harness event loop observes launch errors
+only. Workers always launch through a Node runtime — `process.execPath` when
+it is Node, otherwise `node` from PATH — because OpenCode hosts the plugin
+inside a compiled Bun binary.
+
+A worker's inherited stdout/stderr go to `~/.polygraph/logs/capture-wake.log`
+or `session-finalize.log`, each rotated to `.1` once it exceeds 5 MiB, the
+same bound as `hooks.log`. If that file cannot be opened, the worker still
+launches with its output discarded and the failure is logged best-effort;
+no hook ever writes to its own stdout, and no hook waits on a worker.
 
 ## Finalization
 
-Only Claude's `SessionEnd` finalizes (`_finalize-agent-session`, which keeps
-`--source`): it is the one lifecycle event among the supported harnesses that
-reliably means session exit. Claude `SessionStart` accepts `startup`, `resume`,
-`clear`, and `compact`. Ordinary Stop/idle events never finalize. Cursor
-documents an observational `sessionEnd`, unverified under `cursor-agent`; it
-is deliberately not wired up yet.
+Claude's `SessionEnd` and Cursor's `sessionEnd` finalize
+(`_finalize-agent-session`, which keeps `--source`): each is the one
+lifecycle event of its harness that means the conversation has ended. Both
+hand off to the detached finalization worker and emit nothing on stdout.
+Cursor's `sessionEnd` is observational and dispatched to plugin-scope hooks
+under `cursor-agent --plugin-dir`; its payload carries `session_id` and
+`conversation_id`, `workspace_roots`, `transcript_path`, `reason`, and
+`final_status`. The finalize claim forwards identity, working directory,
+transcript path, and `--source hook` only — never a PID (Cursor's hook parent
+is a transient wrapper) and never the end reason, because the transcript
+alone decides what the final answer was. Claude `SessionStart` accepts
+`startup`, `resume`, `clear`, and `compact`. Ordinary Stop/idle events never
+finalize. Codex and OpenCode expose no reliable session-exit event and do
+not finalize.
 
 ## Environment
 
@@ -106,7 +120,14 @@ shell-free invocation of the exact CLI build.
 Ocean must provide the ordering guarantee the plugin cannot impose across
 asynchronous hooks: ensure/link and finalize are idempotent for an agent
 session, finalize dominates an in-flight or later wake, and a wake after
-finalization does not resurrect capture. Ocean should emit
+finalization does not resurrect capture. Concretely, Ocean keeps a terminal
+marker for each finalized harness session and applies a freshness guard to
+it: a delayed or reordered wake that names a harness session with a terminal
+marker is a no-op and never resurrects capture, while a genuinely newer
+session mapping for that identity — a later SessionStart/sessionStart link
+recorded after the marker — may supersede the older terminal marker and
+start fresh capture. The plugin never distinguishes the two cases; it
+issues the same identity-only wake either way. Ocean should emit
 `POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED` when a CLI
 intentionally cannot serve the ensure command; the plugin also recognizes
 the legacy Shell 0.1.x stdout response: root `Usage: polygraph`, followed by

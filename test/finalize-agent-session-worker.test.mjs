@@ -89,6 +89,29 @@ test('worker owns CLI failures: durable log plus inherited stream, never a throw
   });
 });
 
+test('worker names the finalized harness in its failure diagnostics', () => {
+  const logged = [];
+  const result = main({
+    serializedClaim: JSON.stringify({
+      agentType: 'cursor',
+      agentSessionId: 'cursor/conversation-id',
+      cwd: '/workspace/cursor repo',
+      transcriptPath: '/tmp/cursor transcript.jsonl',
+      source: 'hook',
+    }),
+    env: { POLYGRAPH_CLI: '/opt/polygraph' },
+    spawn: () => ({ status: 3, stderr: 'finalize refused' }),
+    logFailure(hook, error, meta) {
+      logged.push({ hook, error, meta });
+    },
+    writeFailure() {},
+  });
+
+  assert.equal(result, false);
+  assert.equal(logged[0].hook, 'cursor:finalize-agent-session-worker');
+  assert.equal(logged[0].meta.agentSessionId, 'cursor/conversation-id');
+});
+
 test('worker contains an unparseable claim without an identity', () => {
   const written = [];
   const logged = [];

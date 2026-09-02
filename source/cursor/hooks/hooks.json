@@ -25,6 +25,11 @@
       {
         "command": "node hooks/ensure-agent-session-capture.mjs cursor --detach"
       }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node hooks/finalize-agent-session.mjs cursor"
+      }
     ]
   }
 }

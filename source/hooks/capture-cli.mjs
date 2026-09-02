@@ -1,9 +1,10 @@
 import { spawn as spawnChild, spawnSync } from 'node:child_process';
-import { closeSync, mkdirSync, openSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 const JS_CLI_ENTRY = /\.[cm]?js$/i;
+export const HOOK_WORKER_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 export function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value : undefined;
@@ -134,11 +135,24 @@ function reportWorkerLaunchFailure(onFailure, error) {
   }
 }
 
-function openHookWorkerLog(env, logName) {
+// A worker's inherited stdout/stderr land in one append-only log per worker
+// kind, rotated to `.1` past the same bound as hooks.log so a chatty CLI can
+// never grow it without limit.
+export function openHookWorkerLog(env, logName) {
   const home = nonEmptyString(env?.HOME) ?? homedir();
   const logsDir = join(home, '.polygraph', 'logs');
   mkdirSync(logsDir, { recursive: true });
-  return openSync(join(logsDir, logName), 'a', 0o600);
+  const logFile = join(logsDir, logName);
+
+  try {
+    if (statSync(logFile).size > HOOK_WORKER_LOG_MAX_BYTES) {
+      renameSync(logFile, `${logFile}.1`);
+    }
+  } catch {
+    // There may be no prior log, and rotation must stay best-effort.
+  }
+
+  return openSync(logFile, 'a', 0o600);
 }
 
 /**
@@ -162,7 +176,17 @@ export function launchDetachedHookWorker({
   openLog = openHookWorkerLog,
   closeLog = closeSync,
 }) {
-  const logFd = openLog(env, logName);
+  // The log is diagnostic only. If it cannot be opened (unwritable home,
+  // exhausted descriptors) the worker still launches with its output
+  // discarded; its own durable hooks.log write does not depend on it.
+  let logFd;
+  try {
+    logFd = openLog(env, logName);
+  } catch (error) {
+    reportWorkerLaunchFailure(onFailure, error);
+  }
+  const output = logFd === undefined ? 'ignore' : logFd;
+
   let child;
   try {
     child = spawn(nodeRuntime(execPath), [workerPath, JSON.stringify(claim)], {
@@ -170,14 +194,16 @@ export function launchDetachedHookWorker({
       detached: true,
       env: captureCommandEnvironment(env),
       shell: false,
-      stdio: ['ignore', logFd, logFd],
+      stdio: ['ignore', output, output],
       windowsHide: true,
     });
   } finally {
-    try {
-      closeLog(logFd);
-    } catch (error) {
-      reportWorkerLaunchFailure(onFailure, error);
+    if (logFd !== undefined) {
+      try {
+        closeLog(logFd);
+      } catch (error) {
+        reportWorkerLaunchFailure(onFailure, error);
+      }
     }
   }
 

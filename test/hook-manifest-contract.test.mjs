@@ -109,21 +109,28 @@ test('cursor hook commands stay relative because cursor runs them from the plugi
   }
 });
 
-test('only Claude registers finalization, and it stays synchronous', () => {
-  const claude = readManifest('claude');
-  const sessionEnd = registrations(claude, 'SessionEnd');
-  assert.equal(sessionEnd.length, 1);
-  assert.equal(
-    sessionEnd[0].command,
-    'node ${CLAUDE_PLUGIN_ROOT}/hooks/finalize-agent-session.mjs claude'
-  );
-  assert.equal(sessionEnd[0].async, undefined);
-
-  for (const harness of ['codex', 'cursor']) {
+test('Claude and Cursor register one detached-worker finalization each; Codex none', () => {
+  const finalizers = [
+    ['claude', 'SessionEnd', 'node ${CLAUDE_PLUGIN_ROOT}/hooks/finalize-agent-session.mjs claude'],
+    ['cursor', 'sessionEnd', 'node hooks/finalize-agent-session.mjs cursor'],
+  ];
+  for (const [harness, eventName, command] of finalizers) {
     const manifest = readManifest(harness);
-    for (const eventName of ['SessionEnd', 'sessionEnd']) {
-      assert.equal(eventName in manifest.hooks, false, `${harness} ${eventName}`);
-    }
+    const hooks = registrations(manifest, eventName);
+    assert.equal(hooks.length, 1, harness);
+    assert.equal(hooks[0].command, command, harness);
+    // The hook itself returns as soon as the worker is detached, so it
+    // needs no manifest async flag and never carries --detach.
+    assert.equal(hooks[0].async, undefined, harness);
+    assert.doesNotMatch(hooks[0].command, /--detach|--pid|--source/);
+    // Exactly one casing per harness.
+    const otherCasing = eventName === 'SessionEnd' ? 'sessionEnd' : 'SessionEnd';
+    assert.equal(otherCasing in manifest.hooks, false, `${harness} ${otherCasing}`);
+  }
+
+  const codex = readManifest('codex');
+  for (const eventName of ['SessionEnd', 'sessionEnd']) {
+    assert.equal(eventName in codex.hooks, false, `codex ${eventName}`);
   }
 });
 
@@ -294,39 +301,75 @@ test('non-wake lifecycle events and foreign harness casing never build a wake cl
   }
 });
 
-test('finalization is a Claude SessionEnd payload that keeps its provenance', () => {
-  const payload = {
+const FINALIZE_PAYLOADS = {
+  claude: {
     hook_event_name: 'SessionEnd',
     session_id: 'claude/session id',
     cwd: '/workspace/claude repo',
     transcript_path: '/tmp/claude transcript.jsonl',
     reason: 'exit',
-  };
+  },
+  cursor: {
+    hook_event_name: 'sessionEnd',
+    conversation_id: 'cursor/session id',
+    session_id: 'cursor/session id',
+    generation_id: 'gen-9',
+    workspace_roots: ['/workspace/cursor repo'],
+    transcript_path: '/tmp/cursor transcript.jsonl',
+    reason: 'user-request',
+    final_status: 'completed',
+    duration_ms: 1234,
+  },
+};
 
-  const claim = buildCommandHookFinalize(payload, 'claude', {});
-  assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
-    '_finalize-agent-session',
-    '--agent-type',
-    'claude',
-    '--agent-session-id',
-    'claude/session id',
-    '--cwd',
-    '/workspace/claude repo',
-    '--transcript-path',
-    '/tmp/claude transcript.jsonl',
-    '--source',
-    'hook',
-  ]);
+test('finalization payloads keep identity, paths, and provenance and drop everything else', () => {
+  for (const [harness, payload] of Object.entries(FINALIZE_PAYLOADS)) {
+    const claim = buildCommandHookFinalize(payload, harness, {});
+    const args = buildFinalizeAgentSessionArgs(claim);
+    assert.deepEqual(args, [
+      '_finalize-agent-session',
+      '--agent-type',
+      harness,
+      '--agent-session-id',
+      payload.session_id,
+      '--cwd',
+      payload.cwd ?? payload.workspace_roots[0],
+      '--transcript-path',
+      payload.transcript_path,
+      '--source',
+      'hook',
+    ], harness);
+    assert.doesNotMatch(args.join('\n'), /--pid|reason|status|exit|completed/);
 
-  for (const harness of ['codex', 'cursor', 'opencode']) {
-    assert.equal(buildCommandHookFinalize(payload, harness, {}), undefined, harness);
+    // The wrong casing, another harness, or a wake event never finalizes.
+    const otherCasing =
+      payload.hook_event_name === 'SessionEnd' ? 'sessionEnd' : 'SessionEnd';
+    assert.equal(
+      buildCommandHookFinalize({ ...payload, hook_event_name: otherCasing }, harness, {}),
+      undefined,
+      `${harness} ${otherCasing}`
+    );
+    for (const other of ['claude', 'codex', 'cursor', 'opencode'].filter((h) => h !== harness)) {
+      assert.equal(buildCommandHookFinalize(payload, other, {}), undefined, `${harness}->${other}`);
+    }
+    for (const eventName of ['Stop', 'stop', 'afterAgentResponse', 'UserPromptSubmit']) {
+      assert.equal(
+        buildCommandHookFinalize({ ...payload, hook_event_name: eventName }, harness, {}),
+        undefined,
+        `${harness} ${eventName}`
+      );
+    }
+  }
+
+  for (const harness of ['codex', 'opencode']) {
     assert.throws(
-      () => buildFinalizeAgentSessionArgs({ ...claim, agentType: harness }),
+      () =>
+        buildFinalizeAgentSessionArgs({
+          agentType: harness,
+          agentSessionId: 'x',
+          source: 'hook',
+        }),
       /Unsupported agent type/
     );
   }
-  assert.equal(
-    buildCommandHookFinalize({ ...payload, hook_event_name: 'Stop' }, 'claude', {}),
-    undefined
-  );
 });

@@ -8,7 +8,7 @@ function writeWorkerFailure(error, claim) {
   try {
     const entry = {
       time: new Date().toISOString(),
-      hook: 'claude:finalize-agent-session-worker',
+      hook: `${claim?.agentType ?? 'unknown'}:finalize-agent-session-worker`,
       pid: process.pid,
       agentSessionId: claim?.agentSessionId,
       error: error instanceof Error ? error.message : String(error),
@@ -34,10 +34,14 @@ export function main({
   } catch (error) {
     writeFailure(error, claim);
     try {
-      logFailure('claude:finalize-agent-session-worker', error, {
-        agentSessionId: claim?.agentSessionId,
-        cli: env.POLYGRAPH_CLI || 'polygraph',
-      });
+      logFailure(
+        `${claim?.agentType ?? 'unknown'}:finalize-agent-session-worker`,
+        error,
+        {
+          agentSessionId: claim?.agentSessionId,
+          cli: env.POLYGRAPH_CLI || 'polygraph',
+        }
+      );
     } catch {
       // The worker is already detached; diagnostics cannot be allowed to crash it.
     }

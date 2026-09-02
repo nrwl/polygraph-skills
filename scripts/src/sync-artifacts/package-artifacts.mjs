@@ -217,6 +217,20 @@ function copyCaptureWakeHookScripts(hooksDir) {
   }
 }
 
+/**
+ * The sessionEnd finalization hook and its worker. Its shared dependencies
+ * (capture-cli, agent-session-link) already ride along with the wake hook.
+ */
+function copyFinalizeHookScripts(hooksDir) {
+  for (const script of [
+    'agent-session-finalize.mjs',
+    'finalize-agent-session.mjs',
+    'finalize-agent-session-worker.mjs',
+  ]) {
+    cpSync(join(sourceDir, 'hooks', script), join(hooksDir, script));
+  }
+}
+
 function buildCursorPluginManifest(pkgJson) {
   // Cursor "Agent Plugin" root manifest. A minimal name/description/version
   // manifest is sufficient for `cursor-agent --plugin-dir` to load the
@@ -275,6 +289,7 @@ export function finalizeCursorDist(pkgJson) {
     join(cursorHooksDir, 'record-session-mapping.mjs')
   );
   copyCaptureWakeHookScripts(cursorHooksDir);
+  copyFinalizeHookScripts(cursorHooksDir);
   copySharedDocs(cursorDir);
 }
 

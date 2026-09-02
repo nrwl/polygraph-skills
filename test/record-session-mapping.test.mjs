@@ -473,6 +473,165 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     'hook',
   ]);
   assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
+  // Cursor finalizes on its own camelCase event, never on Claude's.
+  assert.equal(buildCommandHookFinalize(payload, 'cursor', {}), undefined);
+});
+
+// Cursor sessionEnd payload shape from live cursor-agent --plugin-dir probes
+// (2026.08.31): the id rides session_id and conversation_id, there is no
+// top-level cwd, and transcript_path is populated by the time the
+// conversation ends.
+const CURSOR_SESSION_END_PAYLOAD = {
+  conversation_id: 'cursor/conversation-id',
+  generation_id: 'cursor/conversation-id',
+  model: 'default',
+  reason: 'user-request',
+  duration_ms: 56452,
+  is_background_agent: false,
+  final_status: 'completed',
+  session_id: 'cursor/conversation-id',
+  hook_event_name: 'sessionEnd',
+  cursor_version: '2026.08.31-4057e58',
+  workspace_roots: ['/workspace/cursor repo'],
+  user_email: 'someone@example.com',
+  transcript_path: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+};
+
+test('cursor sessionEnd builds a finalize claim from identity, workspace, and transcript only', () => {
+  const claim = buildCommandHookFinalize(CURSOR_SESSION_END_PAYLOAD, 'cursor', {
+    POLYGRAPH_SESSION_ID: 'must-not-forward',
+  });
+  assert.deepEqual(claim, {
+    agentType: 'cursor',
+    agentSessionId: 'cursor/conversation-id',
+    cwd: '/workspace/cursor repo',
+    transcriptPath: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+    source: 'hook',
+  });
+  assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
+    '_finalize-agent-session',
+    '--agent-type',
+    'cursor',
+    '--agent-session-id',
+    'cursor/conversation-id',
+    '--cwd',
+    '/workspace/cursor repo',
+    '--transcript-path',
+    '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+    '--source',
+    'hook',
+  ]);
+
+  // conversation_id keeps finalization working if session_id disappears.
+  const { session_id: _omitted, ...withoutSessionId } = CURSOR_SESSION_END_PAYLOAD;
+  assert.equal(
+    buildCommandHookFinalize(withoutSessionId, 'cursor', {}).agentSessionId,
+    'cursor/conversation-id'
+  );
+
+  // Only Cursor's own camelCase event, never Claude's casing, another
+  // harness, a managed child, or a payload without identity.
+  assert.equal(
+    buildCommandHookFinalize(
+      { ...CURSOR_SESSION_END_PAYLOAD, hook_event_name: 'SessionEnd' },
+      'cursor',
+      {}
+    ),
+    undefined
+  );
+  assert.equal(buildCommandHookFinalize(CURSOR_SESSION_END_PAYLOAD, 'claude', {}), undefined);
+  assert.equal(buildCommandHookFinalize(CURSOR_SESSION_END_PAYLOAD, 'codex', {}), undefined);
+  assert.equal(
+    buildCommandHookFinalize(CURSOR_SESSION_END_PAYLOAD, 'cursor', {
+      POLYGRAPH_CHILD_AGENT: '1',
+    }),
+    undefined
+  );
+  assert.equal(
+    buildCommandHookFinalize(
+      { ...withoutSessionId, conversation_id: '' },
+      'cursor',
+      {}
+    ),
+    undefined
+  );
+  for (const eventName of ['stop', 'afterAgentResponse', 'beforeSubmitPrompt', 'sessionStart']) {
+    assert.equal(
+      buildCommandHookFinalize(
+        { ...CURSOR_SESSION_END_PAYLOAD, hook_event_name: eventName },
+        'cursor',
+        {}
+      ),
+      undefined,
+      eventName
+    );
+  }
+});
+
+test('cursor sessionEnd hands off to the detached finalize worker without a PID', () => {
+  let invocation;
+  let unrefCount = 0;
+  const listeners = {};
+
+  assert.equal(
+    finalizeMain({
+      agentType: 'cursor',
+      env: {
+        POLYGRAPH_SESSION_ID: 'ambient-session',
+        POLYGRAPH_CAPTURE_TOKEN: 'ambient-token',
+        REQUIRED_HARNESS_ENV: 'preserved',
+      },
+      payload: CURSOR_SESSION_END_PAYLOAD,
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return {
+          once(event, listener) {
+            listeners[event] = listener;
+            return this;
+          },
+          unref() {
+            unrefCount += 1;
+          },
+        };
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+    }),
+    true
+  );
+
+  assert.match(invocation.args[0], /finalize-agent-session-worker\.mjs$/);
+  const claim = JSON.parse(invocation.args[1]);
+  assert.deepEqual(claim, {
+    agentType: 'cursor',
+    agentSessionId: 'cursor/conversation-id',
+    cwd: '/workspace/cursor repo',
+    transcriptPath: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
+    source: 'hook',
+  });
+  assert.equal('pid' in claim, false);
+  assert.equal(buildFinalizeAgentSessionArgs(claim).includes('--pid'), false);
+  assert.equal(invocation.options.cwd, '/workspace/cursor repo');
+  assert.equal(invocation.options.detached, true);
+  assert.equal(invocation.options.shell, false);
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
+  assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
+  assert.equal(unrefCount, 1);
+  assert.deepEqual(Object.keys(listeners), ['error']);
+
+  // Managed children never finalize.
+  assert.equal(
+    finalizeMain({
+      agentType: 'cursor',
+      env: { POLYGRAPH_CHILD_AGENT: '1' },
+      payload: CURSOR_SESSION_END_PAYLOAD,
+      spawn() {
+        throw new Error('spawn must not run for managed children');
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+    }),
+    false
+  );
 });
 
 test('detached finalization enforces a bounded 90-second CLI kill deadline', () => {
@@ -890,12 +1049,22 @@ test('the cursor plugin registers static relative lifecycle, claim, and wake hoo
     assert.equal(wakeHooks[0].command, promptHooks[0].command, eventName);
   }
 
+  // sessionEnd finalizes through the detached worker; the hook itself
+  // returns immediately and emits nothing on stdout.
+  const sessionEndHooks = manifest.hooks.sessionEnd;
+  assert.equal(sessionEndHooks.length, 1);
+  assert.equal(
+    sessionEndHooks[0].command,
+    'node hooks/finalize-agent-session.mjs cursor'
+  );
+
   // Every registration lives in the plugin manifest; nothing may prompt a
   // user-scope ~/.cursor/hooks.json registration.
   assert.deepEqual(Object.keys(manifest.hooks).sort(), [
     'afterAgentResponse',
     'beforeSubmitPrompt',
     'postToolUse',
+    'sessionEnd',
     'sessionStart',
     'stop',
   ]);

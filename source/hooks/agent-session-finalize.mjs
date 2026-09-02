@@ -11,6 +11,16 @@ import {
 
 export const FINALIZE_TIMEOUT_MS = 90_000;
 
+const FINALIZE_AGENT_TYPES = new Set(['claude', 'cursor']);
+
+// The one lifecycle event per harness that means the conversation ended.
+// Claude sends PascalCase, Cursor camelCase. Codex and OpenCode expose no
+// reliable session-exit event and never finalize.
+const FINALIZE_EVENTS_BY_AGENT = {
+  claude: 'SessionEnd',
+  cursor: 'sessionEnd',
+};
+
 const FINALIZE_WORKER_PATH = fileURLToPath(
   new URL('./finalize-agent-session-worker.mjs', import.meta.url)
 );
@@ -24,7 +34,9 @@ export function buildFinalizeAgentSessionArgs({
 }) {
   const harnessSession = nonEmptyString(agentSessionId);
   const hookSource = nonEmptyString(source);
-  if (agentType !== 'claude') throw new Error(`Unsupported agent type: ${agentType}`);
+  if (!FINALIZE_AGENT_TYPES.has(agentType)) {
+    throw new Error(`Unsupported agent type: ${agentType}`);
+  }
   if (!harnessSession) throw new Error('agentSessionId is required');
   if (!hookSource) throw new Error('source is required');
 
@@ -105,19 +117,32 @@ export function launchAgentSessionFinalize(
 }
 
 export function buildCommandHookFinalize(payload, agentType, env = process.env) {
-  if (!payload || typeof payload !== 'object') return undefined;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined;
+  }
   if (isManagedChildEnvironment(env)) return undefined;
-  if (agentType !== 'claude' || payload.hook_event_name !== 'SessionEnd') {
+  if (FINALIZE_EVENTS_BY_AGENT[agentType] !== payload.hook_event_name) {
     return undefined;
   }
 
-  const agentSessionId = nonEmptyString(payload.session_id);
+  // Cursor payloads carry the id in both session_id and conversation_id and
+  // have no top-level cwd; workspace_roots[0] is the launch directory. The
+  // end reason and final status stay behind: the transcript alone decides
+  // what the final answer was. No finalize claim ever carries a PID.
+  const agentSessionId =
+    nonEmptyString(payload.session_id) ??
+    (agentType === 'cursor' ? nonEmptyString(payload.conversation_id) : undefined);
   if (!agentSessionId) return undefined;
+
+  const workspaceRoot =
+    agentType === 'cursor' && Array.isArray(payload.workspace_roots)
+      ? nonEmptyString(payload.workspace_roots[0])
+      : undefined;
 
   return {
     agentType,
     agentSessionId,
-    cwd: nonEmptyString(payload.cwd),
+    cwd: nonEmptyString(payload.cwd) ?? workspaceRoot,
     transcriptPath: nonEmptyString(payload.transcript_path),
     source: 'hook',
   };

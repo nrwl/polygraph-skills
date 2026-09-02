@@ -116,6 +116,19 @@ function workerEnv(home, cliPath) {
   return env;
 }
 
+function writeFinalizeCli(path) {
+  writeFileSync(
+    path,
+    [
+      "if (process.argv[2] === '_finalize-agent-session' && process.argv.includes('--source') && !process.argv.includes('--pid')) {",
+      '  process.exit(0);',
+      '}',
+      'process.exit(3);',
+      '',
+    ].join('\n')
+  );
+}
+
 test('dist assembly succeeds', () => {
   assert.equal(build.status, 0, `${build.stdout}\n${build.stderr}`);
 });
@@ -154,6 +167,35 @@ test('built harness artifacts contain every executable hook module dependency', 
   assert.ok(
     openCodePackage.files.includes('ensure-agent-session-capture-worker.mjs')
   );
+});
+
+test('the packaged cursor finalize worker finalizes end to end without a PID', () => {
+  const home = mkdtempSync(join(tmpdir(), 'pg packaged finalize-'));
+  try {
+    const cliPath = join(home, 'polygraph cli.js');
+    writeFinalizeCli(cliPath);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(distDir, 'cursor', 'hooks', 'finalize-agent-session-worker.mjs'),
+        JSON.stringify({
+          agentType: 'cursor',
+          agentSessionId: 'cursor/conversation-id',
+          cwd: home,
+          transcriptPath: join(home, 'transcript.jsonl'),
+          source: 'hook',
+        }),
+      ],
+      { cwd: home, encoding: 'utf8', env: workerEnv(home, cliPath) }
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.equal(result.stdout, '');
+    assert.equal(result.stderr, '');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 // The detached wake worker runs from the published layout of every harness
