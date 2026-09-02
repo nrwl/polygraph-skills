@@ -90,6 +90,7 @@ export function buildOpenCodePackageJson(pkgJson) {
   return buildPublishPackageJson(pkgJson, '@polygraph/opencode-plugin', [
     'server.js',
     'agent-session-link.mjs',
+    'ensure-agent-session-capture-worker.mjs',
     'frontmatter.mjs',
     'skills/',
     'agents/',
@@ -297,6 +298,17 @@ export function finalizeOpenCodeDist(pkgJson) {
   buildSync({
     entryPoints: [join(sourceDir, 'opencode', 'agent-session-link.mjs')],
     outfile: join(opencodeDir, 'agent-session-link.mjs'),
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent',
+  });
+  buildSync({
+    entryPoints: [
+      join(sourceDir, 'hooks', 'ensure-agent-session-capture-worker.mjs'),
+    ],
+    outfile: join(opencodeDir, 'ensure-agent-session-capture-worker.mjs'),
     bundle: true,
     format: 'esm',
     platform: 'node',

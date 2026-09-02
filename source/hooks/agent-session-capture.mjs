@@ -39,8 +39,6 @@ function boundedEnsureTimeout(timeoutMs) {
 export function buildEnsureAgentSessionCaptureArgs({
   agentType,
   agentSessionId,
-  cwd,
-  transcriptPath,
 }) {
   const harnessSession = nonEmptyString(agentSessionId);
   if (!WAKE_AGENT_TYPES.has(agentType)) {
@@ -48,42 +46,52 @@ export function buildEnsureAgentSessionCaptureArgs({
   }
   if (!harnessSession) throw new Error('agentSessionId is required');
 
-  const args = [
+  return [
     '_ensure-agent-session-capture',
     '--agent-type',
     agentType,
     '--agent-session-id',
     harnessSession,
   ];
-
-  const workingDirectory = nonEmptyString(cwd);
-  if (workingDirectory) args.push('--cwd', workingDirectory);
-
-  const transcript = nonEmptyString(transcriptPath);
-  if (transcript) args.push('--transcript-path', transcript);
-
-  return args;
 }
 
-// The legacy identity-only mapping command keeps its `--source` because the
-// mapping it records carries provenance; the preferred ensure command above
-// deliberately does not, since a liveness poke has none.
+// The legacy mapping command keeps its mutable path evidence and `--source`
+// provenance. The preferred ensure command above deliberately carries only
+// stable harness identity so a cwd or transcript-path change cannot narrow a
+// liveness lookup to zero mappings.
 export function buildLegacyCaptureWakeArgs(claim) {
   const ensureArgs = buildEnsureAgentSessionCaptureArgs(claim);
-  return ['_link-agent-session', ...ensureArgs.slice(1), '--source', 'hook'];
+  const args = ['_link-agent-session', ...ensureArgs.slice(1)];
+
+  const workingDirectory = nonEmptyString(claim.cwd);
+  if (workingDirectory) args.push('--cwd', workingDirectory);
+
+  const transcript = nonEmptyString(claim.transcriptPath);
+  if (transcript) args.push('--transcript-path', transcript);
+
+  args.push('--source', 'hook');
+  return args;
 }
 
 function commandUnavailable(result) {
   if (result?.error) return false;
   const output = `${result?.stdout ?? ''}\n${result?.stderr ?? ''}`;
+  if (output.includes(ENSURE_CAPTURE_UNSUPPORTED_MARKER)) return true;
+
+  // Shell 0.1.x prints the root usage to stdout and reports every token as an
+  // unknown argument. Match that complete, observed failure shape rather than
+  // treating an arbitrary error that happens to mention the hidden command as
+  // evidence of version skew.
+  const stdout =
+    typeof result?.stdout === 'string'
+      ? result.stdout.replace(/\r\n/g, '\n')
+      : '';
   return (
-    output.includes(ENSURE_CAPTURE_UNSUPPORTED_MARKER) ||
-    /(?:unknown (?:argument|command)|command not found)[^\n]*_ensure-agent-session-capture\b/i.test(
-      output
-    ) ||
-    /_ensure-agent-session-capture\b[^\n]*(?:is not a command|not found)/i.test(
-      output
-    )
+    result?.status === 1 &&
+    !nonEmptyString(result?.stderr) &&
+    stdout.startsWith('Usage: polygraph\n') &&
+    stdout.includes('\nValidation failed for one or more options\n') &&
+    stdout.includes('\n  - Unknown argument: _ensure-agent-session-capture\n')
   );
 }
 

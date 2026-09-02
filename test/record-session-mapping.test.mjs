@@ -13,6 +13,7 @@ import { main } from '../source/hooks/record-session-mapping.mjs';
 import {
   buildCommandHookFinalize,
   buildFinalizeAgentSessionArgs,
+  FINALIZE_TIMEOUT_MS,
   finalizeAgentSession,
 } from '../source/hooks/agent-session-finalize.mjs';
 import { main as finalizeMain } from '../source/hooks/finalize-agent-session.mjs';
@@ -49,7 +50,14 @@ test('Claude lifecycle hooks link asynchronously and finalize synchronously', ()
     readFileSync(new URL('../source/hooks/hooks.json', import.meta.url), 'utf8')
   );
 
-  const sessionStartHooks = manifest.hooks.SessionStart[0].hooks;
+  const sessionStart = manifest.hooks.SessionStart[0];
+  const sessionStartMatcher = new RegExp(`^(?:${sessionStart.matcher})$`);
+  for (const source of ['startup', 'resume', 'clear', 'compact']) {
+    assert.equal(sessionStartMatcher.test(source), true, source);
+  }
+  assert.equal(sessionStartMatcher.test('other'), false);
+
+  const sessionStartHooks = sessionStart.hooks;
   const linkHook = sessionStartHooks.find((hook) =>
     hook.command.includes('record-session-mapping.mjs')
   );
@@ -465,6 +473,31 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
   assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
 });
 
+test('detached finalization enforces a bounded 90-second CLI kill deadline', () => {
+  let invocation;
+
+  assert.equal(
+    finalizeAgentSession(
+      {
+        agentType: 'claude',
+        agentSessionId: 'claude-session',
+        cwd: '/workspace/repo',
+        source: 'hook',
+      },
+      (command, args, options) => {
+        invocation = { command, args, options };
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      { POLYGRAPH_CLI: '/opt/polygraph' },
+      { timeoutMs: FINALIZE_TIMEOUT_MS * 2, now: () => 1_000 }
+    ),
+    true
+  );
+
+  assert.equal(invocation.options.killSignal, 'SIGKILL');
+  assert.equal(invocation.options.timeout, FINALIZE_TIMEOUT_MS);
+});
+
 test('SessionEnd hook hands off to a detached worker, strips ambient evidence, and excludes children', () => {
   let invocation;
   let unrefCount = 0;
@@ -810,7 +843,7 @@ test('read and failed PostToolUse activity forwards identity without session sem
   }
 });
 
-test('the cursor plugin registers static relative sessionStart and postToolUse hooks', () => {
+test('the cursor plugin registers static relative lifecycle, claim, and wake hooks', () => {
   const manifest = JSON.parse(
     readFileSync(new URL('../source/cursor/hooks/hooks.json', import.meta.url), 'utf8')
   );
@@ -828,8 +861,7 @@ test('the cursor plugin registers static relative sessionStart and postToolUse h
     'node hooks/record-session-mapping.mjs cursor'
   );
 
-  // Claim evidence rides postToolUse (plugin scope dispatches it, unlike
-  // stop, which cursor does not fire from plugin hooks).
+  // Claim evidence rides postToolUse.
   const postToolUseHooks = manifest.hooks.postToolUse;
   assert.equal(postToolUseHooks.length, 1);
   assert.equal(
@@ -846,10 +878,21 @@ test('the cursor plugin registers static relative sessionStart and postToolUse h
     'node hooks/ensure-agent-session-capture.mjs cursor --detach'
   );
 
-  // No stop hook: cursor does not dispatch stop to plugin-scope hooks and
-  // nothing may prompt a user-scope ~/.cursor/hooks.json registration, so
-  // cursor has no agent-done wake.
-  assert.equal('stop' in manifest.hooks, false);
+  // The agent-done wake rides Cursor's observational stop hook with the same
+  // detached, identity-only command as the prompt wake. It emits nothing on
+  // stdout, so it can never auto-submit a follow-up message.
+  const stopHooks = manifest.hooks.stop;
+  assert.equal(stopHooks.length, 1);
+  assert.equal(stopHooks[0].command, promptHooks[0].command);
+
+  // Every registration lives in the plugin manifest; nothing may prompt a
+  // user-scope ~/.cursor/hooks.json registration.
+  assert.deepEqual(Object.keys(manifest.hooks).sort(), [
+    'beforeSubmitPrompt',
+    'postToolUse',
+    'sessionStart',
+    'stop',
+  ]);
 });
 
 test('cursor sessionStart forwards lifecycle identity from the cursor payload shape', () => {

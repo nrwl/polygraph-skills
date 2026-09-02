@@ -19,6 +19,7 @@ import {
   deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
   logHookFailure,
+  openCodeChatMessageSessionId,
 } from './agent-session-link.mjs';
 import { parseFrontmatter } from './frontmatter.mjs';
 
@@ -55,8 +56,7 @@ export const PolygraphPlugin = async ({ client, directory } = {}) => {
     // Fires when the user submits a prompt; wakes capture so the prompt is
     // available promptly even if the sidecar died. Liveness only.
     'chat.message': async (input, output) => {
-      const sessionID =
-        output?.message?.sessionID ?? input?.message?.sessionID;
+      const sessionID = openCodeChatMessageSessionId(input, output);
       deferOpenCodeCaptureWake(sessionID, sessionLinker, (error) => {
         logHookFailure('opencode:chat.message', error, { sessionID });
       });

@@ -146,6 +146,10 @@ function openHookWorkerLog(env, logName) {
  * The worker owns the complete CLI invocation and its durable failure
  * logging; the short-lived parent hook observes launch errors only, because
  * it cannot outlive the harness event that spawned it.
+ *
+ * The worker is a plain JS module, so it always launches through a Node
+ * runtime: process.execPath is the host binary, and under OpenCode that is
+ * the compiled Bun executable rather than Node.
  */
 export function launchDetachedHookWorker({
   workerPath,
@@ -161,7 +165,7 @@ export function launchDetachedHookWorker({
   const logFd = openLog(env, logName);
   let child;
   try {
-    child = spawn(execPath, [workerPath, JSON.stringify(claim)], {
+    child = spawn(nodeRuntime(execPath), [workerPath, JSON.stringify(claim)], {
       cwd: nonEmptyString(claim.cwd) ?? process.cwd(),
       detached: true,
       env: captureCommandEnvironment(env),

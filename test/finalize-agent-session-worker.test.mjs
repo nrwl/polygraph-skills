@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { main } from '../source/hooks/finalize-agent-session-worker.mjs';
+import { FINALIZE_TIMEOUT_MS } from '../source/hooks/agent-session-finalize.mjs';
 
 const WORKER_PATH = fileURLToPath(
   new URL('../source/hooks/finalize-agent-session-worker.mjs', import.meta.url)
@@ -53,6 +54,8 @@ test('worker finalizes a parsed claim through the CLI and reports success', () =
   assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
+  assert.equal(invocation.options.killSignal, 'SIGKILL');
+  assert.ok(invocation.options.timeout <= FINALIZE_TIMEOUT_MS);
 });
 
 test('worker owns CLI failures: durable log plus inherited stream, never a throw', () => {

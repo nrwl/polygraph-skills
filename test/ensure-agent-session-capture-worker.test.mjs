@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { main } from '../source/hooks/ensure-agent-session-capture-worker.mjs';
+import { ENSURE_CAPTURE_TIMEOUT_MS } from '../source/hooks/agent-session-capture.mjs';
 
 const WORKER_PATH = fileURLToPath(
   new URL('../source/hooks/ensure-agent-session-capture-worker.mjs', import.meta.url)
@@ -42,14 +43,12 @@ test('worker wakes capture from a parsed claim and reports success', () => {
     'codex',
     '--agent-session-id',
     'codex-session',
-    '--cwd',
-    '/workspace/repo with spaces',
-    '--transcript-path',
-    '/tmp/rollout exact.jsonl',
   ]);
   assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
+  assert.equal(invocation.options.killSignal, 'SIGKILL');
+  assert.ok(invocation.options.timeout <= ENSURE_CAPTURE_TIMEOUT_MS);
 });
 
 test('worker owns wake failures: durable log plus inherited stream, never a throw', () => {
@@ -106,11 +105,11 @@ test('worker contains an unparseable claim without an identity', () => {
   assert.equal(logged[0].meta.cli, 'polygraph');
 });
 
-test('detached worker process completes the version-skew fallback end to end', () => {
+test('detached worker process handles the actual old-CLI usage shape end to end', () => {
   // The fake CLI is a plain JS entry in a path with spaces: the worker must
   // run it through Node, see the unsupported marker on the preferred
-  // command, and succeed via the legacy identity-only mapping command with
-  // provenance intact.
+  // command, and succeed via the legacy mapping command with provenance
+  // intact.
   const home = mkdtempSync(join(tmpdir(), 'pg ensure worker-'));
   try {
     const workDir = join(home, 'repo with spaces');
@@ -120,8 +119,8 @@ test('detached worker process completes the version-skew fallback end to end', (
       cliPath,
       [
         "if (process.argv[2] === '_ensure-agent-session-capture') {",
-        "  process.stderr.write('POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED');",
-        '  process.exit(2);',
+        "  process.stdout.write('Usage: polygraph\\nPolygraph CLI for cross-repo coordination\\n\\nValidation failed for one or more options\\n  - Unknown argument: _ensure-agent-session-capture\\n  - Unknown argument: --agent-type\\n  - Unknown argument: opencode\\n  - Unknown argument: --agent-session-id\\n  - Unknown argument: opencode-session\\n');",
+        '  process.exit(1);',
         '}',
         "if (process.argv[2] === '_link-agent-session' && process.argv.slice(-2).join(' ') === '--source hook') {",
         '  process.exit(0);',

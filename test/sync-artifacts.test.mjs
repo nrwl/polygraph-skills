@@ -913,6 +913,7 @@ test('opencode package is published as a native plugin package', () => {
   assert.deepEqual(pkg.files, [
     'server.js',
     'agent-session-link.mjs',
+    'ensure-agent-session-capture-worker.mjs',
     'frontmatter.mjs',
     'skills/',
     'agents/',

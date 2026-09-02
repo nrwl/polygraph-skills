@@ -5,11 +5,27 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   buildCommandHookEnsureCapture,
   buildEnsureAgentSessionCaptureArgs,
+  buildLegacyCaptureWakeArgs,
   ENSURE_CAPTURE_TIMEOUT_MS,
   ENSURE_CAPTURE_UNSUPPORTED_MARKER,
   ensureAgentSessionCapture,
+  launchAgentSessionCaptureWake,
 } from '../source/hooks/agent-session-capture.mjs';
 import { main } from '../source/hooks/ensure-agent-session-capture.mjs';
+
+const OLD_CLI_UNSUPPORTED_STDOUT = `Usage: polygraph
+Polygraph CLI for cross-repo coordination
+
+Commands:
+  auth - Authentication and environment selection
+
+Validation failed for one or more options
+  - Unknown argument: _ensure-agent-session-capture
+  - Unknown argument: --agent-type
+  - Unknown argument: claude
+  - Unknown argument: --agent-session-id
+  - Unknown argument: claude-session
+`;
 
 test('Claude registers asynchronous UserPromptSubmit and Stop wake hooks with a shipped command artifact', () => {
   const manifest = JSON.parse(
@@ -114,10 +130,19 @@ test('Stop payload forwards exact Claude session metadata', () => {
     'claude',
     '--agent-session-id',
     'claude/root session?exact=true',
+  ]);
+  assert.deepEqual(buildLegacyCaptureWakeArgs(claim), [
+    '_link-agent-session',
+    '--agent-type',
+    'claude',
+    '--agent-session-id',
+    'claude/root session?exact=true',
     '--cwd',
     '/workspace/repo with spaces',
     '--transcript-path',
     '/tmp/transcript exact.jsonl',
+    '--source',
+    'hook',
   ]);
 });
 
@@ -303,10 +328,6 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
     'claude',
     '--agent-session-id',
     'claude-session',
-    '--cwd',
-    '/workspace/repo',
-    '--transcript-path',
-    '/tmp/transcript.jsonl',
   ]);
   assert.equal(invocation.options.cwd, '/workspace/repo');
   assert.deepEqual(invocation.options.stdio, ['ignore', 'pipe', 'pipe']);
@@ -390,12 +411,106 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
   assert.equal(invocations[0].args[0], '_ensure-agent-session-capture');
   assert.equal(invocations[0].args.includes('--source'), false);
   assert.equal(invocations[1].args[0], '_link-agent-session');
-  // The legacy mapping command keeps its provenance flag.
+  // The legacy mapping command keeps mutable mapping evidence and provenance.
+  assert.deepEqual(invocations[1].args.slice(1, -2), [
+    '--agent-type',
+    'claude',
+    '--agent-session-id',
+    'claude-session',
+    '--cwd',
+    '/workspace/repo',
+  ]);
   assert.deepEqual(invocations[1].args.slice(-2), ['--source', 'hook']);
   assert.equal(invocations[0].options.timeout, 4_900);
   assert.equal(invocations[1].options.timeout, 300);
   assert.equal(invocations[0].options.killSignal, 'SIGKILL');
   assert.equal(invocations[1].options.killSignal, 'SIGKILL');
+});
+
+test('the observed Shell 0.1.x usage response triggers one compatibility fallback without logging', () => {
+  const invocations = [];
+  const failures = [];
+
+  assert.equal(
+    main({
+      agentType: 'claude',
+      env: { POLYGRAPH_CLI: '/opt/polygraph' },
+      payload: {
+        hook_event_name: 'Stop',
+        session_id: 'claude-session',
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/transcript.jsonl',
+      },
+      spawn(command, args, options) {
+        invocations.push({ command, args, options });
+        return invocations.length === 1
+          ? { status: 1, stdout: OLD_CLI_UNSUPPORTED_STDOUT, stderr: '' }
+          : { status: 0, stdout: '', stderr: '' };
+      },
+      logFailure(...failure) {
+        failures.push(failure);
+      },
+    }),
+    true
+  );
+
+  assert.equal(invocations.length, 2);
+  assert.deepEqual(invocations[0].args, [
+    '_ensure-agent-session-capture',
+    '--agent-type',
+    'claude',
+    '--agent-session-id',
+    'claude-session',
+  ]);
+  assert.deepEqual(invocations[1].args, [
+    '_link-agent-session',
+    '--agent-type',
+    'claude',
+    '--agent-session-id',
+    'claude-session',
+    '--cwd',
+    '/workspace/repo',
+    '--transcript-path',
+    '/tmp/transcript.jsonl',
+    '--source',
+    'hook',
+  ]);
+  assert.deepEqual(failures, []);
+});
+
+test('arbitrary CLI failures that mention the hidden command never trigger fallback', () => {
+  for (const result of [
+    {
+      status: 1,
+      stdout: 'request failed for _ensure-agent-session-capture: unavailable',
+      stderr: '',
+    },
+    {
+      status: 1,
+      stdout: OLD_CLI_UNSUPPORTED_STDOUT,
+      stderr: 'runtime failed after parsing',
+    },
+    {
+      status: 2,
+      stdout: OLD_CLI_UNSUPPORTED_STDOUT,
+      stderr: '',
+    },
+  ]) {
+    let spawnCount = 0;
+    assert.throws(
+      () =>
+        ensureAgentSessionCapture(
+          { agentType: 'claude', agentSessionId: 'claude-session' },
+          () => {
+            spawnCount += 1;
+            return result;
+          },
+          {}
+        ),
+      /_ensure-agent-session-capture/
+    );
+    assert.equal(spawnCount, 1);
+  }
 });
 
 test('Stop never retries a timed-out or ambiguously executed command', () => {
@@ -610,6 +725,38 @@ test('a detached wake reports worker launch failures best-effort', () => {
     hookEventName: 'beforeSubmitPrompt',
     agentSessionId: undefined,
   });
+});
+
+test('a detached wake launches the worker through a Node runtime, never the host binary', () => {
+  // OpenCode hosts the plugin inside a compiled Bun binary, so process.execPath
+  // there is not a Node executable.
+  for (const [execPath, expected] of [
+    ['/opt/homebrew/bin/opencode', 'node'],
+    ['/usr/local/bin/bun', 'node'],
+    ['/usr/local/bin/node', '/usr/local/bin/node'],
+  ]) {
+    let invocation;
+    assert.equal(
+      launchAgentSessionCaptureWake(
+        { agentType: 'opencode', agentSessionId: 'ses_root', cwd: '/workspace/repo' },
+        (command, args, options) => {
+          invocation = { command, args, options };
+          return { once() { return this; }, unref() {} };
+        },
+        {},
+        { execPath, openLog: () => 1, closeLog: () => {} }
+      ),
+      true
+    );
+    assert.equal(invocation.command, expected, execPath);
+    assert.match(invocation.args[0], /ensure-agent-session-capture-worker\.mjs$/);
+    assert.deepEqual(JSON.parse(invocation.args[1]), {
+      agentType: 'opencode',
+      agentSessionId: 'ses_root',
+      cwd: '/workspace/repo',
+    });
+    assert.equal(invocation.options.detached, true);
+  }
 });
 
 test('managed children never launch a detached wake worker', () => {

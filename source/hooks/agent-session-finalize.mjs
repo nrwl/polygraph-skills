@@ -9,6 +9,8 @@ import {
   runCaptureCliSync,
 } from './capture-cli.mjs';
 
+export const FINALIZE_TIMEOUT_MS = 90_000;
+
 const FINALIZE_WORKER_PATH = fileURLToPath(
   new URL('./finalize-agent-session-worker.mjs', import.meta.url)
 );
@@ -52,14 +54,27 @@ export function finalizeAgentSession(
 ) {
   if (isManagedChildEnvironment(env)) return false;
 
-  const { options = {}, ...runOptions } = runnerOptions;
+  const {
+    options = {},
+    timeoutMs = FINALIZE_TIMEOUT_MS,
+    now = Date.now,
+    ...runOptions
+  } = runnerOptions;
+  const boundedTimeout =
+    Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.min(Math.floor(timeoutMs), FINALIZE_TIMEOUT_MS)
+      : FINALIZE_TIMEOUT_MS;
+  const deadline = now() + boundedTimeout;
   const result = runCaptureCliSync(buildFinalizeAgentSessionArgs(claim), {
     ...runOptions,
     env,
     spawn,
     cwd: claim.cwd,
+    deadline,
+    now,
     options: {
       ...options,
+      killSignal: 'SIGKILL',
       maxBuffer: 256 * 1024,
     },
   });

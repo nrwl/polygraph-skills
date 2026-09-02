@@ -3,7 +3,7 @@ import {
   linkAgentSession,
   logHookFailure,
 } from '../hooks/agent-session-link.mjs';
-import { ensureAgentSessionCapture } from '../hooks/agent-session-capture.mjs';
+import { launchAgentSessionCaptureWake } from '../hooks/agent-session-capture.mjs';
 
 export { logHookFailure } from '../hooks/agent-session-link.mjs';
 
@@ -59,6 +59,20 @@ export async function linkOpenCodeSessionCreatedEvent(input, sessionLinker) {
   if (event?.type !== 'session.created') return false;
 
   return sessionLinker.fromSessionCreated(event.properties?.info);
+}
+
+// chat.message's documented hook input carries the session on
+// input.sessionID; output.message.sessionID is the same id stamped on the
+// created user message and only backs up a host that omits the input field.
+export function openCodeChatMessageSessionId(input, output) {
+  return (
+    sessionIdValue(input?.sessionID) ??
+    sessionIdValue(output?.message?.sessionID)
+  );
+}
+
+function sessionIdValue(value) {
+  return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 export function deferOpenCodeToolActivity(
@@ -120,7 +134,7 @@ export function createOpenCodeSessionLinker({
   const linkedLifecycleSessions = new Set();
   const submitLink = link ?? ((claim) => linkAgentSession(claim, spawn, env));
   const submitEnsure =
-    ensure ?? ((claim) => ensureAgentSessionCapture(claim, spawn, env));
+    ensure ?? ((claim) => launchAgentSessionCaptureWake(claim, spawn, env));
 
   async function rootSessionId(sessionId) {
     if (!sessionId) return undefined;
