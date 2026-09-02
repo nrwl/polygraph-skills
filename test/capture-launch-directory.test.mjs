@@ -131,6 +131,7 @@ test('a detached worker launches from the home directory while its claim keeps t
           cwd: gone,
           transcriptPath: '/tmp/transcript.jsonl',
           source: 'hook',
+          observedAt: HOOK_FIRED_AT,
         },
         spawn,
         env
@@ -173,7 +174,13 @@ test('the wake and finalize CLI processes run from the home directory and keep -
     );
     assert.equal(
       finalizeAgentSession(
-        { agentType: 'claude', agentSessionId: 'claude-session', cwd: gone, source: 'hook' },
+        {
+          agentType: 'claude',
+          agentSessionId: 'claude-session',
+          cwd: gone,
+          source: 'hook',
+          observedAt: HOOK_FIRED_AT,
+        },
         spawn,
         env
       ),
@@ -377,6 +384,49 @@ const DELETED_CWD_CASES = [
     detached: true,
     cwdEvidence: () => undefined,
   },
+  {
+    name: 'finalize-agent-session.mjs cursor without workspace roots omits --cwd',
+    hookFile: 'finalize-agent-session.mjs',
+    args: ['cursor'],
+    payload: () => ({
+      hook_event_name: 'sessionEnd',
+      session_id: 'cursor/conversation-id',
+      conversation_id: 'cursor/conversation-id',
+      reason: 'user_close',
+      final_status: 'completed',
+    }),
+    command: '_finalize-agent-session',
+    detached: true,
+    cwdEvidence: () => undefined,
+  },
+  {
+    name: 'record-session-mapping.mjs claude keeps the payload cwd as --cwd evidence',
+    hookFile: 'record-session-mapping.mjs',
+    args: ['claude'],
+    payload: (gone) => ({
+      hook_event_name: 'SessionStart',
+      session_id: 'claude-session',
+      cwd: gone,
+      transcript_path: '/tmp/transcript.jsonl',
+      source: 'startup',
+    }),
+    command: '_link-agent-session',
+    detached: false,
+    cwdEvidence: (gone) => ['--cwd', gone],
+  },
+  {
+    name: 'record-session-mapping.mjs cursor without workspace roots omits --cwd',
+    hookFile: 'record-session-mapping.mjs',
+    args: ['cursor'],
+    payload: () => ({
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/conversation-id',
+      conversation_id: 'cursor/conversation-id',
+    }),
+    command: '_link-agent-session',
+    detached: false,
+    cwdEvidence: () => undefined,
+  },
 ];
 
 for (const scenario of DELETED_CWD_CASES) {
@@ -424,6 +474,10 @@ for (const scenario of DELETED_CWD_CASES) {
         } else {
           assert.equal(argv.includes('--cwd'), false);
         }
+        // The vanished hook cwd reaches the CLI only as payload evidence, and
+        // the launch directory itself is never presented as evidence.
+        assert.equal(argv.includes(gone), evidence !== undefined);
+        assert.equal(argv.includes(home), false);
         assert.equal(existsSync(join(home, '.polygraph', 'logs', 'hooks.log')), false);
       });
     }

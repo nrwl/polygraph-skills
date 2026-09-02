@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+import { resolveLaunchDirectory } from './capture-cli.mjs';
+
 const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 const AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
@@ -130,11 +132,18 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
     delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   }
 
+  // The link launches from a directory that exists — the claim's own when it
+  // still does, else home, else temp — exactly like the wake and finalize
+  // processes. The launch directory is a spawn detail only: the recorded
+  // working directory is the claim's `--cwd` above, which a Cursor claim
+  // without workspace roots omits rather than substituting the plugin root.
+  const launchDirectory = resolveLaunchDirectory(claim.cwd, env);
   const spawnOptions = {
     encoding: 'utf8',
     env: commandEnv,
     stdio: [input === undefined ? 'ignore' : 'pipe', 'ignore', 'pipe'],
     ...(input === undefined ? {} : { input }),
+    ...(launchDirectory ? { cwd: launchDirectory } : {}),
   };
 
   // POLYGRAPH_CLI may point at a plain JS entry that cannot be spawned

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,6 +20,9 @@ import {
   finalizeAgentSession,
 } from '../source/hooks/agent-session-finalize.mjs';
 import { main as finalizeMain } from '../source/hooks/finalize-agent-session.mjs';
+
+// A fixed hook-fire time: a finalize forwards the hook's own clock reading.
+const HOOK_FIRED_AT = 1_767_225_600_000;
 
 test('Claude and Codex register broad Polygraph PostToolUse hooks', () => {
   for (const relativePath of [
@@ -451,9 +454,12 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     transcript_path: '/tmp/exact transcript.jsonl',
     reason: 'prompt_input_exit',
   };
-  const claim = buildCommandHookFinalize(payload, 'claude', {
-    POLYGRAPH_SESSION_ID: 'must-not-forward',
-  });
+  const claim = buildCommandHookFinalize(
+    payload,
+    'claude',
+    { POLYGRAPH_SESSION_ID: 'must-not-forward' },
+    () => HOOK_FIRED_AT
+  );
 
   assert.deepEqual(claim, {
     agentType: 'claude',
@@ -461,6 +467,7 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     cwd: '/workspace/exact repo',
     transcriptPath: '/tmp/exact transcript.jsonl',
     source: 'hook',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
     '_finalize-agent-session',
@@ -474,6 +481,8 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     '/tmp/exact transcript.jsonl',
     '--source',
     'hook',
+    '--observed-at',
+    String(HOOK_FIRED_AT),
   ]);
   assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
   // Cursor finalizes on its own camelCase event, never on Claude's.
@@ -501,15 +510,19 @@ const CURSOR_SESSION_END_PAYLOAD = {
 };
 
 test('cursor sessionEnd builds a finalize claim from identity, workspace, and transcript only', () => {
-  const claim = buildCommandHookFinalize(CURSOR_SESSION_END_PAYLOAD, 'cursor', {
-    POLYGRAPH_SESSION_ID: 'must-not-forward',
-  });
+  const claim = buildCommandHookFinalize(
+    CURSOR_SESSION_END_PAYLOAD,
+    'cursor',
+    { POLYGRAPH_SESSION_ID: 'must-not-forward' },
+    () => HOOK_FIRED_AT
+  );
   assert.deepEqual(claim, {
     agentType: 'cursor',
     agentSessionId: 'cursor/conversation-id',
     cwd: '/workspace/cursor repo',
     transcriptPath: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
     source: 'hook',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
     '_finalize-agent-session',
@@ -523,6 +536,8 @@ test('cursor sessionEnd builds a finalize claim from identity, workspace, and tr
     '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
     '--source',
     'hook',
+    '--observed-at',
+    String(HOOK_FIRED_AT),
   ]);
 
   // conversation_id keeps finalization working if session_id disappears.
@@ -599,6 +614,7 @@ test('cursor sessionEnd hands off to the detached finalize worker without a PID'
         };
       },
       launcherOptions: { openLog: () => 1, closeLog: () => {} },
+      now: () => HOOK_FIRED_AT,
     }),
     true
   );
@@ -611,6 +627,7 @@ test('cursor sessionEnd hands off to the detached finalize worker without a PID'
     cwd: repo,
     transcriptPath: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
     source: 'hook',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.equal('pid' in claim, false);
   assert.equal(buildFinalizeAgentSessionArgs(claim).includes('--pid'), false);
@@ -649,6 +666,7 @@ test('detached finalization enforces a bounded 90-second CLI kill deadline', () 
         agentSessionId: 'claude-session',
         cwd: '/workspace/repo',
         source: 'hook',
+        observedAt: HOOK_FIRED_AT,
       },
       (command, args, options) => {
         invocation = { command, args, options };
@@ -698,6 +716,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
         transcript_path: '/tmp/transcript exact.jsonl',
       },
       spawn,
+      now: () => HOOK_FIRED_AT,
       launcherOptions: {
         execPath: '/runtime/node',
         openLog: () => {
@@ -720,6 +739,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
     cwd: repo,
     transcriptPath: '/tmp/transcript exact.jsonl',
     source: 'hook',
+    observedAt: HOOK_FIRED_AT,
   });
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
@@ -1104,9 +1124,11 @@ test('the cursor plugin registers static relative lifecycle, claim, and wake hoo
   );
 
   // The agent-done wakes ride Cursor's observational afterAgentResponse
-  // (per completed assistant message) and stop (agent loop end) hooks with
-  // the same detached, identity-only command as the prompt wake. Neither
-  // emits anything on stdout, so stop can never auto-submit a follow-up.
+  // (per completed assistant message) and its blocking stop hook (agent
+  // loop end, whose followup_message answer would auto-submit another
+  // prompt) with the same detached, identity-only command as the prompt
+  // wake. Neither emits anything on stdout, so stop never submits a
+  // follow-up.
   for (const eventName of ['afterAgentResponse', 'stop']) {
     const wakeHooks = manifest.hooks[eventName];
     assert.equal(wakeHooks.length, 1, eventName);
@@ -1470,4 +1492,148 @@ test('managed cursor children never forward postToolUse evidence', () => {
   });
 
   assert.equal(result, false);
+});
+
+// Cursor runs plugin hooks from the plugin root, never the repository, so a
+// Cursor payload without workspace_roots records no directory at all: the
+// hook process's own cwd is never smuggled in as repository evidence. Claude
+// and Codex command hooks run in the session directory, where it is genuine.
+test('cursor links and finalizations never record the hook process cwd as evidence', () => {
+  const hookProcessCwd = process.cwd();
+  const cursorPayloads = [
+    {
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/root-conversation',
+      conversation_id: 'cursor/root-conversation',
+    },
+    {
+      hook_event_name: 'postToolUse',
+      conversation_id: 'cursor/root-conversation',
+      tool_name: 'MCP:spawn_agent',
+      tool_input: {},
+      tool_output: {},
+    },
+  ];
+  for (const payload of cursorPayloads) {
+    let invocation;
+    assert.equal(
+      main({
+        agentType: 'cursor',
+        env: {},
+        payload,
+        spawn(command, args, options) {
+          invocation = { command, args, options };
+          return { status: 0, stderr: '' };
+        },
+      }),
+      true,
+      payload.hook_event_name
+    );
+    assert.equal(invocation.args[0], '_link-agent-session');
+    assert.equal(invocation.args.includes('--cwd'), false, payload.hook_event_name);
+    assert.equal(invocation.args.includes(hookProcessCwd), false, payload.hook_event_name);
+    // The launch still starts somewhere that exists; that is a spawn detail.
+    assert.equal(existsSync(invocation.options.cwd), true, payload.hook_event_name);
+  }
+
+  let workerLaunch;
+  assert.equal(
+    finalizeMain({
+      agentType: 'cursor',
+      env: {},
+      cwd: '/plugin/root',
+      payload: {
+        hook_event_name: 'sessionEnd',
+        session_id: 'cursor/root-conversation',
+        conversation_id: 'cursor/root-conversation',
+        reason: 'user_close',
+        final_status: 'completed',
+      },
+      spawn(command, args, options) {
+        workerLaunch = { command, args, options };
+        return { once() { return this; }, unref() {} };
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+      now: () => HOOK_FIRED_AT,
+    }),
+    true
+  );
+  const claim = JSON.parse(workerLaunch.args[1]);
+  assert.equal(Object.hasOwn(claim, 'cwd'), false);
+  assert.equal(buildFinalizeAgentSessionArgs(claim).includes('--cwd'), false);
+  assert.equal(workerLaunch.args[1].includes('/plugin/root'), false);
+
+  // Claude keeps the hook's own cwd as evidence when the payload carries none.
+  let claudeInvocation;
+  assert.equal(
+    main({
+      agentType: 'claude',
+      env: {},
+      pid: 4321,
+      payload: { hook_event_name: 'SessionStart', session_id: 'claude/root-session' },
+      spawn(command, args, options) {
+        claudeInvocation = { command, args, options };
+        return { status: 0, stderr: '' };
+      },
+    }),
+    true
+  );
+  const cwdIndex = claudeInvocation.args.indexOf('--cwd');
+  assert.deepEqual(claudeInvocation.args.slice(cwdIndex, cwdIndex + 2), [
+    '--cwd',
+    hookProcessCwd,
+  ]);
+
+  let claudeFinalizeLaunch;
+  assert.equal(
+    finalizeMain({
+      agentType: 'claude',
+      env: {},
+      cwd: '/hook/cwd',
+      payload: { hook_event_name: 'SessionEnd', session_id: 'claude/root-session' },
+      spawn(command, args, options) {
+        claudeFinalizeLaunch = { command, args, options };
+        return { once() { return this; }, unref() {} };
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+      now: () => HOOK_FIRED_AT,
+    }),
+    true
+  );
+  assert.equal(JSON.parse(claudeFinalizeLaunch.args[1]).cwd, '/hook/cwd');
+});
+
+test('the link launches from the claim directory when it exists and from home once it vanished', () => {
+  const home = mkdtempSync(join(tmpdir(), 'pg link launch-'));
+  try {
+    const repo = join(home, 'repo with spaces');
+    mkdirSync(repo);
+    const invocations = [];
+    const spawn = (command, args, options) => {
+      invocations.push({ command, args, options });
+      return { status: 0, stderr: '' };
+    };
+    const env = { HOME: home };
+    const claim = {
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      cwd: repo,
+      source: 'hook',
+    };
+
+    assert.equal(linkAgentSession(claim, spawn, env), true);
+    assert.equal(invocations[0].options.cwd, repo);
+
+    rmSync(repo, { recursive: true, force: true });
+    assert.equal(linkAgentSession(claim, spawn, env), true);
+    // The launch moved; the recorded working directory did not.
+    assert.equal(invocations[1].options.cwd, home);
+    assert.deepEqual(invocations[1].args.slice(5, 7), ['--cwd', repo]);
+    // The synchronous link contract is unchanged: no deadline, stdout
+    // ignored, stderr captured for the failure message.
+    assert.equal('timeout' in invocations[1].options, false);
+    assert.deepEqual(invocations[1].options.stdio, ['ignore', 'ignore', 'pipe']);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

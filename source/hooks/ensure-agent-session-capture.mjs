@@ -7,7 +7,7 @@ import {
   launchAgentSessionCaptureWake,
 } from './agent-session-capture.mjs';
 import { hookPayloadSessionId, logHookFailure } from './agent-session-link.mjs';
-import { processWorkingDirectory } from './capture-cli.mjs';
+import { fallbackClaimDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -30,8 +30,10 @@ export function main({
   spawn,
   logFailure = logHookFailure,
   // The hook's own directory is read lazily, inside the protected path, and
-  // only when the payload carries none: a default evaluated at entry would
-  // throw uv_cwd from an already-deleted cwd before any fallback could run.
+  // only when the payload carries none and the harness runs hooks in the
+  // session directory: a default evaluated at entry would throw uv_cwd from
+  // an already-deleted cwd before any fallback could run, and Cursor's hook
+  // cwd is the plugin root rather than the repository.
   cwd,
   launcherOptions = {},
   now = Date.now,
@@ -48,7 +50,7 @@ export function main({
 
     const claim = {
       ...built,
-      cwd: built.cwd ?? cwd ?? processWorkingDirectory(),
+      cwd: built.cwd ?? fallbackClaimDirectory(agentType, cwd),
     };
     if (detach) {
       return launchAgentSessionCaptureWake(claim, spawn, env, {

@@ -8,6 +8,7 @@ import {
   linkAgentSession,
   logHookFailure,
 } from './agent-session-link.mjs';
+import { fallbackClaimDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -30,9 +31,13 @@ export function main({
     const link = buildCommandHookLink(payload, agentType, env);
     if (!link) return false;
 
+    // Claude and Codex run this hook in the session directory, so the hook's
+    // own cwd stands in when the payload carries none; Cursor's hook cwd is
+    // the plugin root and is never recorded. Read lazily, inside the
+    // protected path, because a deleted cwd makes process.cwd() throw.
     const claim = {
       ...link,
-      cwd: link.cwd ?? process.cwd(),
+      cwd: link.cwd ?? fallbackClaimDirectory(agentType),
     };
     const harnessPid = commandHookHarnessPid(agentType, payload, pid);
     if (harnessPid !== undefined) claim.pid = harnessPid;

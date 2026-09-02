@@ -6,6 +6,7 @@ import {
   isManagedChildEnvironment,
   launchDetachedHookWorker,
   nonEmptyString,
+  observedAtValue,
   runCaptureCliSync,
 } from './capture-cli.mjs';
 
@@ -47,10 +48,6 @@ function wakeIdentityArgs({ agentType, agentSessionId }) {
   if (!harnessSession) throw new Error('agentSessionId is required');
 
   return ['--agent-type', agentType, '--agent-session-id', harnessSession];
-}
-
-function observedAtValue(value) {
-  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 // The ensure command carries stable harness identity plus the moment the

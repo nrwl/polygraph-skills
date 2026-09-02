@@ -351,7 +351,7 @@ const FINALIZE_PAYLOADS = {
 
 test('finalization payloads keep identity, paths, and provenance and drop everything else', () => {
   for (const [harness, payload] of Object.entries(FINALIZE_PAYLOADS)) {
-    const claim = buildCommandHookFinalize(payload, harness, {});
+    const claim = buildCommandHookFinalize(payload, harness, {}, () => HOOK_FIRED_AT);
     const args = buildFinalizeAgentSessionArgs(claim);
     assert.deepEqual(args, [
       '_finalize-agent-session',
@@ -365,6 +365,8 @@ test('finalization payloads keep identity, paths, and provenance and drop everyt
       payload.transcript_path,
       '--source',
       'hook',
+      '--observed-at',
+      String(HOOK_FIRED_AT),
     ], harness);
     assert.doesNotMatch(args.join('\n'), /--pid|reason|status|exit|completed/);
 
@@ -398,5 +400,53 @@ test('finalization payloads keep identity, paths, and provenance and drop everyt
         }),
       /Unsupported agent type/
     );
+  }
+});
+
+test('finalization carries the hook-fired observation time exactly as a wake does', () => {
+  for (const [harness, payload] of Object.entries(FINALIZE_PAYLOADS)) {
+    const claim = buildCommandHookFinalize(payload, harness, {}, () => HOOK_FIRED_AT);
+    assert.equal(claim.observedAt, HOOK_FIRED_AT, harness);
+    assert.deepEqual(
+      buildFinalizeAgentSessionArgs(claim).slice(-4),
+      ['--source', 'hook', '--observed-at', String(HOOK_FIRED_AT)],
+      harness
+    );
+    // A finalize without the hook's own clock reading never reaches the CLI;
+    // nothing guesses one, least of all a delayed worker.
+    for (const observedAt of [undefined, null, 0, -1, 1.5, NaN, String(HOOK_FIRED_AT)]) {
+      assert.throws(
+        () => buildFinalizeAgentSessionArgs({ ...claim, observedAt }),
+        /observedAt is required/,
+        `${harness} ${String(observedAt)}`
+      );
+    }
+  }
+});
+
+// Cursor's hook process runs from the plugin root, so a payload without
+// workspace roots yields a claim with no directory: neither the legacy
+// mapping fallback nor the finalize may record any --cwd for it.
+test('a cursor payload without workspace roots records no directory on any command', () => {
+  for (const roots of [undefined, [], [''], ['   ']]) {
+    const label = JSON.stringify(roots);
+    for (const eventName of HARNESSES.cursor.wakeEvents) {
+      const claim = buildCommandHookEnsureCapture(
+        { ...WAKE_PAYLOADS.cursor[eventName], workspace_roots: roots },
+        'cursor',
+        {},
+        () => HOOK_FIRED_AT
+      );
+      assert.equal(claim.cwd, undefined, `${eventName} ${label}`);
+      assert.equal(buildLegacyCaptureWakeArgs(claim).includes('--cwd'), false, `${eventName} ${label}`);
+    }
+    const finalize = buildCommandHookFinalize(
+      { ...FINALIZE_PAYLOADS.cursor, workspace_roots: roots },
+      'cursor',
+      {},
+      () => HOOK_FIRED_AT
+    );
+    assert.equal(finalize.cwd, undefined, label);
+    assert.equal(buildFinalizeAgentSessionArgs(finalize).includes('--cwd'), false, label);
   }
 });

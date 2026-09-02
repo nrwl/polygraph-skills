@@ -21,9 +21,10 @@ using the lifecycle events its plugin API actually exposes:
   treats empty output as allow. `afterAgentResponse` is the agent-done wake:
   an observational hook that fires once an assistant message completes. It
   carries the message text, which the wake never forwards. `stop` is
-  Cursor's observational agent-loop-end hook; its only output field
-  (`followup_message`) would auto-submit another prompt, so the wake never
-  writes to stdout. Live multi-turn runs under `cursor-agent --plugin-dir`
+  Cursor's blocking agent-loop-end hook: it may answer with a
+  `followup_message`, which Cursor auto-submits as the next prompt, so the
+  wake exits 0 with empty stdout and never writes to it — Cursor treats no
+  output as no follow-up. Live multi-turn runs under `cursor-agent --plugin-dir`
   dispatched `beforeSubmitPrompt`, `afterAgentResponse`, `sessionStart`,
   `afterAgentThought`, `postToolUse`, and `sessionEnd` to plugin-scope
   hooks; `stop` was never observed, so its registration is inert unless a
@@ -47,7 +48,8 @@ mapping provenance. Which event fired is never forwarded — prompt-submit and
 agent-done wakes are identical invocations apart from the timestamp. The
 legacy `_link-agent-session` compatibility fallback keeps the working
 directory, transcript path, and `--source hook` because it still records a
-mapping; neither it nor `_finalize-agent-session` carries `--observed-at`.
+mapping, and never carries `--observed-at`. `_finalize-agent-session` carries
+its own `--observed-at`, described under Finalization.
 
 ## Process identity
 
@@ -89,11 +91,19 @@ working directory can vanish before a delayed hook runs (an archived
 session worktree), and a spawn from a missing cwd fails with ENOENT before
 the CLI starts, which would silently drop a finalize. The fallback changes
 only where the process starts; the `--cwd` evidence on the finalize and
-legacy link commands stays the claim's original directory. A hook's own
-working directory is consulted only when the payload carries none, and only
-inside the protected path: a hook already running from a deleted directory
-(`process.cwd()` fails with `uv_cwd`) still reaches that fallback instead
-of crashing before it.
+legacy link commands stays the claim's original directory. The
+`_link-agent-session` process run by `record-session-mapping` (SessionStart
+and PostToolUse links) launches by the same rule while keeping its
+synchronous, unbounded, stdout-ignored contract. A hook's own working
+directory is consulted only when the payload carries none, only inside the
+protected path, and only for Claude and Codex, whose command hooks run in the
+session directory: a hook already running from a deleted directory
+(`process.cwd()` fails with `uv_cwd`) still reaches that fallback instead of
+crashing before it. Cursor runs plugin hooks from the plugin root, which is
+never the repository, so a Cursor payload without `workspace_roots` yields a
+claim with no directory and no `--cwd` on the finalize or legacy link
+command; the launch then starts from the home directory as a spawn detail
+only.
 
 Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
 off to a detached worker. A wake worker enforces the shared five-second CLI
@@ -120,9 +130,14 @@ Cursor's `sessionEnd` is observational and dispatched to plugin-scope hooks
 under `cursor-agent --plugin-dir`; its payload carries `session_id` and
 `conversation_id`, `workspace_roots`, `transcript_path`, `reason`, and
 `final_status`. The finalize claim forwards identity, working directory,
-transcript path, and `--source hook` only — never a PID (Cursor's hook parent
-is a transient wrapper) and never the end reason, because the transcript
-alone decides what the final answer was. Claude `SessionStart` accepts
+transcript path, `--source hook`, and `--observed-at <ms>` — the
+epoch-millisecond time at which the session-end hook fired, read
+synchronously in the hook process before the worker detaches, exactly as a
+wake reads it — and never a PID (Cursor's hook parent is a transient
+wrapper) or the end reason, because the transcript alone decides what the
+final answer was. The observation time is what lets Ocean order a finalize
+against wakes and relinks: the finalization worker may run up to 90 seconds
+after the harness exit it describes, and its own start time is never used. Claude `SessionStart` accepts
 `startup`, `resume`, `clear`, `compact`, and `fork`. Ordinary Stop/idle
 events never finalize. Codex documents a `SessionEnd` hook (a one-second
 default budget, three-second maximum, which a detached handoff would fit),
@@ -153,7 +168,13 @@ SessionStart/sessionStart link recorded after the marker — may supersede
 the older terminal marker and start fresh capture. The plugin never
 distinguishes the two cases; it issues the same identity-plus-timestamp
 wake either way. Ocean must accept `--observed-at` on
-`_ensure-agent-session-capture`. Ocean should emit
+`_ensure-agent-session-capture` and on `_finalize-agent-session`, and must
+ignore a finalize whose observation predates the mapping's last-seen time
+(`mapping.lastSeenAt > observedAt`) instead of writing a completion marker:
+a harness exit observed at T1 whose finalize lands after a
+SessionStart/sessionStart relink or a wake of the same identity observed
+later than T1 describes a conversation that has since resumed, and must not
+terminate it. Ocean should emit
 `POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED` when a CLI
 intentionally cannot serve the ensure command; the plugin also recognizes
 the legacy Shell 0.1.x stdout response: root `Usage: polygraph`, followed by

@@ -6,6 +6,7 @@ import {
   isManagedChildEnvironment,
   launchDetachedHookWorker,
   nonEmptyString,
+  observedAtValue,
   runCaptureCliSync,
 } from './capture-cli.mjs';
 
@@ -27,20 +28,31 @@ const FINALIZE_WORKER_PATH = fileURLToPath(
   new URL('./finalize-agent-session-worker.mjs', import.meta.url)
 );
 
+// The finalize command carries identity, the mutable path evidence,
+// `--source`, and the moment the session-end hook fired. Ocean compares that
+// observation against the mapping's last-seen time and ignores a finalize
+// that predates a later wake or relink, so it must be the hook's own clock
+// reading, never the detached worker's start time: a finalize worker may run
+// up to 90 seconds after the harness exit it describes.
 export function buildFinalizeAgentSessionArgs({
   agentType,
   agentSessionId,
   cwd,
   transcriptPath,
   source,
+  observedAt,
 }) {
   const harnessSession = nonEmptyString(agentSessionId);
   const hookSource = nonEmptyString(source);
+  const observed = observedAtValue(observedAt);
   if (!FINALIZE_AGENT_TYPES.has(agentType)) {
     throw new Error(`Unsupported agent type: ${agentType}`);
   }
   if (!harnessSession) throw new Error('agentSessionId is required');
   if (!hookSource) throw new Error('source is required');
+  if (observed === undefined) {
+    throw new Error('observedAt is required: a finalize must carry the hook-captured time');
+  }
 
   const args = [
     '_finalize-agent-session',
@@ -56,7 +68,7 @@ export function buildFinalizeAgentSessionArgs({
   const transcript = nonEmptyString(transcriptPath);
   if (transcript) args.push('--transcript-path', transcript);
 
-  args.push('--source', hookSource);
+  args.push('--source', hookSource, '--observed-at', String(observed));
   return args;
 }
 
@@ -118,7 +130,12 @@ export function launchAgentSessionFinalize(
   });
 }
 
-export function buildCommandHookFinalize(payload, agentType, env = process.env) {
+export function buildCommandHookFinalize(
+  payload,
+  agentType,
+  env = process.env,
+  now = Date.now
+) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return undefined;
   }
@@ -141,11 +158,14 @@ export function buildCommandHookFinalize(payload, agentType, env = process.env) 
       ? nonEmptyString(payload.workspace_roots[0])
       : undefined;
 
+  // The observation time is read here, synchronously in the hook process,
+  // before the worker detaches.
   return {
     agentType,
     agentSessionId,
     cwd: nonEmptyString(payload.cwd) ?? workspaceRoot,
     transcriptPath: nonEmptyString(payload.transcript_path),
     source: 'hook',
+    observedAt: now(),
   };
 }

@@ -12,6 +12,8 @@ import { FINALIZE_TIMEOUT_MS } from '../source/hooks/agent-session-finalize.mjs'
 const WORKER_PATH = fileURLToPath(
   new URL('../source/hooks/finalize-agent-session-worker.mjs', import.meta.url)
 );
+// The session-end hook's own clock reading, serialized into the claim.
+const HOOK_FIRED_AT = 1_767_225_600_000;
 
 test('worker finalizes a parsed claim through the CLI and reports success', () => {
   const repo = mkdtempSync(join(tmpdir(), 'pg repo with spaces-'));
@@ -23,6 +25,7 @@ test('worker finalizes a parsed claim through the CLI and reports success', () =
       cwd: repo,
       transcriptPath: '/tmp/transcript exact.jsonl',
       source: 'hook',
+      observedAt: HOOK_FIRED_AT,
     }),
     env: { POLYGRAPH_CLI: '/opt/polygraph' },
     spawn(command, args, options) {
@@ -51,6 +54,8 @@ test('worker finalizes a parsed claim through the CLI and reports success', () =
     '/tmp/transcript exact.jsonl',
     '--source',
     'hook',
+    '--observed-at',
+    String(HOOK_FIRED_AT),
   ]);
   assert.equal(invocation.options.cwd, repo);
   assert.equal(invocation.options.shell, false);
@@ -68,6 +73,7 @@ test('worker owns CLI failures: durable log plus inherited stream, never a throw
       agentType: 'claude',
       agentSessionId: 'claude-session',
       source: 'hook',
+      observedAt: HOOK_FIRED_AT,
     }),
     env: { POLYGRAPH_CLI: '/opt/polygraph' },
     spawn: () => ({ status: 3, stderr: 'finalize refused' }),
@@ -100,6 +106,7 @@ test('worker names the finalized harness in its failure diagnostics', () => {
       cwd: '/workspace/cursor repo',
       transcriptPath: '/tmp/cursor transcript.jsonl',
       source: 'hook',
+      observedAt: HOOK_FIRED_AT,
     }),
     env: { POLYGRAPH_CLI: '/opt/polygraph' },
     spawn: () => ({ status: 3, stderr: 'finalize refused' }),
@@ -157,6 +164,7 @@ test('detached worker process durably logs a CLI failure on its own', () => {
           agentSessionId: 'claude-session',
           cwd: workDir,
           source: 'hook',
+          observedAt: HOOK_FIRED_AT,
         }),
       ],
       { encoding: 'utf8', env: { HOME: home, POLYGRAPH_CLI: cliPath } }
@@ -197,6 +205,7 @@ test('detached worker process exits zero when the CLI finalizes cleanly', () => 
           agentSessionId: 'claude-session',
           cwd: home,
           source: 'hook',
+          observedAt: HOOK_FIRED_AT,
         }),
       ],
       { encoding: 'utf8', env: { HOME: home, POLYGRAPH_CLI: cliPath } }
@@ -207,4 +216,60 @@ test('detached worker process exits zero when the CLI finalizes cleanly', () => 
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('worker forwards the serialized observation time and never its own clock', () => {
+  // The claim was stamped when the session-end hook fired, long before this
+  // worker ran; the argv must say so.
+  let invocation;
+  const result = main({
+    serializedClaim: JSON.stringify({
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      cwd: '/workspace/repo',
+      source: 'hook',
+      observedAt: HOOK_FIRED_AT,
+    }),
+    env: { POLYGRAPH_CLI: '/opt/polygraph' },
+    spawn(command, args, options) {
+      invocation = { command, args, options };
+      return { status: 0, stderr: '' };
+    },
+    logFailure() {
+      throw new Error('success must not log a failure');
+    },
+    writeFailure() {
+      throw new Error('success must not write a failure');
+    },
+  });
+
+  assert.equal(result, true);
+  const observedAt = Number(invocation.args[invocation.args.indexOf('--observed-at') + 1]);
+  assert.equal(observedAt, HOOK_FIRED_AT);
+  assert.ok(observedAt < Date.now() - 60_000);
+});
+
+test('worker refuses a claim without an observation time before reaching the CLI', () => {
+  const logged = [];
+  const result = main({
+    serializedClaim: JSON.stringify({
+      agentType: 'claude',
+      agentSessionId: 'claude-session',
+      cwd: '/workspace/repo',
+      source: 'hook',
+    }),
+    env: { POLYGRAPH_CLI: '/opt/polygraph' },
+    spawn() {
+      throw new Error('a claim without observedAt must never reach the CLI');
+    },
+    logFailure(hook, error, meta) {
+      logged.push({ hook, error, meta });
+    },
+    writeFailure() {},
+  });
+
+  assert.equal(result, false);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0].error.message, /observedAt is required/);
+  assert.equal(logged[0].meta.agentSessionId, 'claude-session');
 });

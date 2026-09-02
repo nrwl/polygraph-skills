@@ -263,15 +263,12 @@ for (const [script, payload, expectedCommand] of [
       ]);
       assert.equal(argv.includes('--pid'), false);
       assert.equal(argv.includes('answer text that stays in the transcript'), false);
-      // Only the ensure wake carries the hook-captured observation time.
+      // Both the wake and the finalize carry the hook-captured observation
+      // time, bounded by the hook process's own lifetime.
       const observedAtIndex = argv.indexOf('--observed-at');
-      if (expectedCommand === '_ensure-agent-session-capture') {
-        assert.notEqual(observedAtIndex, -1);
-        const observedAt = Number(argv[observedAtIndex + 1]);
-        assert.ok(observedAt >= hookFiredAfter && observedAt <= Date.now());
-      } else {
-        assert.equal(observedAtIndex, -1);
-      }
+      assert.notEqual(observedAtIndex, -1);
+      const observedAt = Number(argv[observedAtIndex + 1]);
+      assert.ok(observedAt >= hookFiredAfter && observedAt <= Date.now());
     });
   });
 }

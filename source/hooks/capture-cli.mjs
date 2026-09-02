@@ -60,6 +60,28 @@ export function processWorkingDirectory() {
   }
 }
 
+/**
+ * The working directory a claim may record when the payload carries none.
+ * Claude and Codex run command hooks in the session's own directory, so the
+ * hook process's cwd is genuine harness evidence there. Cursor runs plugin
+ * hooks from the plugin root, which is never the repository: a Cursor claim
+ * without workspace_roots records no directory at all, and the launch
+ * fallback (home, then temp) stays a spawn detail rather than evidence.
+ */
+export function fallbackClaimDirectory(agentType, hookCwd) {
+  if (agentType === 'cursor') return undefined;
+  return nonEmptyString(hookCwd) ?? processWorkingDirectory();
+}
+
+/**
+ * A hook-captured observation time: a positive epoch-millisecond integer, or
+ * undefined for anything else. Wakes and finalizations both carry one, and
+ * neither ever substitutes a worker's own clock for it.
+ */
+export function observedAtValue(value) {
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 function nodeRuntime(execPath) {
   const base = basename(execPath).toLowerCase();
   return base === 'node' || base === 'node.exe' ? execPath : 'node';

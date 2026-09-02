@@ -6,7 +6,7 @@ import {
   launchAgentSessionFinalize,
 } from './agent-session-finalize.mjs';
 import { hookPayloadSessionId, logHookFailure } from './agent-session-link.mjs';
-import { processWorkingDirectory } from './capture-cli.mjs';
+import { fallbackClaimDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -24,10 +24,13 @@ export function main({
   spawn,
   logFailure = logHookFailure,
   // The hook's own directory is read lazily, inside the protected path, and
-  // only when the payload carries none: a default evaluated at entry would
-  // throw uv_cwd from an already-deleted cwd before any fallback could run.
+  // only when the payload carries none and the harness runs hooks in the
+  // session directory: a default evaluated at entry would throw uv_cwd from
+  // an already-deleted cwd before any fallback could run, and Cursor's hook
+  // cwd is the plugin root rather than the repository.
   cwd,
   launcherOptions = {},
+  now = Date.now,
 } = {}) {
   const reportFailure = (error) =>
     logFailure(`${agentType || 'unknown'}:finalize-agent-session`, error, {
@@ -36,12 +39,12 @@ export function main({
     });
 
   try {
-    const finalize = buildCommandHookFinalize(payload, agentType, env);
+    const finalize = buildCommandHookFinalize(payload, agentType, env, now);
     if (!finalize) return false;
     return launchAgentSessionFinalize(
       {
         ...finalize,
-        cwd: finalize.cwd ?? cwd ?? processWorkingDirectory(),
+        cwd: finalize.cwd ?? fallbackClaimDirectory(agentType, cwd),
       },
       spawn,
       env,

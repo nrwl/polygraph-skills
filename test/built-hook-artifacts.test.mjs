@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const rootDir = resolve(import.meta.dirname, '..');
 const distDir = join(rootDir, 'dist');
@@ -120,7 +123,7 @@ function writeFinalizeCli(path) {
   writeFileSync(
     path,
     [
-      "if (process.argv[2] === '_finalize-agent-session' && process.argv.includes('--source') && !process.argv.includes('--pid')) {",
+      "if (process.argv[2] === '_finalize-agent-session' && process.argv.includes('--source') && !process.argv.includes('--pid') && process.argv[process.argv.indexOf('--observed-at') + 1] === '1767225600000') {",
       '  process.exit(0);',
       '}',
       'process.exit(3);',
@@ -185,6 +188,7 @@ test('the packaged cursor finalize worker finalizes end to end without a PID', (
           cwd: home,
           transcriptPath: join(home, 'transcript.jsonl'),
           source: 'hook',
+          observedAt: 1_767_225_600_000,
         }),
       ],
       { cwd: home, encoding: 'utf8', env: workerEnv(home, cliPath) }
@@ -239,3 +243,84 @@ for (const [harness, workerPath] of [
     }
   });
 }
+
+// The packaged command-hook scripts are the source scripts byte for byte,
+// and each harness ships exactly the manifest it registers, so a source fix
+// can never be published stale.
+test('packaged hook scripts and manifests are byte-identical to source', () => {
+  const manifests = {
+    claude: join(rootDir, 'source', 'hooks', 'hooks.json'),
+    codex: join(rootDir, 'source', 'codex', 'hooks', 'hooks.json'),
+    cursor: join(rootDir, 'source', 'cursor', 'hooks', 'hooks.json'),
+  };
+  for (const [harness, manifestPath] of Object.entries(manifests)) {
+    const hooksDir = join(distDir, harness, 'hooks');
+    const shipped = readdirSync(hooksDir).filter((name) => name.endsWith('.mjs'));
+    assert.ok(shipped.length > 0, harness);
+    for (const name of shipped) {
+      assert.equal(
+        readFileSync(join(hooksDir, name), 'utf8'),
+        readFileSync(join(rootDir, 'source', 'hooks', name), 'utf8'),
+        `${harness}/hooks/${name} drifted from source/hooks/${name}`
+      );
+    }
+    assert.equal(
+      readFileSync(join(hooksDir, 'hooks.json'), 'utf8'),
+      readFileSync(manifestPath, 'utf8'),
+      harness
+    );
+  }
+
+  // Finalization ships only where it is wired.
+  for (const harness of ['claude', 'cursor']) {
+    for (const name of [
+      'finalize-agent-session.mjs',
+      'finalize-agent-session-worker.mjs',
+      'agent-session-finalize.mjs',
+    ]) {
+      assert.equal(existsSync(join(distDir, harness, 'hooks', name)), true, `${harness} ${name}`);
+    }
+  }
+  assert.equal(existsSync(join(distDir, 'codex', 'hooks', 'finalize-agent-session.mjs')), false);
+  for (const bundle of ['agent-session-link.mjs', 'ensure-agent-session-capture-worker.mjs']) {
+    assert.doesNotMatch(
+      readFileSync(join(distDir, 'opencode', bundle), 'utf8'),
+      /_finalize-agent-session/,
+      bundle
+    );
+  }
+});
+
+test('the packaged OpenCode linker launches links from an existing directory and keeps --cwd evidence', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pg packaged opencode link-'));
+  try {
+    const gone = join(home, 'archived session worktree');
+    mkdirSync(gone);
+    rmSync(gone, { recursive: true, force: true });
+
+    const { createOpenCodeSessionLinker } = await import(
+      pathToFileURL(join(distDir, 'opencode', 'agent-session-link.mjs')).href
+    );
+    const invocations = [];
+    const linker = createOpenCodeSessionLinker({
+      client: { session: { get: async ({ path }) => ({ data: { id: path.id } }) } },
+      directory: gone,
+      env: { HOME: home, POLYGRAPH_SESSION_ID: 'poly/session' },
+      pid: 2468,
+      spawn(command, args, options) {
+        invocations.push({ command, args, options });
+        return { status: 0, stderr: '' };
+      },
+    });
+
+    assert.equal(await linker.fromEnvironment('root'), true);
+    assert.equal(invocations.length, 1);
+    assert.equal(invocations[0].args[0], '_link-agent-session');
+    // The launch moved to home; the recorded working directory did not.
+    assert.equal(invocations[0].options.cwd, home);
+    const cwdIndex = invocations[0].args.indexOf('--cwd');
+    assert.deepEqual(invocations[0].args.slice(cwdIndex, cwdIndex + 2), ['--cwd', gone]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
