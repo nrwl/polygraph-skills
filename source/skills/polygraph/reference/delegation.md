@@ -36,15 +36,15 @@ Delegate to several repos in parallel by calling `spawn_agent` once per repo bef
 
 ## The output contract
 
-Every child is told in its system prompt to be concise: its final message is consumed by another agent and paid for twice — once when the child writes it, and again on every parent turn that carries it. Expect terse reports, and do not read brevity as the child having done less.
+Children are told to be concise: another agent reads their final message and pays for it on every turn that carries it. Expect terse reports; brevity is not less work done.
 
-Your half of the contract is the brief. The instruction sets the input; it must also set the output — the shape (which fields, in what order), a cap where one makes sense, the exact token to return when there is nothing to report, and what to leave out. A child that knows what to return does not have to guess, and a child that guesses pads.
+Your half is the brief: state the output as well as the input — shape (fields, order), a cap where useful, the exact token for "nothing to report", what to omit. In communicating with child agents, maintain extremely high information density while being concise - describe everything needed in the fewest words possible.
 
-This matters most during investigation. A fan-out over many repos usually means most of them have nothing to report, and without an explicit "nothing here" answer every uninvolved repo writes several thousand characters to say so. Name the empty answer (`NONE`, `no matches`) and each miss costs one line.
+Investigation is where it matters most: a fan-out leaves most repos with nothing to report, and without a named empty answer (`NONE`, `no matches`) each writes several thousand characters to say so.
 
-During implementation, conciseness still applies, but losing information is the worse failure. A missed detail in an implementation handoff costs another round trip, which is more expensive than the prose would have been. Brevity is about cutting what the next agent does not need — narration, recap, hedging — never about cutting what it does: branch names, files touched, decisions taken, anything found that contradicts the brief.
+Implementation still wants concision, but lost information is the worse failure: a missed detail costs a round trip, costlier than the prose. Cut narration, recap, hedging — never branch names, files touched, decisions taken, or anything contradicting the brief.
 
-Prose is limited to what is necessary. The consumers of these messages are agents first and humans second, so ask for dense and structural over narrative — no preamble, no recap of the instruction, no summary of the summary.
+Prose only where necessary. Consumers are agents first, humans second: dense and structural, not narrative.
 
 ## Waiting
 
