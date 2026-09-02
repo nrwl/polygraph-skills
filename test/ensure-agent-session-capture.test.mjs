@@ -760,6 +760,72 @@ test('a detached wake launches the worker through a Node runtime, never the host
   }
 });
 
+test('cursor prompt and agent-done wakes never carry a PID, detached or inline', () => {
+  const hookRunnerPid = String(process.ppid);
+
+  for (const eventName of ['beforeSubmitPrompt', 'afterAgentResponse', 'stop']) {
+    const payload = {
+      hook_event_name: eventName,
+      session_id: 'cursor/conversation-id',
+      conversation_id: 'cursor/conversation-id',
+      workspace_roots: ['/workspace/repo'],
+      transcript_path: '/tmp/cursor transcript.jsonl',
+    };
+
+    // Detached (the shipped manifest): the worker claim is identity plus the
+    // mapping evidence the legacy fallback may need, and nothing else.
+    let workerLaunch;
+    assert.equal(
+      main({
+        agentType: 'cursor',
+        detach: true,
+        env: {},
+        payload,
+        spawn(command, args, options) {
+          workerLaunch = { command, args, options };
+          return { once() { return this; }, unref() {} };
+        },
+        launcherOptions: { openLog: () => 1, closeLog: () => {} },
+      }),
+      true,
+      eventName
+    );
+    assert.deepEqual(JSON.parse(workerLaunch.args[1]), {
+      agentType: 'cursor',
+      agentSessionId: 'cursor/conversation-id',
+      cwd: '/workspace/repo',
+      transcriptPath: '/tmp/cursor transcript.jsonl',
+    });
+
+    // Inline, through the old-CLI compatibility fallback: neither the ensure
+    // command nor the legacy mapping command binds a PID.
+    const invocations = [];
+    assert.equal(
+      main({
+        agentType: 'cursor',
+        detach: false,
+        env: { POLYGRAPH_CLI: '/opt/polygraph' },
+        payload,
+        spawn(command, args, options) {
+          invocations.push({ command, args, options });
+          return invocations.length === 1
+            ? { status: 1, stdout: OLD_CLI_UNSUPPORTED_STDOUT, stderr: '' }
+            : { status: 0, stdout: '', stderr: '' };
+        },
+      }),
+      true,
+      eventName
+    );
+    assert.equal(invocations.length, 2);
+    assert.equal(invocations[0].args[0], '_ensure-agent-session-capture');
+    assert.equal(invocations[1].args[0], '_link-agent-session');
+    for (const { args } of invocations) {
+      assert.equal(args.includes('--pid'), false, eventName);
+      assert.equal(args.includes(hookRunnerPid), false, eventName);
+    }
+  }
+});
+
 test('managed children never launch a detached wake worker', () => {
   let spawnCount = 0;
   assert.equal(

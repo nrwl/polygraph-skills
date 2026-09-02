@@ -218,7 +218,10 @@ test('prompt-submit and every agent-done payload reduce to one identical identit
     ]);
 
     const joined = argvByEvent[0].join('\n');
-    assert.doesNotMatch(joined, /secret|transcript|workspace|--cwd|--source|status/);
+    assert.doesNotMatch(
+      joined,
+      /secret|transcript|workspace|--cwd|--source|--pid|status/
+    );
   }
 });
 

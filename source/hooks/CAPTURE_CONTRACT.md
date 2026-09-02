@@ -42,6 +42,20 @@ invocations. The legacy `_link-agent-session` compatibility fallback keeps
 the working directory, transcript path, and `--source hook` because it still
 records a mapping.
 
+## Process identity
+
+A mapping PID lets Ocean close capture when the harness exits, so a link
+carries a PID only when it names the long-lived harness process. Wakes
+(`_ensure-agent-session-capture` and its legacy fallback) never carry one.
+Cursor runs every hook through a short-lived shell wrapper: a hook's parent
+PID is that wrapper, not `cursor-agent`, and Cursor's payload and environment
+expose no harness PID. Cursor links therefore omit `--pid` entirely, and
+Ocean's transcript and explicit harness-exit mechanisms govern that
+lifecycle rather than a PID that dies the moment the hook returns. OpenCode
+links carry the in-process plugin host's own PID. Claude SessionStart omits
+the PID because the asynchronous hook's parent can be stale; other Claude
+and Codex links are unchanged.
+
 ## Execution rules
 
 Command-hook wakes are bounded by one shared five-second deadline,

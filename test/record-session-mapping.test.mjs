@@ -8,6 +8,7 @@ import {
   buildLinkAgentSessionArgs,
   isPolygraphMcpToolName,
   linkAgentSession,
+  commandHookHarnessPid,
 } from '../source/hooks/agent-session-link.mjs';
 import { main } from '../source/hooks/record-session-mapping.mjs';
 import {
@@ -95,6 +96,7 @@ test('the hook helper exposes no operation-specific parsing API', () => {
   assert.deepEqual(Object.keys(linkModule).sort(), [
     'buildCommandHookLink',
     'buildLinkAgentSessionArgs',
+    'commandHookHarnessPid',
     'isPolygraphMcpToolName',
     'linkAgentSession',
     'logHookFailure',
@@ -962,7 +964,82 @@ test('ordinary cursor sessionStart submits a speculative identity-only link', ()
   assert.ok(invocation.args.includes('cursor/root-conversation'));
   assert.ok(invocation.args.includes('/workspace/repo'));
   assert.equal(invocation.args.includes('--transcript-path'), false);
-  assert.deepEqual(invocation.args.slice(-4), ['--pid', '8765', '--source', 'hook']);
+  // Cursor's hook parent is a transient shell wrapper, never cursor-agent.
+  assert.equal(invocation.args.includes('--pid'), false);
+  assert.deepEqual(invocation.args.slice(-2), ['--source', 'hook']);
+});
+
+test('cursor links never bind a mapping to the transient hook-runner PID', () => {
+  const hookRunnerPid = 66900;
+  const payloads = [
+    {
+      hook_event_name: 'sessionStart',
+      session_id: 'cursor/root-conversation',
+      conversation_id: 'cursor/root-conversation',
+      workspace_roots: ['/workspace/repo'],
+      transcript_path: null,
+    },
+    CURSOR_POST_TOOL_USE_PAYLOAD,
+  ];
+
+  for (const env of [
+    {},
+    {
+      POLYGRAPH_SESSION_ID: 'poly/launched-session',
+      POLYGRAPH_CAPTURE_TOKEN: 'capture-token-1',
+    },
+  ]) {
+    for (const payload of payloads) {
+      let invocation;
+      assert.equal(
+        main({
+          agentType: 'cursor',
+          env,
+          pid: hookRunnerPid,
+          payload,
+          spawn(command, args, options) {
+            invocation = { command, args, options };
+            return { status: 0, stderr: '' };
+          },
+        }),
+        true,
+        payload.hook_event_name
+      );
+      assert.equal(invocation.args[0], '_link-agent-session');
+      assert.equal(invocation.args.includes('--pid'), false, payload.hook_event_name);
+      assert.equal(invocation.args.includes(String(hookRunnerPid)), false);
+    }
+  }
+
+  assert.equal(
+    commandHookHarnessPid('cursor', { hook_event_name: 'sessionStart' }, hookRunnerPid),
+    undefined
+  );
+  assert.equal(
+    commandHookHarnessPid('cursor', { hook_event_name: 'postToolUse' }, hookRunnerPid),
+    undefined
+  );
+  // Claude SessionStart stays PID-less; other Claude and Codex links keep the
+  // hook's parent PID exactly as before.
+  assert.equal(
+    commandHookHarnessPid('claude', { hook_event_name: 'SessionStart' }, 4321),
+    undefined
+  );
+  assert.equal(
+    commandHookHarnessPid('claude', { hook_event_name: 'PostToolUse' }, 4321),
+    4321
+  );
+  assert.equal(
+    commandHookHarnessPid('codex', { hook_event_name: 'SessionStart' }, 4321),
+    4321
+  );
+  for (const invalid of [0, -1, 1.5, NaN, undefined, '4321']) {
+    assert.equal(
+      commandHookHarnessPid('codex', { hook_event_name: 'PostToolUse' }, invalid),
+      undefined,
+      String(invalid)
+    );
+  }
 });
 
 test('polygraph-launched cursor sessionStart links with session and capture evidence', () => {
@@ -1138,6 +1215,7 @@ test('cursor postToolUse invokes the link command with the hook operation', () =
 
   assert.equal(result, true);
   assert.equal(invocation.args[0], '_link-agent-session');
+  assert.equal(invocation.args.includes('--pid'), false);
   assert.notEqual(invocation.args.indexOf('--hook-operation-stdin'), -1);
   assert.equal(invocation.args.indexOf('--hook-operation'), -1);
   assert.equal(

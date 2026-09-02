@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildCommandHookLink,
+  commandHookHarnessPid,
   linkAgentSession,
   logHookFailure,
 } from './agent-session-link.mjs';
@@ -31,12 +32,8 @@ export function main({
       ...link,
       cwd: link.cwd ?? process.cwd(),
     };
-    // Claude lifecycle hooks deliberately forward only the exact harness
-    // identity, transcript, cwd, and hook source. PID is not identity and can
-    // be stale by the time an asynchronous SessionStart hook runs.
-    if (!(agentType === 'claude' && payload?.hook_event_name === 'SessionStart')) {
-      claim.pid = pid;
-    }
+    const harnessPid = commandHookHarnessPid(agentType, payload, pid);
+    if (harnessPid !== undefined) claim.pid = harnessPid;
 
     return linkAgentSession(claim, spawn, env);
   } catch (error) {
