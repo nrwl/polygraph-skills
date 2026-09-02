@@ -14,12 +14,13 @@ const WORKER_PATH = fileURLToPath(
 );
 
 test('worker finalizes a parsed claim through the CLI and reports success', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'pg repo with spaces-'));
   let invocation;
   const result = main({
     serializedClaim: JSON.stringify({
       agentType: 'claude',
       agentSessionId: 'claude-session',
-      cwd: '/workspace/repo with spaces',
+      cwd: repo,
       transcriptPath: '/tmp/transcript exact.jsonl',
       source: 'hook',
     }),
@@ -45,17 +46,18 @@ test('worker finalizes a parsed claim through the CLI and reports success', () =
     '--agent-session-id',
     'claude-session',
     '--cwd',
-    '/workspace/repo with spaces',
+    repo,
     '--transcript-path',
     '/tmp/transcript exact.jsonl',
     '--source',
     'hook',
   ]);
-  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.equal(invocation.options.cwd, repo);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
   assert.equal(invocation.options.killSignal, 'SIGKILL');
   assert.ok(invocation.options.timeout <= FINALIZE_TIMEOUT_MS);
+  rmSync(repo, { recursive: true, force: true });
 });
 
 test('worker owns CLI failures: durable log plus inherited stream, never a throw', () => {

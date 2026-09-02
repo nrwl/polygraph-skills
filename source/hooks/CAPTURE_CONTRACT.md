@@ -17,21 +17,21 @@ using the lifecycle events its plugin API actually exposes:
   detached worker; subagent sessions resolve to their root before waking).
 - Cursor: `beforeSubmitPrompt`, `afterAgentResponse`, and `stop` (all
   detach via `--detach`). `beforeSubmitPrompt` is a blocking hook, so the
-  parent process must return immediately and emit nothing on stdout.
-  `afterAgentResponse` is the agent-done wake: an observational hook that
-  fires once an assistant message completes, in the same family as
-  `afterAgentThought`, which `cursor-agent --plugin-dir` probes dispatch at
-  plugin scope. It carries the message text, which the wake never forwards.
-  `stop` is Cursor's observational agent-loop-end hook; its only output
-  field (`followup_message`) would auto-submit another prompt, so the wake
-  never writes to stdout. Plugin-scope dispatch of `stop` is unconfirmed
-  (probes observed `sessionStart`, `afterAgentThought`, `postToolUse`, and
-  `sessionEnd`, never `stop`): an undispatched registration is inert and a
-  dispatched one repeats the same idempotent poke. All registrations live in
-  the plugin manifest; nothing may prompt a user-scope `~/.cursor/hooks.json`
-  registration. None of these events defines a step boundary — a
-  multi-message turn wakes more than once, and the transcript alone decides
-  where steps begin and end.
+  parent process must return immediately and emit nothing on stdout; Cursor
+  treats empty output as allow. `afterAgentResponse` is the agent-done wake:
+  an observational hook that fires once an assistant message completes. It
+  carries the message text, which the wake never forwards. `stop` is
+  Cursor's observational agent-loop-end hook; its only output field
+  (`followup_message`) would auto-submit another prompt, so the wake never
+  writes to stdout. Live multi-turn runs under `cursor-agent --plugin-dir`
+  dispatched `beforeSubmitPrompt`, `afterAgentResponse`, `sessionStart`,
+  `afterAgentThought`, `postToolUse`, and `sessionEnd` to plugin-scope
+  hooks; `stop` was never observed, so its registration is inert unless a
+  Cursor build dispatches it, in which case it repeats the same idempotent
+  poke. All registrations live in the plugin manifest; nothing may prompt a
+  user-scope `~/.cursor/hooks.json` registration. None of these events
+  defines a step boundary — a multi-message turn wakes more than once, and
+  the transcript alone decides where steps begin and end.
 
 Every wake calls `_ensure-agent-session-capture` with the agent type, the
 harness session ID, and `--observed-at <ms>`: the epoch-millisecond time at
@@ -82,6 +82,15 @@ runs through a Node runtime — never executed directly — so exactly one
 process launches per wake even on hosts (Bun in OpenCode) that throw spawn
 launch errors synchronously instead of reporting them on the result.
 
+Every launch — the wake or finalize CLI process and the detached worker —
+starts from a directory that exists: the claim's working directory when it
+still does, else the home directory, else the temp directory. A harness
+working directory can vanish before a delayed hook runs (an archived
+session worktree), and a spawn from a missing cwd fails with ENOENT before
+the CLI starts, which would silently drop a finalize. The fallback changes
+only where the process starts; the `--cwd` evidence on the finalize and
+legacy link commands stays the claim's original directory.
+
 Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
 off to a detached worker. A wake worker enforces the shared five-second CLI
 kill deadline; the finalization worker allows at most 90 seconds. Each
@@ -110,9 +119,9 @@ under `cursor-agent --plugin-dir`; its payload carries `session_id` and
 transcript path, and `--source hook` only — never a PID (Cursor's hook parent
 is a transient wrapper) and never the end reason, because the transcript
 alone decides what the final answer was. Claude `SessionStart` accepts
-`startup`, `resume`, `clear`, and `compact`. Ordinary Stop/idle events never
-finalize. Codex and OpenCode expose no reliable session-exit event and do
-not finalize.
+`startup`, `resume`, `clear`, `compact`, and `fork`. Ordinary Stop/idle
+events never finalize. Codex and OpenCode expose no reliable session-exit
+event and do not finalize.
 
 ## Environment
 

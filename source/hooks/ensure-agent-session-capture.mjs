@@ -6,7 +6,7 @@ import {
   ensureAgentSessionCapture,
   launchAgentSessionCaptureWake,
 } from './agent-session-capture.mjs';
-import { logHookFailure } from './agent-session-link.mjs';
+import { hookPayloadSessionId, logHookFailure } from './agent-session-link.mjs';
 
 function readPayload() {
   try {
@@ -35,7 +35,7 @@ export function main({
   const reportFailure = (error) =>
     logFailure(`${agentType || 'unknown'}:ensure-agent-session-capture`, error, {
       hookEventName: payload?.hook_event_name,
-      agentSessionId: payload?.session_id,
+      agentSessionId: hookPayloadSessionId(payload),
     });
 
   try {

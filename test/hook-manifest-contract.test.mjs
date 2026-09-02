@@ -103,6 +103,25 @@ test('every manifest hook command names a script shipped from source/hooks', () 
   }
 });
 
+// Claude's documented SessionStart sources. Every one links the session under
+// its (possibly new) id so a cleared or forked conversation is captured too.
+const CLAUDE_SESSION_START_SOURCES = ['startup', 'resume', 'clear', 'compact', 'fork'];
+
+test('Claude SessionStart links and re-injects context for every documented source', () => {
+  const manifest = readManifest('claude');
+  const entries = manifest.hooks.SessionStart;
+  assert.equal(entries.length, 1);
+
+  const sources = entries[0].matcher.split('|');
+  assert.deepEqual([...sources].sort(), [...CLAUDE_SESSION_START_SOURCES].sort());
+
+  const commands = entries[0].hooks.map((hook) => hook.command);
+  assert.deepEqual(commands, [
+    'node ${CLAUDE_PLUGIN_ROOT}/hooks/reinject-polygraph-context.mjs',
+    'node ${CLAUDE_PLUGIN_ROOT}/hooks/record-session-mapping.mjs claude',
+  ]);
+});
+
 test('cursor hook commands stay relative because cursor runs them from the plugin root', () => {
   for (const { command } of allRegistrations(readManifest('cursor'))) {
     assert.match(command, /^node hooks\//);
@@ -324,7 +343,7 @@ const FINALIZE_PAYLOADS = {
     generation_id: 'gen-9',
     workspace_roots: ['/workspace/cursor repo'],
     transcript_path: '/tmp/cursor transcript.jsonl',
-    reason: 'user-request',
+    reason: 'user_close',
     final_status: 'completed',
     duration_ms: 1234,
   },

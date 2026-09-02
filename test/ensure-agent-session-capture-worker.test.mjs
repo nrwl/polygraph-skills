@@ -14,13 +14,14 @@ const WORKER_PATH = fileURLToPath(
 );
 
 test('worker wakes capture from a parsed claim and reports success', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'pg repo with spaces-'));
   let invocation;
   const result = main({
     serializedClaim: JSON.stringify({
       agentType: 'codex',
       agentSessionId: 'codex-session',
       observedAt: 1767225600000,
-      cwd: '/workspace/repo with spaces',
+      cwd: repo,
       transcriptPath: '/tmp/rollout exact.jsonl',
     }),
     env: { POLYGRAPH_CLI: '/opt/polygraph' },
@@ -47,11 +48,12 @@ test('worker wakes capture from a parsed claim and reports success', () => {
     '--observed-at',
     '1767225600000',
   ]);
-  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.equal(invocation.options.cwd, repo);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
   assert.equal(invocation.options.killSignal, 'SIGKILL');
   assert.ok(invocation.options.timeout <= ENSURE_CAPTURE_TIMEOUT_MS);
+  rmSync(repo, { recursive: true, force: true });
 });
 
 test('worker owns wake failures: durable log plus inherited stream, never a throw', () => {

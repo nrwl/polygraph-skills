@@ -219,7 +219,7 @@ for (const [script, payload, expectedCommand] of [
       conversation_id: 'cursor/conversation-id',
       session_id: 'cursor/conversation-id',
       workspace_roots: [],
-      reason: 'user-request',
+      reason: 'user_close',
       final_status: 'completed',
     },
     '_finalize-agent-session',

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   buildCommandHookLink,
   commandHookHarnessPid,
+  hookPayloadSessionId,
   linkAgentSession,
   logHookFailure,
 } from './agent-session-link.mjs';
@@ -23,6 +24,7 @@ export function main({
   env = process.env,
   pid = process.ppid,
   spawn,
+  logFailure = logHookFailure,
 } = {}) {
   try {
     const link = buildCommandHookLink(payload, agentType, env);
@@ -37,9 +39,9 @@ export function main({
 
     return linkAgentSession(claim, spawn, env);
   } catch (error) {
-    logHookFailure(`${agentType || 'unknown'}:link-agent-session`, error, {
+    logFailure(`${agentType || 'unknown'}:link-agent-session`, error, {
       hookEventName: payload?.hook_event_name,
-      agentSessionId: payload?.session_id,
+      agentSessionId: hookPayloadSessionId(payload),
     });
     return false;
   }

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import * as linkModule from '../source/hooks/agent-session-link.mjs';
 import {
@@ -97,6 +99,7 @@ test('the hook helper exposes no operation-specific parsing API', () => {
     'buildCommandHookLink',
     'buildLinkAgentSessionArgs',
     'commandHookHarnessPid',
+    'hookPayloadSessionId',
     'isPolygraphMcpToolName',
     'linkAgentSession',
     'logHookFailure',
@@ -446,7 +449,7 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     session_id: 'claude/root-session',
     cwd: '/workspace/exact repo',
     transcript_path: '/tmp/exact transcript.jsonl',
-    reason: 'user-request',
+    reason: 'prompt_input_exit',
   };
   const claim = buildCommandHookFinalize(payload, 'claude', {
     POLYGRAPH_SESSION_ID: 'must-not-forward',
@@ -485,7 +488,7 @@ const CURSOR_SESSION_END_PAYLOAD = {
   conversation_id: 'cursor/conversation-id',
   generation_id: 'cursor/conversation-id',
   model: 'default',
-  reason: 'user-request',
+  reason: 'user_close',
   duration_ms: 56452,
   is_background_agent: false,
   final_status: 'completed',
@@ -569,6 +572,7 @@ test('cursor sessionEnd builds a finalize claim from identity, workspace, and tr
 });
 
 test('cursor sessionEnd hands off to the detached finalize worker without a PID', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'pg cursor repo-'));
   let invocation;
   let unrefCount = 0;
   const listeners = {};
@@ -581,7 +585,7 @@ test('cursor sessionEnd hands off to the detached finalize worker without a PID'
         POLYGRAPH_CAPTURE_TOKEN: 'ambient-token',
         REQUIRED_HARNESS_ENV: 'preserved',
       },
-      payload: CURSOR_SESSION_END_PAYLOAD,
+      payload: { ...CURSOR_SESSION_END_PAYLOAD, workspace_roots: [repo] },
       spawn(command, args, options) {
         invocation = { command, args, options };
         return {
@@ -604,13 +608,14 @@ test('cursor sessionEnd hands off to the detached finalize worker without a PID'
   assert.deepEqual(claim, {
     agentType: 'cursor',
     agentSessionId: 'cursor/conversation-id',
-    cwd: '/workspace/cursor repo',
+    cwd: repo,
     transcriptPath: '/home/user/.cursor/projects/x/agent-transcripts/id/id.jsonl',
     source: 'hook',
   });
   assert.equal('pid' in claim, false);
   assert.equal(buildFinalizeAgentSessionArgs(claim).includes('--pid'), false);
-  assert.equal(invocation.options.cwd, '/workspace/cursor repo');
+  assert.equal(invocation.options.cwd, repo);
+  rmSync(repo, { recursive: true, force: true });
   assert.equal(invocation.options.detached, true);
   assert.equal(invocation.options.shell, false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
@@ -660,6 +665,7 @@ test('detached finalization enforces a bounded 90-second CLI kill deadline', () 
 });
 
 test('SessionEnd hook hands off to a detached worker, strips ambient evidence, and excludes children', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'pg repo with spaces-'));
   let invocation;
   let unrefCount = 0;
   const logEvents = [];
@@ -688,7 +694,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
       payload: {
         hook_event_name: 'SessionEnd',
         session_id: 'claude-session',
-        cwd: '/workspace/repo with spaces',
+        cwd: repo,
         transcript_path: '/tmp/transcript exact.jsonl',
       },
       spawn,
@@ -711,7 +717,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
   assert.deepEqual(JSON.parse(invocation.args[1]), {
     agentType: 'claude',
     agentSessionId: 'claude-session',
-    cwd: '/workspace/repo with spaces',
+    cwd: repo,
     transcriptPath: '/tmp/transcript exact.jsonl',
     source: 'hook',
   });
@@ -721,7 +727,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
   assert.equal(invocation.options.detached, true);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
-  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.equal(invocation.options.cwd, repo);
   assert.deepEqual(invocation.options.stdio, ['ignore', 42, 42]);
   assert.equal(unrefCount, 1);
   // The log stays open across the launch, then the parent's copy closes; the
@@ -745,6 +751,7 @@ test('SessionEnd hook hands off to a detached worker, strips ambient evidence, a
     false
   );
   assert.equal(childSpawnCount, 0);
+  rmSync(repo, { recursive: true, force: true });
 });
 
 test('SessionEnd hook observes only worker launch failures', () => {
@@ -787,6 +794,63 @@ test('SessionEnd hook observes only worker launch failures', () => {
     hookEventName: 'SessionEnd',
     agentSessionId: 'claude-session',
   });
+});
+
+test('cursor hook failure diagnostics name the session by conversation_id when session_id is absent', () => {
+  // Cursor's prompt and agent-done payloads carry only conversation_id.
+  const cursorPayload = (hookEventName) => ({
+    hook_event_name: hookEventName,
+    conversation_id: 'cursor/conversation-id',
+    workspace_roots: ['/workspace/cursor repo'],
+  });
+
+  const finalizeFailures = [];
+  assert.equal(
+    finalizeMain({
+      agentType: 'cursor',
+      env: {},
+      payload: cursorPayload('sessionEnd'),
+      spawn() {
+        throw new Error('handoff failed');
+      },
+      logFailure(hook, _error, meta) {
+        finalizeFailures.push({ hook, meta });
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+    }),
+    false
+  );
+  assert.deepEqual(finalizeFailures, [
+    {
+      hook: 'cursor:finalize-agent-session',
+      meta: { hookEventName: 'sessionEnd', agentSessionId: 'cursor/conversation-id' },
+    },
+  ]);
+
+  const linkFailures = [];
+  assert.equal(
+    main({
+      agentType: 'cursor',
+      env: {},
+      payload: {
+        ...cursorPayload('postToolUse'),
+        tool_name: 'MCP:spawn_agent',
+        tool_input: {},
+        tool_output: {},
+      },
+      spawn: () => ({ status: 3, stderr: 'link refused' }),
+      logFailure(hook, _error, meta) {
+        linkFailures.push({ hook, meta });
+      },
+    }),
+    false
+  );
+  assert.deepEqual(linkFailures, [
+    {
+      hook: 'cursor:link-agent-session',
+      meta: { hookEventName: 'postToolUse', agentSessionId: 'cursor/conversation-id' },
+    },
+  ]);
 });
 
 test('SessionEnd hook contains synchronous handoff failures', () => {

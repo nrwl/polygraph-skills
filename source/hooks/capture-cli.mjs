@@ -1,6 +1,6 @@
 import { spawn as spawnChild, spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, renameSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 const JS_CLI_ENTRY = /\.[cm]?js$/i;
@@ -19,6 +19,30 @@ export function captureCommandEnvironment(env = process.env) {
   delete commandEnv.POLYGRAPH_SESSION_ID;
   delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   return commandEnv;
+}
+
+/**
+ * The directory a capture process is launched from. A claim carries the
+ * harness working directory, but that directory can be gone by the time a
+ * delayed hook or detached worker runs (an archived session worktree, a
+ * removed temp dir), and a spawn from a missing cwd fails with ENOENT before
+ * the CLI ever starts. Working-directory evidence reaches the CLI as an
+ * explicit `--cwd` argument where it matters, so the launch itself only
+ * needs a directory that exists: the claim's own when it does, else the home
+ * directory, else the temp directory.
+ */
+export function resolveLaunchDirectory(preferred, env = process.env) {
+  const candidates = [preferred, nonEmptyString(env?.HOME) ?? homedir(), tmpdir()];
+  for (const candidate of candidates) {
+    const directory = nonEmptyString(candidate);
+    if (!directory) continue;
+    try {
+      if (statSync(directory).isDirectory()) return directory;
+    } catch {
+      // Missing or unreadable: try the next candidate.
+    }
+  }
+  return undefined;
 }
 
 function nodeRuntime(execPath) {
@@ -78,7 +102,7 @@ export function runCaptureCliSync(
     env = process.env,
     spawn = spawnSync,
     options = {},
-    cwd = process.cwd(),
+    cwd,
     deadline,
     now = Date.now,
     platform = process.platform,
@@ -87,11 +111,12 @@ export function runCaptureCliSync(
 ) {
   const command = nonEmptyString(env.POLYGRAPH_CLI) ?? 'polygraph';
   const reexec = portableReexec(env, platform);
+  const launchDirectory = resolveLaunchDirectory(cwd, env);
   const spawnOptions = {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     ...options,
-    cwd: nonEmptyString(cwd) ?? process.cwd(),
+    ...(launchDirectory ? { cwd: launchDirectory } : {}),
     env: captureCommandEnvironment(env),
     shell: false,
     windowsHide: true,
@@ -187,10 +212,14 @@ export function launchDetachedHookWorker({
   }
   const output = logFd === undefined ? 'ignore' : logFd;
 
+  // The serialized claim keeps the harness cwd as evidence even when the
+  // launch has to happen elsewhere.
+  const launchDirectory = resolveLaunchDirectory(claim.cwd, env);
+
   let child;
   try {
     child = spawn(nodeRuntime(execPath), [workerPath, JSON.stringify(claim)], {
-      cwd: nonEmptyString(claim.cwd) ?? process.cwd(),
+      ...(launchDirectory ? { cwd: launchDirectory } : {}),
       detached: true,
       env: captureCommandEnvironment(env),
       shell: false,

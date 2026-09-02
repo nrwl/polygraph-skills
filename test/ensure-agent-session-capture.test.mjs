@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   buildCommandHookEnsureCapture,
@@ -15,6 +17,17 @@ import { main } from '../source/hooks/ensure-agent-session-capture.mjs';
 
 // A fixed hook-fire time: every wake forwards the hook's own clock reading.
 const HOOK_FIRED_AT = 1_767_225_600_000;
+
+// A real harness working directory (with spaces): launches use the claim's
+// own cwd whenever it exists.
+function withRepoDir(fn) {
+  const repo = mkdtempSync(join(tmpdir(), 'pg repo with spaces-'));
+  try {
+    return fn(repo);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+}
 const OBSERVED_AT_ARGS = ['--observed-at', String(HOOK_FIRED_AT)];
 
 const OLD_CLI_UNSUPPORTED_STDOUT = `Usage: polygraph
@@ -334,7 +347,7 @@ test('managed Polygraph children never ensure capture', () => {
   assert.equal(spawnCount, 0);
 });
 
-test('Stop launcher invokes only the configured hidden CLI command', () => {
+test('Stop launcher invokes only the configured hidden CLI command', () => withRepoDir((repo) => {
   let invocation;
   const env = {
     POLYGRAPH_CLI: '/workspace/dist/bin/polygraph',
@@ -350,7 +363,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
       payload: {
         hook_event_name: 'Stop',
         session_id: 'claude-session',
-        cwd: '/workspace/repo',
+        cwd: repo,
         transcript_path: '/tmp/transcript.jsonl',
       },
       spawn(command, args, options) {
@@ -371,7 +384,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
     'claude-session',
     ...OBSERVED_AT_ARGS,
   ]);
-  assert.equal(invocation.options.cwd, '/workspace/repo');
+  assert.equal(invocation.options.cwd, repo);
   assert.deepEqual(invocation.options.stdio, ['ignore', 'pipe', 'pipe']);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
@@ -380,7 +393,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
   assert.equal(invocation.options.env.REQUIRED_HARNESS_ENV, 'preserved');
-});
+}));
 
 test('Stop launcher logs CLI failures best-effort without failing the hook', () => {
   let logged;
@@ -664,7 +677,7 @@ test('repeated Stop wakes remain identical and do not mutate ambient evidence', 
   assert.equal(env.POLYGRAPH_CAPTURE_TOKEN, 'ambient-token');
 });
 
-test('a detached wake hands the claim to a worker and observes launch errors only', () => {
+test('a detached wake hands the claim to a worker and observes launch errors only', () => withRepoDir((repo) => {
   let invocation;
   let unrefCount = 0;
   const logEvents = [];
@@ -683,7 +696,7 @@ test('a detached wake hands the claim to a worker and observes launch errors onl
       payload: {
         hook_event_name: 'UserPromptSubmit',
         session_id: 'codex-session',
-        cwd: '/workspace/repo with spaces',
+        cwd: repo,
         transcript_path: '/tmp/rollout exact.jsonl',
       },
       spawn(command, args, options) {
@@ -719,7 +732,7 @@ test('a detached wake hands the claim to a worker and observes launch errors onl
   assert.deepEqual(JSON.parse(invocation.args[1]), {
     agentType: 'codex',
     agentSessionId: 'codex-session',
-    cwd: '/workspace/repo with spaces',
+    cwd: repo,
     transcriptPath: '/tmp/rollout exact.jsonl',
     observedAt: HOOK_FIRED_AT,
   });
@@ -728,14 +741,14 @@ test('a detached wake hands the claim to a worker and observes launch errors onl
   assert.equal(invocation.options.detached, true);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
-  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.equal(invocation.options.cwd, repo);
   assert.deepEqual(invocation.options.stdio, ['ignore', 42, 42]);
   assert.equal(unrefCount, 1);
   assert.deepEqual(logEvents, ['open', 'spawn', ['close', 42]]);
   // CLI exit handling belongs to the worker; the short-lived hook registers
   // no exit listener.
   assert.deepEqual(Object.keys(listeners), ['error']);
-});
+}));
 
 test('a detached wake reports worker launch failures best-effort', () => {
   const listeners = {};
@@ -773,9 +786,11 @@ test('a detached wake reports worker launch failures best-effort', () => {
   assert.equal(failures.length, 1);
   assert.equal(failures[0].hook, 'cursor:ensure-agent-session-capture');
   assert.equal(failures[0].error, spawnError);
+  // Cursor's prompt and agent-done payloads name the session only as
+  // conversation_id, so that is what the diagnostics record.
   assert.deepEqual(failures[0].meta, {
     hookEventName: 'beforeSubmitPrompt',
-    agentSessionId: undefined,
+    agentSessionId: 'cursor-session',
   });
 });
 

@@ -30,6 +30,18 @@ export function isPolygraphMcpToolName(toolName) {
 }
 
 /**
+ * The harness session a hook payload names, for failure diagnostics. Claude
+ * and Codex carry it as session_id; Cursor's prompt and agent-done payloads
+ * carry only conversation_id, and its lifecycle payloads carry both with
+ * the same value.
+ */
+export function hookPayloadSessionId(payload) {
+  return (
+    nonEmptyString(payload?.session_id) ?? nonEmptyString(payload?.conversation_id)
+  );
+}
+
+/**
  * The PID a command hook may bind a mapping to. Ocean closes capture when
  * a mapped PID exits, so a link carries a PID only when it names the
  * long-lived harness process. Cursor runs every hook through a short-lived
