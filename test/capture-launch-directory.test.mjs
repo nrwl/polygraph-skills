@@ -12,9 +12,12 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { resolveLaunchDirectory } from '../source/hooks/capture-cli.mjs';
+import {
+  processWorkingDirectory,
+  resolveLaunchDirectory,
+} from '../source/hooks/capture-cli.mjs';
 import {
   ensureAgentSessionCapture,
   launchAgentSessionCaptureWake,
@@ -279,4 +282,150 @@ for (const [script, payloadFor, expectedCommand] of [
       assert.equal(existsSync(join(home, '.polygraph', 'logs', 'hooks.log')), false);
     });
   });
+}
+
+test('processWorkingDirectory reports the live cwd', () => {
+  assert.equal(processWorkingDirectory(), process.cwd());
+});
+
+// The same shipped hooks when the hook process itself is already running
+// from a directory that no longer exists: a harness can start a hook in a
+// directory removed moments earlier, or remove it while the hook runs, and
+// process.cwd() then fails with uv_cwd. The hook must stay silent, exit
+// cleanly, still reach the CLI from the home directory, and keep whatever
+// directory the payload carried as --cwd evidence. The deleted directory
+// doubles as the harness cwd in the payload, the realistic shape of an
+// archived session worktree. A live process's cwd cannot be removed on
+// Windows, so these run on POSIX only.
+function runHookFromDeletedCwd({ home, gone, hookFile, args, payload, cli }) {
+  const hookPath = join(hooksDir, hookFile);
+  const bootstrap = join(home, 'run from deleted cwd.mjs');
+  writeFileSync(
+    bootstrap,
+    [
+      "import { rmSync } from 'node:fs';",
+      `process.chdir(${JSON.stringify(gone)});`,
+      `rmSync(${JSON.stringify(gone)}, { recursive: true });`,
+      `process.argv.splice(1, Infinity, ${JSON.stringify(hookPath)}, ...${JSON.stringify(args)});`,
+      `await import(${JSON.stringify(pathToFileURL(hookPath).href)});`,
+      '',
+    ].join('\n')
+  );
+  return spawnSync(process.execPath, [bootstrap], {
+    cwd: home,
+    encoding: 'utf8',
+    input: JSON.stringify(payload),
+    env: hookEnv({ HOME: home, POLYGRAPH_CLI: cli }),
+  });
+}
+
+const DELETED_CWD_CASES = [
+  {
+    name: 'finalize-agent-session.mjs claude keeps the payload cwd as --cwd evidence',
+    hookFile: 'finalize-agent-session.mjs',
+    args: ['claude'],
+    payload: (gone) => ({
+      hook_event_name: 'SessionEnd',
+      session_id: 'claude-session',
+      cwd: gone,
+      transcript_path: '/tmp/transcript.jsonl',
+      reason: 'other',
+    }),
+    command: '_finalize-agent-session',
+    detached: true,
+    cwdEvidence: (gone) => ['--cwd', gone],
+  },
+  {
+    name: 'finalize-agent-session.mjs claude without a payload cwd omits --cwd',
+    hookFile: 'finalize-agent-session.mjs',
+    args: ['claude'],
+    payload: () => ({
+      hook_event_name: 'SessionEnd',
+      session_id: 'claude-session',
+      transcript_path: '/tmp/transcript.jsonl',
+      reason: 'other',
+    }),
+    command: '_finalize-agent-session',
+    detached: true,
+    cwdEvidence: () => undefined,
+  },
+  {
+    name: 'ensure-agent-session-capture.mjs claude runs the bounded wake inline',
+    hookFile: 'ensure-agent-session-capture.mjs',
+    args: ['claude'],
+    payload: (gone) => ({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-session',
+      cwd: gone,
+      transcript_path: '/tmp/transcript.jsonl',
+      prompt: 'prompt text that stays in the transcript',
+    }),
+    command: '_ensure-agent-session-capture',
+    detached: false,
+    cwdEvidence: () => undefined,
+  },
+  {
+    name: 'ensure-agent-session-capture.mjs cursor --detach without workspace roots',
+    hookFile: 'ensure-agent-session-capture.mjs',
+    args: ['cursor', '--detach'],
+    payload: () => ({
+      hook_event_name: 'afterAgentResponse',
+      conversation_id: 'cursor/conversation-id',
+      text: 'answer text that stays in the transcript',
+    }),
+    command: '_ensure-agent-session-capture',
+    detached: true,
+    cwdEvidence: () => undefined,
+  },
+];
+
+for (const scenario of DELETED_CWD_CASES) {
+  test(
+    `hook already running from a deleted cwd: ${scenario.name}`,
+    { skip: process.platform === 'win32' && 'a live process cwd cannot be removed on Windows' },
+    () => {
+      withHome((home) => {
+        const gone = join(home, 'deleted hook cwd');
+        mkdirSync(gone);
+        const marker = join(home, 'cli-invocation.json');
+        const cli = join(home, 'polygraph cli.js');
+        writeFileSync(
+          cli,
+          `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.exit(0);\n`
+        );
+
+        const hook = runHookFromDeletedCwd({
+          home,
+          gone,
+          hookFile: scenario.hookFile,
+          args: scenario.args,
+          payload: scenario.payload(gone),
+          cli,
+        });
+        assert.equal(existsSync(gone), false);
+        assert.equal(hook.status, 0, hook.stderr);
+        assert.equal(hook.stdout, '');
+        // No uv_cwd stack trace or any other noise reaches the harness.
+        assert.equal(hook.stderr, '');
+
+        if (scenario.detached) {
+          const deadline = Date.now() + 10_000;
+          while (!existsSync(marker) && Date.now() < deadline) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+          }
+        }
+        assert.equal(existsSync(marker), true, 'the hook never reached the CLI');
+        const { argv, cwd } = JSON.parse(readFileSync(marker, 'utf8'));
+        assert.equal(argv[0], scenario.command);
+        assert.equal(realpathSync(cwd), realpathSync(home));
+        const evidence = scenario.cwdEvidence(gone);
+        if (evidence) {
+          assert.deepEqual(argv.slice(argv.indexOf('--cwd'), argv.indexOf('--cwd') + 2), evidence);
+        } else {
+          assert.equal(argv.includes('--cwd'), false);
+        }
+        assert.equal(existsSync(join(home, '.polygraph', 'logs', 'hooks.log')), false);
+      });
+    }
+  );
 }

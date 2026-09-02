@@ -7,6 +7,7 @@ import {
   launchAgentSessionCaptureWake,
 } from './agent-session-capture.mjs';
 import { hookPayloadSessionId, logHookFailure } from './agent-session-link.mjs';
+import { processWorkingDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -28,7 +29,10 @@ export function main({
   env = process.env,
   spawn,
   logFailure = logHookFailure,
-  cwd = process.cwd(),
+  // The hook's own directory is read lazily, inside the protected path, and
+  // only when the payload carries none: a default evaluated at entry would
+  // throw uv_cwd from an already-deleted cwd before any fallback could run.
+  cwd,
   launcherOptions = {},
   now = Date.now,
 } = {}) {
@@ -42,7 +46,10 @@ export function main({
     const built = buildCommandHookEnsureCapture(payload, agentType, env, now);
     if (!built) return false;
 
-    const claim = { ...built, cwd: built.cwd ?? cwd };
+    const claim = {
+      ...built,
+      cwd: built.cwd ?? cwd ?? processWorkingDirectory(),
+    };
     if (detach) {
       return launchAgentSessionCaptureWake(claim, spawn, env, {
         ...launcherOptions,

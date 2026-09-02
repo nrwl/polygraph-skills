@@ -6,6 +6,7 @@ import {
   launchAgentSessionFinalize,
 } from './agent-session-finalize.mjs';
 import { hookPayloadSessionId, logHookFailure } from './agent-session-link.mjs';
+import { processWorkingDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -22,7 +23,10 @@ export function main({
   env = process.env,
   spawn,
   logFailure = logHookFailure,
-  cwd = process.cwd(),
+  // The hook's own directory is read lazily, inside the protected path, and
+  // only when the payload carries none: a default evaluated at entry would
+  // throw uv_cwd from an already-deleted cwd before any fallback could run.
+  cwd,
   launcherOptions = {},
 } = {}) {
   const reportFailure = (error) =>
@@ -37,7 +41,7 @@ export function main({
     return launchAgentSessionFinalize(
       {
         ...finalize,
-        cwd: finalize.cwd ?? cwd,
+        cwd: finalize.cwd ?? cwd ?? processWorkingDirectory(),
       },
       spawn,
       env,

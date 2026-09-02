@@ -45,6 +45,21 @@ export function resolveLaunchDirectory(preferred, env = process.env) {
   return undefined;
 }
 
+/**
+ * The hook process's own working directory, or undefined when it no longer
+ * has one. A harness can start a hook in a directory removed moments earlier
+ * or remove it while the hook runs, and `process.cwd()` then throws
+ * `uv_cwd`. Callers use this only as the last-resort claim directory, so a
+ * missing answer degrades to the launch fallback instead of a crash.
+ */
+export function processWorkingDirectory() {
+  try {
+    return process.cwd();
+  } catch {
+    return undefined;
+  }
+}
+
 function nodeRuntime(execPath) {
   const base = basename(execPath).toLowerCase();
   return base === 'node' || base === 'node.exe' ? execPath : 'node';

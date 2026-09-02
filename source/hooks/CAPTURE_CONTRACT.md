@@ -89,7 +89,11 @@ working directory can vanish before a delayed hook runs (an archived
 session worktree), and a spawn from a missing cwd fails with ENOENT before
 the CLI starts, which would silently drop a finalize. The fallback changes
 only where the process starts; the `--cwd` evidence on the finalize and
-legacy link commands stays the claim's original directory.
+legacy link commands stays the claim's original directory. A hook's own
+working directory is consulted only when the payload carries none, and only
+inside the protected path: a hook already running from a deleted directory
+(`process.cwd()` fails with `uv_cwd`) still reaches that fallback instead
+of crashing before it.
 
 Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
 off to a detached worker. A wake worker enforces the shared five-second CLI
@@ -120,8 +124,12 @@ transcript path, and `--source hook` only — never a PID (Cursor's hook parent
 is a transient wrapper) and never the end reason, because the transcript
 alone decides what the final answer was. Claude `SessionStart` accepts
 `startup`, `resume`, `clear`, `compact`, and `fork`. Ordinary Stop/idle
-events never finalize. Codex and OpenCode expose no reliable session-exit
-event and do not finalize.
+events never finalize. Codex documents a `SessionEnd` hook (a one-second
+default budget, three-second maximum, which a detached handoff would fit),
+but Codex finalization is deliberately not wired: Ocean's
+`_finalize-agent-session` accepts only Claude and Cursor sessions, so a
+Codex finalize must land in Ocean before this plugin registers the hook.
+OpenCode exposes no session-exit event and cannot finalize.
 
 ## Environment
 
