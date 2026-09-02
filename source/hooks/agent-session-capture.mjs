@@ -22,7 +22,10 @@ const WAKE_AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
 const WAKE_EVENTS_BY_AGENT = {
   claude: new Set(['UserPromptSubmit', 'Stop']),
   codex: new Set(['UserPromptSubmit', 'Stop']),
-  cursor: new Set(['beforeSubmitPrompt', 'stop']),
+  // afterAgentResponse fires per completed assistant message, so one Cursor
+  // turn may wake several times; every wake is the same idempotent poke and
+  // the message text it carries is never forwarded.
+  cursor: new Set(['beforeSubmitPrompt', 'afterAgentResponse', 'stop']),
 };
 
 const ENSURE_WAKE_WORKER_PATH = fileURLToPath(

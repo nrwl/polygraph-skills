@@ -34,7 +34,7 @@ const HARNESSES = {
   cursor: {
     manifest: 'cursor/hooks/hooks.json',
     root: '',
-    wakeEvents: ['beforeSubmitPrompt', 'stop'],
+    wakeEvents: ['beforeSubmitPrompt', 'afterAgentResponse', 'stop'],
     manifestAsync: false,
   },
 };
@@ -79,7 +79,10 @@ test('every harness registers one identical non-blocking wake for prompt-submit 
         `${harness} ${eventName}`
       );
       // The command never encodes which event fired or any provenance.
-      assert.doesNotMatch(hooks[0].command, /--source|prompt|stop|idle/i);
+      assert.doesNotMatch(
+        hooks[0].command,
+        /--source|prompt|response|stop|idle/i
+      );
     }
   }
 });
@@ -172,11 +175,20 @@ const WAKE_PAYLOADS = {
       prompt: 'secret prompt text',
       attachments: [],
     },
+    afterAgentResponse: {
+      hook_event_name: 'afterAgentResponse',
+      conversation_id: 'cursor/conversation id',
+      session_id: 'cursor/conversation id',
+      generation_id: 'gen-2',
+      workspace_roots: ['/workspace/cursor repo'],
+      transcript_path: '/tmp/cursor transcript.jsonl',
+      text: 'secret answer text',
+    },
     stop: {
       hook_event_name: 'stop',
       conversation_id: 'cursor/conversation id',
       session_id: 'cursor/conversation id',
-      generation_id: 'gen-2',
+      generation_id: 'gen-3',
       workspace_roots: ['/workspace/cursor repo'],
       transcript_path: '/tmp/cursor transcript.jsonl',
       status: 'completed',
@@ -185,7 +197,7 @@ const WAKE_PAYLOADS = {
   },
 };
 
-test('prompt-submit and agent-done payloads reduce to one identical identity-only ensure invocation', () => {
+test('prompt-submit and every agent-done payload reduce to one identical identity-only ensure invocation', () => {
   for (const [harness, spec] of Object.entries(HARNESSES)) {
     const argvByEvent = spec.wakeEvents.map((eventName) => {
       const payload = WAKE_PAYLOADS[harness][eventName];
@@ -194,7 +206,9 @@ test('prompt-submit and agent-done payloads reduce to one identical identity-onl
       return buildEnsureAgentSessionCaptureArgs(claim);
     });
 
-    assert.deepEqual(argvByEvent[0], argvByEvent[1], harness);
+    for (const argv of argvByEvent.slice(1)) {
+      assert.deepEqual(argv, argvByEvent[0], harness);
+    }
     assert.deepEqual(argvByEvent[0], [
       '_ensure-agent-session-capture',
       '--agent-type',
@@ -250,7 +264,7 @@ test('non-wake lifecycle events and foreign harness casing never build a wake cl
       'sessionStart',
       'sessionEnd',
       'postToolUse',
-      'afterAgentResponse',
+      'afterAgentThought',
       'subagentStop',
     ],
   };

@@ -16,6 +16,11 @@
         "command": "node hooks/ensure-agent-session-capture.mjs cursor --detach"
       }
     ],
+    "afterAgentResponse": [
+      {
+        "command": "node hooks/ensure-agent-session-capture.mjs cursor --detach"
+      }
+    ],
     "stop": [
       {
         "command": "node hooks/ensure-agent-session-capture.mjs cursor --detach"

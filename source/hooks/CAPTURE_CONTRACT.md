@@ -15,18 +15,23 @@ using the lifecycle events its plugin API actually exposes:
 - OpenCode: `chat.message` (session from the hook's documented
   `input.sessionID`) and the `session.idle` bus event (both deferred to a
   detached worker; subagent sessions resolve to their root before waking).
-- Cursor: `beforeSubmitPrompt` and `stop` (both detach via `--detach`).
-  `beforeSubmitPrompt` is a blocking hook, so the parent process must return
-  immediately and emit nothing on stdout. `stop` is Cursor's observational
-  agent-loop-end hook; its only output field (`followup_message`) would
-  auto-submit another prompt, so the wake never writes to stdout. Both
-  registrations live in the plugin manifest; nothing may prompt a user-scope
-  `~/.cursor/hooks.json` registration. Plugin-scope dispatch of `stop` is
-  unconfirmed: `cursor-agent --plugin-dir` probes observed `sessionStart`,
-  `afterAgentThought`, `postToolUse`, and `sessionEnd` at plugin scope and
-  none has observed `stop`. An undispatched registration is inert;
-  `afterAgentResponse` (per assistant message) is the alternative if a
-  confirmed plugin-scope agent-done wake becomes necessary.
+- Cursor: `beforeSubmitPrompt`, `afterAgentResponse`, and `stop` (all
+  detach via `--detach`). `beforeSubmitPrompt` is a blocking hook, so the
+  parent process must return immediately and emit nothing on stdout.
+  `afterAgentResponse` is the agent-done wake: an observational hook that
+  fires once an assistant message completes, in the same family as
+  `afterAgentThought`, which `cursor-agent --plugin-dir` probes dispatch at
+  plugin scope. It carries the message text, which the wake never forwards.
+  `stop` is Cursor's observational agent-loop-end hook; its only output
+  field (`followup_message`) would auto-submit another prompt, so the wake
+  never writes to stdout. Plugin-scope dispatch of `stop` is unconfirmed
+  (probes observed `sessionStart`, `afterAgentThought`, `postToolUse`, and
+  `sessionEnd`, never `stop`): an undispatched registration is inert and a
+  dispatched one repeats the same idempotent poke. All registrations live in
+  the plugin manifest; nothing may prompt a user-scope `~/.cursor/hooks.json`
+  registration. None of these events defines a step boundary — a
+  multi-message turn wakes more than once, and the transcript alone decides
+  where steps begin and end.
 
 Every wake calls `_ensure-agent-session-capture` with only the agent type and
 harness session ID. Mutable working-directory and transcript-path evidence

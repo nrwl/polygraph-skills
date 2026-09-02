@@ -231,7 +231,7 @@ test('codex wakes on the same PascalCase events as Claude', () => {
 });
 
 test('cursor wakes on camelCase events with cursor payload identity', () => {
-  for (const eventName of ['beforeSubmitPrompt', 'stop']) {
+  for (const eventName of ['beforeSubmitPrompt', 'afterAgentResponse', 'stop']) {
     assert.deepEqual(
       buildCommandHookEnsureCapture(
         {
@@ -240,6 +240,7 @@ test('cursor wakes on camelCase events with cursor payload identity', () => {
           conversation_id: 'cursor/conversation-id',
           workspace_roots: ['/workspace/repo with spaces'],
           prompt: 'must-never-leave-the-transcript',
+          text: 'must-never-leave-the-transcript',
         },
         'cursor',
         {}

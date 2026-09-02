@@ -878,16 +878,20 @@ test('the cursor plugin registers static relative lifecycle, claim, and wake hoo
     'node hooks/ensure-agent-session-capture.mjs cursor --detach'
   );
 
-  // The agent-done wake rides Cursor's observational stop hook with the same
-  // detached, identity-only command as the prompt wake. It emits nothing on
-  // stdout, so it can never auto-submit a follow-up message.
-  const stopHooks = manifest.hooks.stop;
-  assert.equal(stopHooks.length, 1);
-  assert.equal(stopHooks[0].command, promptHooks[0].command);
+  // The agent-done wakes ride Cursor's observational afterAgentResponse
+  // (per completed assistant message) and stop (agent loop end) hooks with
+  // the same detached, identity-only command as the prompt wake. Neither
+  // emits anything on stdout, so stop can never auto-submit a follow-up.
+  for (const eventName of ['afterAgentResponse', 'stop']) {
+    const wakeHooks = manifest.hooks[eventName];
+    assert.equal(wakeHooks.length, 1, eventName);
+    assert.equal(wakeHooks[0].command, promptHooks[0].command, eventName);
+  }
 
   // Every registration lives in the plugin manifest; nothing may prompt a
   // user-scope ~/.cursor/hooks.json registration.
   assert.deepEqual(Object.keys(manifest.hooks).sort(), [
+    'afterAgentResponse',
     'beforeSubmitPrompt',
     'postToolUse',
     'sessionStart',
