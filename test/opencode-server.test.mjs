@@ -13,6 +13,7 @@ import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
 import {
   createOpenCodeSessionLinker,
+  deferOpenCodeCaptureWake,
   deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
   resolveOpenCodeRootSessionId,
@@ -542,5 +543,116 @@ test('compacting hook is a no-op outside a Polygraph session', async () => {
       output
     );
     assert.deepEqual(output.context, []);
+  });
+});
+
+test('PolygraphPlugin registers the chat.message prompt wake', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    assert.equal(typeof plugin['chat.message'], 'function');
+  });
+});
+
+test('OpenCode wakes capture on chat.message, deferred and identity-only', async () => {
+  const wakes = [];
+  let scheduled;
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture(sessionId) {
+        wakes.push(sessionId);
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
+
+  assert.deepEqual(wakes, []);
+  await scheduled();
+  assert.deepEqual(wakes, ['ses_root']);
+});
+
+test('a deferred wake contains rejections and even a throwing error handler', async () => {
+  let scheduled;
+  const seen = [];
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture() {
+        throw new Error('CLI unavailable');
+      },
+    },
+    (error) => {
+      seen.push(error.message);
+      throw new Error('handler exploded');
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
+
+  await scheduled();
+  assert.deepEqual(seen, ['CLI unavailable']);
+});
+
+test('wakeCapture resolves subagent sessions to their root before waking', async () => {
+  const ensured = [];
+  const client = fakeClient({
+    ses_child: { id: 'ses_child', parentID: 'ses_root' },
+    ses_root: { id: 'ses_root' },
+  });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo with spaces',
+    env: {},
+    ensure(claim) {
+      ensured.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(await linker.wakeCapture('ses_child'), true);
+  assert.deepEqual(ensured, [
+    {
+      agentType: 'opencode',
+      agentSessionId: 'ses_root',
+      cwd: '/workspace/repo with spaces',
+    },
+  ]);
+
+  // Wakes are repeatable: no lifecycle dedupe, identical claims each time.
+  assert.equal(await linker.wakeCapture('ses_child'), true);
+  assert.equal(ensured.length, 2);
+  assert.deepEqual(ensured[0], ensured[1]);
+});
+
+test('wakeCapture never runs for managed children or empty sessions', async () => {
+  let ensureCount = 0;
+  const linker = createOpenCodeSessionLinker({
+    client: fakeClient({ ses_root: { id: 'ses_root' } }),
+    env: { POLYGRAPH_CHILD_AGENT: '' },
+    ensure() {
+      ensureCount += 1;
+      return true;
+    },
+  });
+
+  assert.equal(await linker.wakeCapture('ses_root'), false);
+  assert.equal(await linker.wakeCapture(undefined), false);
+  assert.equal(ensureCount, 0);
+});
+
+test('session.idle wakes capture through the event hook without touching linking', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    // No client is wired in this harness, so the deferred wake resolves no
+    // root and stays a no-op — the hook itself must not throw or link.
+    await plugin.event({
+      event: { type: 'session.idle', properties: { sessionID: 'ses_root' } },
+    });
   });
 });

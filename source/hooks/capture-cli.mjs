@@ -1,7 +1,9 @@
-import { spawnSync } from 'node:child_process';
-import { basename } from 'node:path';
+import { spawn as spawnChild, spawnSync } from 'node:child_process';
+import { closeSync, mkdirSync, openSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
 
-const LAUNCH_ERROR_CODES = new Set(['EACCES', 'EINVAL', 'ENOENT', 'ENOEXEC']);
+const JS_CLI_ENTRY = /\.[cm]?js$/i;
 
 export function nonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value : undefined;
@@ -59,11 +61,14 @@ function withRemainingTimeout(options, deadline, now) {
 function runBeforeDeadline(spawn, command, args, options, deadline, now) {
   const boundedOptions = withRemainingTimeout(options, deadline, now);
   if (!boundedOptions) return deadlineExceededResult();
-  return spawn(command, args, boundedOptions);
-}
-
-function isLaunchFailure(result) {
-  return Boolean(result?.error && LAUNCH_ERROR_CODES.has(result.error.code));
+  // Some runtimes hosting these hooks in-process (OpenCode runs under Bun)
+  // THROW launch errors from spawnSync instead of returning them in
+  // result.error. Both shapes must land in the same error path.
+  try {
+    return spawn(command, args, boundedOptions);
+  } catch (error) {
+    return { error, status: null, signal: null };
+  }
 }
 
 export function runCaptureCliSync(
@@ -81,8 +86,6 @@ export function runCaptureCliSync(
 ) {
   const command = nonEmptyString(env.POLYGRAPH_CLI) ?? 'polygraph';
   const reexec = portableReexec(env, platform);
-  const executable = reexec?.[0] ?? command;
-  const prefixArgs = reexec?.slice(1) ?? [];
   const spawnOptions = {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,7 +96,24 @@ export function runCaptureCliSync(
     windowsHide: true,
   };
 
-  let result = runBeforeDeadline(
+  // A plain JavaScript CLI entry (a local package install, a dev build without
+  // the executable bit) is never executed directly: direct execution fails
+  // EACCES/ENOEXEC on most platforms and Bun surfaces that as a synchronous
+  // throw. Running it through Node up front means exactly one process ever
+  // launches per wake — there is no ambiguity about which attempt ran.
+  let executable;
+  let prefixArgs;
+  if (reexec) {
+    [executable, ...prefixArgs] = reexec;
+  } else if (JS_CLI_ENTRY.test(command)) {
+    executable = nodeRuntime(execPath);
+    prefixArgs = [command];
+  } else {
+    executable = command;
+    prefixArgs = [];
+  }
+
+  return runBeforeDeadline(
     spawn,
     executable,
     [...prefixArgs, ...args],
@@ -101,23 +121,66 @@ export function runCaptureCliSync(
     deadline,
     now
   );
+}
 
-  // Match the shared link hook's current fallback: a plain JavaScript CLI
-  // entry may lack an executable bit or be unlaunchable on this platform.
-  // A timed out or otherwise ambiguous process is never retried: it may have
-  // already changed capture state before it was terminated.
-  if (isLaunchFailure(result) && /\.[cm]?js$/i.test(executable)) {
-    result = runBeforeDeadline(
-      spawn,
-      nodeRuntime(execPath),
-      [executable, ...prefixArgs, ...args],
-      spawnOptions,
-      deadline,
-      now
-    );
+function reportWorkerLaunchFailure(onFailure, error) {
+  try {
+    const pending = onFailure(error);
+    if (pending && typeof pending.catch === 'function') {
+      pending.catch(() => {});
+    }
+  } catch {
+    // A detached handoff must never turn diagnostics into a hook failure.
+  }
+}
+
+function openHookWorkerLog(env, logName) {
+  const home = nonEmptyString(env?.HOME) ?? homedir();
+  const logsDir = join(home, '.polygraph', 'logs');
+  mkdirSync(logsDir, { recursive: true });
+  return openSync(join(logsDir, logName), 'a', 0o600);
+}
+
+/**
+ * Hand a serialized claim to a detached Node worker and return immediately.
+ * The worker owns the complete CLI invocation and its durable failure
+ * logging; the short-lived parent hook observes launch errors only, because
+ * it cannot outlive the harness event that spawned it.
+ */
+export function launchDetachedHookWorker({
+  workerPath,
+  claim,
+  logName,
+  spawn = spawnChild,
+  env = process.env,
+  execPath = process.execPath,
+  onFailure = () => {},
+  openLog = openHookWorkerLog,
+  closeLog = closeSync,
+}) {
+  const logFd = openLog(env, logName);
+  let child;
+  try {
+    child = spawn(execPath, [workerPath, JSON.stringify(claim)], {
+      cwd: nonEmptyString(claim.cwd) ?? process.cwd(),
+      detached: true,
+      env: captureCommandEnvironment(env),
+      shell: false,
+      stdio: ['ignore', logFd, logFd],
+      windowsHide: true,
+    });
+  } finally {
+    try {
+      closeLog(logFd);
+    } catch (error) {
+      reportWorkerLaunchFailure(onFailure, error);
+    }
   }
 
-  return result;
+  child.once('error', (error) => reportWorkerLaunchFailure(onFailure, error));
+  child.unref();
+
+  return true;
 }
 
 export function cliFailure(commandName, result) {

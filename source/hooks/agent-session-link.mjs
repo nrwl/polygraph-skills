@@ -106,15 +106,21 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
     ...(input === undefined ? {} : { input }),
   };
 
-  let result = spawn(command, args, spawnOptions);
-
   // POLYGRAPH_CLI may point at a plain JS entry that cannot be spawned
-  // directly: a dev build without the executable bit, or a platform that
-  // cannot exec scripts. A spawn that failed to LAUNCH ran nothing, so the
-  // retry under a Node runtime is side-effect free — and anything that
-  // spawns directly today keeps its exact behavior.
-  if (result?.error && /\.[cm]?js$/i.test(command)) {
-    result = spawn(nodeRuntime(), [command, ...args], spawnOptions);
+  // directly: a dev build without the executable bit, a local package
+  // install, or a platform that cannot exec scripts. Such entries run
+  // through a Node runtime up front, so exactly one process ever launches
+  // per link. Bun (which hosts this module in-process for OpenCode) throws
+  // launch errors from spawnSync instead of returning them, so both error
+  // shapes must land in the same path.
+  const jsEntry = /\.[cm]?js$/i.test(command);
+  let result;
+  try {
+    result = jsEntry
+      ? spawn(nodeRuntime(), [command, ...args], spawnOptions)
+      : spawn(command, args, spawnOptions);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
   }
 
   if (result?.error) throw result.error;

@@ -10,6 +10,11 @@
       {
         "command": "node hooks/record-session-mapping.mjs cursor"
       }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node hooks/ensure-agent-session-capture.mjs cursor --detach"
+      }
     ]
   }
 }

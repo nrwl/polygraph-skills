@@ -186,10 +186,7 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
-  cpSync(
-    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
-    join(codexHooksDir, 'agent-session-link.mjs')
-  );
+  copyCaptureWakeHookScripts(codexHooksDir);
 
   cpSync(
     join(sourceDir, 'assets'),
@@ -200,6 +197,23 @@ export function finalizeCodexDist(pkgJson) {
   )
 
   copySharedDocs(codexDir);
+}
+
+/**
+ * The capture wake hook and its module graph. agent-session-link.mjs is both
+ * the wake's failure logger and a standalone hook dependency, so it rides
+ * along here for every harness that ships the wake.
+ */
+function copyCaptureWakeHookScripts(hooksDir) {
+  for (const script of [
+    'agent-session-link.mjs',
+    'agent-session-capture.mjs',
+    'capture-cli.mjs',
+    'ensure-agent-session-capture.mjs',
+    'ensure-agent-session-capture-worker.mjs',
+  ]) {
+    cpSync(join(sourceDir, 'hooks', script), join(hooksDir, script));
+  }
 }
 
 function buildCursorPluginManifest(pkgJson) {
@@ -259,10 +273,7 @@ export function finalizeCursorDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(cursorHooksDir, 'record-session-mapping.mjs')
   );
-  cpSync(
-    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
-    join(cursorHooksDir, 'agent-session-link.mjs')
-  );
+  copyCaptureWakeHookScripts(cursorHooksDir);
   copySharedDocs(cursorDir);
 }
 

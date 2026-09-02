@@ -184,9 +184,10 @@ test('uses the configured Polygraph CLI executable', () => {
   assert.equal(invocation.options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
-test('spawns a directly-runnable JS Polygraph CLI entry unchanged', () => {
-  // An executable JS entry that spawns fine must keep its exact behavior;
-  // the Node fallback exists only for spawns that failed to launch.
+test('runs a JS Polygraph CLI entry through Node up front, once', () => {
+  // A .js/.mjs/.cjs entry (local package install, dev build without the
+  // executable bit) is never executed directly: exactly one process launches
+  // per link, and it is Node running the entry.
   const invocations = [];
   const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
   assert.equal(
@@ -205,40 +206,36 @@ test('spawns a directly-runnable JS Polygraph CLI entry unchanged', () => {
     true
   );
   assert.equal(invocations.length, 1);
-  assert.equal(invocations[0].command, '/workspace/dist/bin/polygraph.js');
-  assert.equal(invocations[0].args[0], '_link-agent-session');
+  // The test process is Node, so the runtime is process.execPath.
+  assert.equal(invocations[0].command, process.execPath);
+  assert.equal(invocations[0].args[0], '/workspace/dist/bin/polygraph.js');
+  assert.equal(invocations[0].args[1], '_link-agent-session');
+  assert.equal(invocations[0].options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
 });
 
-test('retries a JS Polygraph CLI entry under Node when the spawn fails to launch', () => {
-  // A JS entry commonly cannot be spawned directly: a dev build without
-  // the executable bit (EACCES) or a platform that cannot exec scripts.
-  // The failed spawn ran nothing, so the retry is side-effect free.
-  const invocations = [];
-  const env = { POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js' };
-  assert.equal(
-    linkAgentSession(
-      {
-        agentType: 'cursor',
-        agentSessionId: 'cursor-root',
-        source: 'hook',
-      },
-      (command, args, options) => {
-        invocations.push({ command, args, options });
-        return invocations.length === 1
-          ? { error: Object.assign(new Error('spawnSync EACCES'), { code: 'EACCES' }) }
-          : { status: 0, stderr: '' };
-      },
-      env
-    ),
-    true
+test('contains spawn launch errors thrown synchronously (Bun) without retrying', () => {
+  // Bun's spawnSync throws launch errors instead of returning them on the
+  // result; the link must surface them as ordinary thrown errors after a
+  // single attempt, never bypassing the error path or double-launching.
+  const thrown = Object.assign(new Error('spawnSync EACCES'), { code: 'EACCES' });
+  let spawnCount = 0;
+  assert.throws(
+    () =>
+      linkAgentSession(
+        {
+          agentType: 'opencode',
+          agentSessionId: 'opencode-root',
+          source: 'hook',
+        },
+        () => {
+          spawnCount += 1;
+          throw thrown;
+        },
+        { POLYGRAPH_CLI: '/workspace/node_modules/.bin/polygraph.mjs' }
+      ),
+    thrown
   );
-  assert.equal(invocations.length, 2);
-  assert.equal(invocations[0].command, '/workspace/dist/bin/polygraph.js');
-  // The test process is Node, so the fallback runtime is process.execPath.
-  assert.equal(invocations[1].command, process.execPath);
-  assert.equal(invocations[1].args[0], '/workspace/dist/bin/polygraph.js');
-  assert.equal(invocations[1].args[1], '_link-agent-session');
-  assert.equal(invocations[1].options.env.POLYGRAPH_CLI, env.POLYGRAPH_CLI);
+  assert.equal(spawnCount, 1);
 });
 
 test('does not retry a non-JS command that fails to launch', () => {
@@ -840,8 +837,18 @@ test('the cursor plugin registers static relative sessionStart and postToolUse h
     'node hooks/record-session-mapping.mjs cursor'
   );
 
-  // No stop hook: cursor token-usage capture is intentionally unsupported and
-  // nothing may prompt a user-scope ~/.cursor/hooks.json registration.
+  // The prompt wake detaches: beforeSubmitPrompt is a blocking hook, so the
+  // registered command must return immediately and emit nothing on stdout.
+  const promptHooks = manifest.hooks.beforeSubmitPrompt;
+  assert.equal(promptHooks.length, 1);
+  assert.equal(
+    promptHooks[0].command,
+    'node hooks/ensure-agent-session-capture.mjs cursor --detach'
+  );
+
+  // No stop hook: cursor does not dispatch stop to plugin-scope hooks and
+  // nothing may prompt a user-scope ~/.cursor/hooks.json registration, so
+  // cursor has no agent-done wake.
   assert.equal('stop' in manifest.hooks, false);
 });
 

@@ -1,13 +1,10 @@
-import { spawn as spawnChild, spawnSync } from 'node:child_process';
-import { closeSync, mkdirSync, openSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import {
-  captureCommandEnvironment,
   cliFailure,
   isManagedChildEnvironment,
+  launchDetachedHookWorker,
   nonEmptyString,
   runCaptureCliSync,
 } from './capture-cli.mjs';
@@ -15,24 +12,6 @@ import {
 const FINALIZE_WORKER_PATH = fileURLToPath(
   new URL('./finalize-agent-session-worker.mjs', import.meta.url)
 );
-
-function openFinalizeLog(env) {
-  const home = nonEmptyString(env?.HOME) ?? homedir();
-  const logsDir = join(home, '.polygraph', 'logs');
-  mkdirSync(logsDir, { recursive: true });
-  return openSync(join(logsDir, 'session-finalize.log'), 'a', 0o600);
-}
-
-function reportFailure(onFailure, error) {
-  try {
-    const pending = onFailure(error);
-    if (pending && typeof pending.catch === 'function') {
-      pending.catch(() => {});
-    }
-  } catch {
-    // A detached handoff must never turn diagnostics into a hook failure.
-  }
-}
 
 export function buildFinalizeAgentSessionArgs({
   agentType,
@@ -94,43 +73,20 @@ export function finalizeAgentSession(
 
 export function launchAgentSessionFinalize(
   claim,
-  spawn = spawnChild,
+  spawn,
   env = process.env,
-  {
-    workerPath = FINALIZE_WORKER_PATH,
-    execPath = process.execPath,
-    onFailure = () => {},
-    openLog = openFinalizeLog,
-    closeLog = closeSync,
-  } = {}
+  { workerPath = FINALIZE_WORKER_PATH, ...workerOptions } = {}
 ) {
   if (isManagedChildEnvironment(env)) return false;
 
-  const logFd = openLog(env);
-  let child;
-  try {
-    child = spawn(execPath, [workerPath, JSON.stringify(claim)], {
-      cwd: nonEmptyString(claim.cwd) ?? process.cwd(),
-      detached: true,
-      env: captureCommandEnvironment(env),
-      shell: false,
-      stdio: ['ignore', logFd, logFd],
-      windowsHide: true,
-    });
-  } finally {
-    try {
-      closeLog(logFd);
-    } catch (error) {
-      reportFailure(onFailure, error);
-    }
-  }
-
-  // This only covers failure to launch the durable worker. CLI exit handling
-  // belongs to the worker and never depends on this unref'd parent process.
-  child.once('error', (error) => reportFailure(onFailure, error));
-  child.unref();
-
-  return true;
+  return launchDetachedHookWorker({
+    logName: 'session-finalize.log',
+    ...workerOptions,
+    workerPath,
+    claim,
+    ...(spawn ? { spawn } : {}),
+    env,
+  });
 }
 
 export function buildCommandHookFinalize(payload, agentType, env = process.env) {

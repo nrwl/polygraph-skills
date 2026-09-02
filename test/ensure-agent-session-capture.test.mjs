@@ -39,6 +39,30 @@ test('Claude registers asynchronous UserPromptSubmit and Stop wake hooks with a 
   );
 });
 
+test('Codex registers detached UserPromptSubmit and Stop wake hooks', () => {
+  const manifest = JSON.parse(
+    readFileSync(
+      new URL('../source/codex/hooks/hooks.json', import.meta.url),
+      'utf8'
+    )
+  );
+
+  // Codex hook manifests have no async flag, so the wake detaches itself.
+  for (const eventName of ['UserPromptSubmit', 'Stop']) {
+    const eventHooks = manifest.hooks[eventName];
+    assert.equal(eventHooks.length, 1, eventName);
+    assert.equal(eventHooks[0].hooks.length, 1, eventName);
+
+    const hook = eventHooks[0].hooks[0];
+    assert.equal(hook.type, 'command', eventName);
+    assert.equal(
+      hook.command,
+      'node ${PLUGIN_ROOT}/hooks/ensure-agent-session-capture.mjs codex --detach',
+      eventName
+    );
+  }
+});
+
 test('UserPromptSubmit wakes capture with the same claim as Stop and forwards no prompt text', () => {
   const claim = buildCommandHookEnsureCapture(
     {
@@ -57,7 +81,6 @@ test('UserPromptSubmit wakes capture with the same claim as Stop and forwards no
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo with spaces',
     transcriptPath: '/tmp/transcript exact.jsonl',
-    source: 'hook',
   });
   assert.equal(
     buildEnsureAgentSessionCaptureArgs(claim).some((arg) =>
@@ -82,8 +105,9 @@ test('Stop payload forwards exact Claude session metadata', () => {
     agentSessionId: 'claude/root session?exact=true',
     cwd: '/workspace/repo with spaces',
     transcriptPath: '/tmp/transcript exact.jsonl',
-    source: 'hook',
   });
+  // Identity only: no --source on the ensure command — a liveness poke
+  // carries no mapping provenance and no semantic status.
   assert.deepEqual(buildEnsureAgentSessionCaptureArgs(claim), [
     '_ensure-agent-session-capture',
     '--agent-type',
@@ -94,8 +118,6 @@ test('Stop payload forwards exact Claude session metadata', () => {
     '/workspace/repo with spaces',
     '--transcript-path',
     '/tmp/transcript exact.jsonl',
-    '--source',
-    'hook',
   ]);
 });
 
@@ -116,7 +138,6 @@ test('Stop payload omits absent optional metadata', () => {
     agentSessionId: 'claude-session',
     cwd: undefined,
     transcriptPath: undefined,
-    source: 'hook',
   });
   assert.deepEqual(buildEnsureAgentSessionCaptureArgs(claim), [
     '_ensure-agent-session-capture',
@@ -124,8 +145,6 @@ test('Stop payload omits absent optional metadata', () => {
     'claude',
     '--agent-session-id',
     'claude-session',
-    '--source',
-    'hook',
   ]);
 });
 
@@ -148,7 +167,86 @@ test('capture hook accepts only complete Claude wake payloads', () => {
     assert.equal(buildCommandHookEnsureCapture(payload, 'claude', {}), undefined);
   }
 
-  assert.equal(buildCommandHookEnsureCapture(valid, 'codex', {}), undefined);
+  assert.equal(buildCommandHookEnsureCapture(valid, 'gemini', {}), undefined);
+});
+
+test('codex wakes on the same PascalCase events as Claude', () => {
+  for (const eventName of ['UserPromptSubmit', 'Stop']) {
+    assert.deepEqual(
+      buildCommandHookEnsureCapture(
+        {
+          hook_event_name: eventName,
+          session_id: 'codex/root-thread',
+          cwd: '/workspace/repo with spaces',
+          transcript_path: '/tmp/rollout exact.jsonl',
+        },
+        'codex',
+        {}
+      ),
+      {
+        agentType: 'codex',
+        agentSessionId: 'codex/root-thread',
+        cwd: '/workspace/repo with spaces',
+        transcriptPath: '/tmp/rollout exact.jsonl',
+      },
+      eventName
+    );
+  }
+
+  // Cursor's camelCase event names never wake a PascalCase harness and
+  // vice versa.
+  assert.equal(
+    buildCommandHookEnsureCapture(
+      { hook_event_name: 'beforeSubmitPrompt', session_id: 'codex-session' },
+      'codex',
+      {}
+    ),
+    undefined
+  );
+});
+
+test('cursor wakes on camelCase events with cursor payload identity', () => {
+  for (const eventName of ['beforeSubmitPrompt', 'stop']) {
+    assert.deepEqual(
+      buildCommandHookEnsureCapture(
+        {
+          hook_event_name: eventName,
+          session_id: 'cursor/conversation-id',
+          conversation_id: 'cursor/conversation-id',
+          workspace_roots: ['/workspace/repo with spaces'],
+          prompt: 'must-never-leave-the-transcript',
+        },
+        'cursor',
+        {}
+      ),
+      {
+        agentType: 'cursor',
+        agentSessionId: 'cursor/conversation-id',
+        cwd: '/workspace/repo with spaces',
+        transcriptPath: undefined,
+      },
+      eventName
+    );
+  }
+
+  // conversation_id keeps the wake working if session_id disappears.
+  assert.equal(
+    buildCommandHookEnsureCapture(
+      { hook_event_name: 'stop', conversation_id: 'cursor/only-conversation' },
+      'cursor',
+      {}
+    ).agentSessionId,
+    'cursor/only-conversation'
+  );
+
+  assert.equal(
+    buildCommandHookEnsureCapture(
+      { hook_event_name: 'Stop', session_id: 'cursor-session' },
+      'cursor',
+      {}
+    ),
+    undefined
+  );
 });
 
 test('managed Polygraph children never ensure capture', () => {
@@ -174,7 +272,7 @@ test('managed Polygraph children never ensure capture', () => {
 test('Stop launcher invokes only the configured hidden CLI command', () => {
   let invocation;
   const env = {
-    POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js',
+    POLYGRAPH_CLI: '/workspace/dist/bin/polygraph',
     POLYGRAPH_SESSION_ID: 'ambient-session',
     POLYGRAPH_CAPTURE_TOKEN: 'ambient-token',
     REQUIRED_HARNESS_ENV: 'preserved',
@@ -209,8 +307,6 @@ test('Stop launcher invokes only the configured hidden CLI command', () => {
     '/workspace/repo',
     '--transcript-path',
     '/tmp/transcript.jsonl',
-    '--source',
-    'hook',
   ]);
   assert.equal(invocation.options.cwd, '/workspace/repo');
   assert.deepEqual(invocation.options.stdio, ['ignore', 'pipe', 'pipe']);
@@ -270,7 +366,6 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
-    source: 'hook',
   };
 
   assert.equal(
@@ -293,7 +388,10 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
 
   assert.equal(invocations.length, 2);
   assert.equal(invocations[0].args[0], '_ensure-agent-session-capture');
+  assert.equal(invocations[0].args.includes('--source'), false);
   assert.equal(invocations[1].args[0], '_link-agent-session');
+  // The legacy mapping command keeps its provenance flag.
+  assert.deepEqual(invocations[1].args.slice(-2), ['--source', 'hook']);
   assert.equal(invocations[0].options.timeout, 4_900);
   assert.equal(invocations[1].options.timeout, 300);
   assert.equal(invocations[0].options.killSignal, 'SIGKILL');
@@ -311,7 +409,6 @@ test('Stop never retries a timed-out or ambiguously executed command', () => {
           agentType: 'claude',
           agentSessionId: 'claude-session',
           cwd: '/workspace/repo',
-          source: 'hook',
         },
         () => {
           spawnCount += 1;
@@ -329,14 +426,12 @@ test('Stop never retries a timed-out or ambiguously executed command', () => {
   assert.equal(spawnCount, 1);
 });
 
-test('Stop preserves the JavaScript entry fallback without duplicate execution', () => {
+test('a JS CLI entry wakes through Node up front, in exactly one process', () => {
   const invocations = [];
-  const launchError = Object.assign(new Error('not executable'), { code: 'EACCES' });
   const claim = {
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
-    source: 'hook',
   };
 
   assert.equal(
@@ -344,9 +439,7 @@ test('Stop preserves the JavaScript entry fallback without duplicate execution',
       claim,
       (command, args, options) => {
         invocations.push({ command, args, options });
-        return invocations.length === 1
-          ? { error: launchError }
-          : { status: 0, stderr: '' };
+        return { status: 0, stderr: '' };
       },
       { POLYGRAPH_CLI: '/opt/polygraph.mjs' },
       { execPath: '/runtime/node', now: () => 10 }
@@ -354,13 +447,29 @@ test('Stop preserves the JavaScript entry fallback without duplicate execution',
     true
   );
 
-  assert.equal(invocations.length, 2);
-  assert.equal(invocations[0].command, '/opt/polygraph.mjs');
-  assert.equal(invocations[1].command, '/runtime/node');
-  assert.deepEqual(invocations[1].args, [
-    '/opt/polygraph.mjs',
-    ...invocations[0].args,
-  ]);
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].command, '/runtime/node');
+  assert.equal(invocations[0].args[0], '/opt/polygraph.mjs');
+  assert.equal(invocations[0].args[1], '_ensure-agent-session-capture');
+});
+
+test('a spawn that throws launch errors synchronously (Bun) is contained after one attempt', () => {
+  const thrown = Object.assign(new Error('spawnSync EACCES'), { code: 'EACCES' });
+  let spawnCount = 0;
+
+  assert.throws(
+    () =>
+      ensureAgentSessionCapture(
+        { agentType: 'opencode', agentSessionId: 'opencode-root' },
+        () => {
+          spawnCount += 1;
+          throw thrown;
+        },
+        { POLYGRAPH_CLI: '/workspace/node_modules/.bin/polygraph' }
+      ),
+    thrown
+  );
+  assert.equal(spawnCount, 1);
 });
 
 test('repeated Stop wakes remain identical and do not mutate ambient evidence', () => {
@@ -373,7 +482,6 @@ test('repeated Stop wakes remain identical and do not mutate ambient evidence', 
     agentType: 'claude',
     agentSessionId: 'claude-session',
     cwd: '/workspace/repo',
-    source: 'hook',
   };
   const invocations = [];
   const spawn = (command, args, options) => {
@@ -389,4 +497,136 @@ test('repeated Stop wakes remain identical and do not mutate ambient evidence', 
   assert.equal(Object.hasOwn(invocations[1].options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
   assert.equal(env.POLYGRAPH_SESSION_ID, 'ambient-session');
   assert.equal(env.POLYGRAPH_CAPTURE_TOKEN, 'ambient-token');
+});
+
+test('a detached wake hands the claim to a worker and observes launch errors only', () => {
+  let invocation;
+  let unrefCount = 0;
+  const logEvents = [];
+  const listeners = {};
+  const env = {
+    POLYGRAPH_CLI: '/workspace/dist/bin/polygraph.js',
+    POLYGRAPH_SESSION_ID: 'ambient-session',
+    POLYGRAPH_CAPTURE_TOKEN: 'ambient-token',
+  };
+
+  assert.equal(
+    main({
+      agentType: 'codex',
+      detach: true,
+      env,
+      payload: {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'codex-session',
+        cwd: '/workspace/repo with spaces',
+        transcript_path: '/tmp/rollout exact.jsonl',
+      },
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        logEvents.push('spawn');
+        return {
+          once(event, listener) {
+            listeners[event] = listener;
+            return this;
+          },
+          unref() {
+            unrefCount += 1;
+          },
+        };
+      },
+      launcherOptions: {
+        execPath: '/runtime/node',
+        openLog: () => {
+          logEvents.push('open');
+          return 42;
+        },
+        closeLog: (fd) => {
+          logEvents.push(['close', fd]);
+        },
+      },
+    }),
+    true
+  );
+
+  assert.equal(invocation.command, '/runtime/node');
+  assert.match(invocation.args[0], /ensure-agent-session-capture-worker\.mjs$/);
+  assert.deepEqual(JSON.parse(invocation.args[1]), {
+    agentType: 'codex',
+    agentSessionId: 'codex-session',
+    cwd: '/workspace/repo with spaces',
+    transcriptPath: '/tmp/rollout exact.jsonl',
+  });
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
+  assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
+  assert.equal(invocation.options.detached, true);
+  assert.equal(invocation.options.shell, false);
+  assert.equal(invocation.options.windowsHide, true);
+  assert.equal(invocation.options.cwd, '/workspace/repo with spaces');
+  assert.deepEqual(invocation.options.stdio, ['ignore', 42, 42]);
+  assert.equal(unrefCount, 1);
+  assert.deepEqual(logEvents, ['open', 'spawn', ['close', 42]]);
+  // CLI exit handling belongs to the worker; the short-lived hook registers
+  // no exit listener.
+  assert.deepEqual(Object.keys(listeners), ['error']);
+});
+
+test('a detached wake reports worker launch failures best-effort', () => {
+  const listeners = {};
+  const failures = [];
+
+  assert.equal(
+    main({
+      agentType: 'cursor',
+      detach: true,
+      env: {},
+      payload: {
+        hook_event_name: 'beforeSubmitPrompt',
+        conversation_id: 'cursor-session',
+      },
+      spawn() {
+        return {
+          once(event, listener) {
+            listeners[event] = listener;
+            return this;
+          },
+          unref() {},
+        };
+      },
+      logFailure(hook, error, meta) {
+        failures.push({ hook, error, meta });
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+    }),
+    true
+  );
+
+  const spawnError = new Error('spawn failed');
+  listeners.error(spawnError);
+
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].hook, 'cursor:ensure-agent-session-capture');
+  assert.equal(failures[0].error, spawnError);
+  assert.deepEqual(failures[0].meta, {
+    hookEventName: 'beforeSubmitPrompt',
+    agentSessionId: undefined,
+  });
+});
+
+test('managed children never launch a detached wake worker', () => {
+  let spawnCount = 0;
+  assert.equal(
+    main({
+      agentType: 'codex',
+      detach: true,
+      env: { POLYGRAPH_CHILD_AGENT: '' },
+      payload: { hook_event_name: 'Stop', session_id: 'codex-child' },
+      spawn() {
+        spawnCount += 1;
+        return { once() { return this; }, unref() {} };
+      },
+      launcherOptions: { openLog: () => 1, closeLog: () => {} },
+    }),
+    false
+  );
+  assert.equal(spawnCount, 0);
 });

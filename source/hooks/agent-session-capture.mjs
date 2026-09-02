@@ -1,7 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 import {
   cliFailure,
   isManagedChildEnvironment,
+  launchDetachedHookWorker,
   nonEmptyString,
   runCaptureCliSync,
 } from './capture-cli.mjs';
@@ -9,6 +12,22 @@ import {
 export const ENSURE_CAPTURE_TIMEOUT_MS = 5_000;
 export const ENSURE_CAPTURE_UNSUPPORTED_MARKER =
   'POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED';
+
+const WAKE_AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
+
+// Every wake event is capture liveness only. Which harness event fired, and
+// in which order, is never forwarded: the transcript alone carries step
+// semantics, so both the prompt-submit and the agent-done wake of a harness
+// produce the identical identity-only invocation.
+const WAKE_EVENTS_BY_AGENT = {
+  claude: new Set(['UserPromptSubmit', 'Stop']),
+  codex: new Set(['UserPromptSubmit', 'Stop']),
+  cursor: new Set(['beforeSubmitPrompt', 'stop']),
+};
+
+const ENSURE_WAKE_WORKER_PATH = fileURLToPath(
+  new URL('./ensure-agent-session-capture-worker.mjs', import.meta.url)
+);
 
 function boundedEnsureTimeout(timeoutMs) {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1) {
@@ -22,13 +41,12 @@ export function buildEnsureAgentSessionCaptureArgs({
   agentSessionId,
   cwd,
   transcriptPath,
-  source,
 }) {
   const harnessSession = nonEmptyString(agentSessionId);
-  const hookSource = nonEmptyString(source);
-  if (agentType !== 'claude') throw new Error(`Unsupported agent type: ${agentType}`);
+  if (!WAKE_AGENT_TYPES.has(agentType)) {
+    throw new Error(`Unsupported agent type: ${agentType}`);
+  }
   if (!harnessSession) throw new Error('agentSessionId is required');
-  if (!hookSource) throw new Error('source is required');
 
   const args = [
     '_ensure-agent-session-capture',
@@ -44,13 +62,15 @@ export function buildEnsureAgentSessionCaptureArgs({
   const transcript = nonEmptyString(transcriptPath);
   if (transcript) args.push('--transcript-path', transcript);
 
-  args.push('--source', hookSource);
   return args;
 }
 
+// The legacy identity-only mapping command keeps its `--source` because the
+// mapping it records carries provenance; the preferred ensure command above
+// deliberately does not, since a liveness poke has none.
 export function buildLegacyCaptureWakeArgs(claim) {
   const ensureArgs = buildEnsureAgentSessionCaptureArgs(claim);
-  return ['_link-agent-session', ...ensureArgs.slice(1)];
+  return ['_link-agent-session', ...ensureArgs.slice(1), '--source', 'hook'];
 }
 
 function commandUnavailable(result) {
@@ -109,26 +129,50 @@ export function ensureAgentSessionCapture(
   throw cliFailure('_ensure-agent-session-capture', result);
 }
 
+export function launchAgentSessionCaptureWake(
+  claim,
+  spawn,
+  env = process.env,
+  { onFailure = () => {}, ...workerOptions } = {}
+) {
+  if (isManagedChildEnvironment(env)) return false;
+
+  return launchDetachedHookWorker({
+    workerPath: ENSURE_WAKE_WORKER_PATH,
+    logName: 'capture-wake.log',
+    ...workerOptions,
+    claim,
+    ...(spawn ? { spawn } : {}),
+    env,
+    onFailure,
+  });
+}
+
 export function buildCommandHookEnsureCapture(payload, agentType, env = process.env) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return undefined;
   }
   if (isManagedChildEnvironment(env)) return undefined;
-  if (
-    agentType !== 'claude' ||
-    !['Stop', 'UserPromptSubmit'].includes(payload.hook_event_name)
-  ) {
-    return undefined;
-  }
 
-  const agentSessionId = nonEmptyString(payload.session_id);
+  const wakeEvents = WAKE_EVENTS_BY_AGENT[agentType];
+  if (!wakeEvents?.has(payload.hook_event_name)) return undefined;
+
+  // Cursor payloads carry the id in both session_id and conversation_id and
+  // have no top-level cwd; workspace_roots[0] is the launch directory.
+  const agentSessionId =
+    nonEmptyString(payload.session_id) ??
+    (agentType === 'cursor' ? nonEmptyString(payload.conversation_id) : undefined);
   if (!agentSessionId) return undefined;
+
+  const workspaceRoot =
+    agentType === 'cursor' && Array.isArray(payload.workspace_roots)
+      ? nonEmptyString(payload.workspace_roots[0])
+      : undefined;
 
   return {
     agentType,
     agentSessionId,
-    cwd: nonEmptyString(payload.cwd),
+    cwd: nonEmptyString(payload.cwd) ?? workspaceRoot,
     transcriptPath: nonEmptyString(payload.transcript_path),
-    source: 'hook',
   };
 }

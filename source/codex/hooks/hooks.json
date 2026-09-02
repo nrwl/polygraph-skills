@@ -28,6 +28,28 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${PLUGIN_ROOT}/hooks/ensure-agent-session-capture.mjs codex --detach",
+            "statusMessage": "Ensuring Polygraph session capture"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${PLUGIN_ROOT}/hooks/ensure-agent-session-capture.mjs codex --detach",
+            "statusMessage": "Ensuring Polygraph session capture"
+          }
+        ]
+      }
     ]
   }
 }

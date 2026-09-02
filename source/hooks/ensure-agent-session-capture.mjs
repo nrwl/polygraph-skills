@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   buildCommandHookEnsureCapture,
   ensureAgentSessionCapture,
+  launchAgentSessionCaptureWake,
 } from './agent-session-capture.mjs';
 import { logHookFailure } from './agent-session-link.mjs';
 
@@ -19,27 +20,37 @@ function readPayload() {
 export function main({
   payload = readPayload(),
   agentType = process.argv[2],
+  // Harness manifests without an async hook flag pass --detach so the hook
+  // returns immediately; a detached worker then owns the bounded wake. This
+  // matters most for cursor's blocking beforeSubmitPrompt, which would
+  // otherwise stall every prompt on a slow CLI.
+  detach = process.argv.includes('--detach'),
   env = process.env,
   spawn,
   logFailure = logHookFailure,
   cwd = process.cwd(),
+  launcherOptions = {},
 } = {}) {
-  try {
-    const claim = buildCommandHookEnsureCapture(payload, agentType, env);
-    if (!claim) return false;
-    return ensureAgentSessionCapture(
-      {
-        ...claim,
-        cwd: claim.cwd ?? cwd,
-      },
-      spawn,
-      env
-    );
-  } catch (error) {
+  const reportFailure = (error) =>
     logFailure(`${agentType || 'unknown'}:ensure-agent-session-capture`, error, {
       hookEventName: payload?.hook_event_name,
       agentSessionId: payload?.session_id,
     });
+
+  try {
+    const built = buildCommandHookEnsureCapture(payload, agentType, env);
+    if (!built) return false;
+
+    const claim = { ...built, cwd: built.cwd ?? cwd };
+    if (detach) {
+      return launchAgentSessionCaptureWake(claim, spawn, env, {
+        ...launcherOptions,
+        onFailure: reportFailure,
+      });
+    }
+    return ensureAgentSessionCapture(claim, spawn, env);
+  } catch (error) {
+    reportFailure(error);
     return false;
   }
 }

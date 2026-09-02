@@ -3,6 +3,7 @@ import {
   linkAgentSession,
   logHookFailure,
 } from '../hooks/agent-session-link.mjs';
+import { ensureAgentSessionCapture } from '../hooks/agent-session-capture.mjs';
 
 export { logHookFailure } from '../hooks/agent-session-link.mjs';
 
@@ -80,17 +81,46 @@ export function deferOpenCodeToolActivity(
   }, 0);
 }
 
+/**
+ * Deferred, liveness-only capture wake. Fired on prompt submission
+ * (chat.message) and on session.idle; neither event carries step semantics —
+ * the transcript alone decides step boundaries. Deferral keeps the host hook
+ * from ever waiting on the CLI.
+ */
+export function deferOpenCodeCaptureWake(
+  sessionId,
+  sessionLinker,
+  onError,
+  schedule = setTimeout
+) {
+  schedule(() => {
+    return Promise.resolve()
+      .then(() => sessionLinker.wakeCapture(sessionId))
+      .catch((error) => {
+        try {
+          return onError(error);
+        } catch {
+          // Wakes are best-effort and cannot reject the host hook.
+        }
+      })
+      .catch(() => {});
+  }, 0);
+}
+
 export function createOpenCodeSessionLinker({
   client,
   directory,
   env = process.env,
   pid = process.pid,
   link,
+  ensure,
   spawn,
 } = {}) {
   const roots = new Map();
   const linkedLifecycleSessions = new Set();
   const submitLink = link ?? ((claim) => linkAgentSession(claim, spawn, env));
+  const submitEnsure =
+    ensure ?? ((claim) => ensureAgentSessionCapture(claim, spawn, env));
 
   async function rootSessionId(sessionId) {
     if (!sessionId) return undefined;
@@ -154,6 +184,27 @@ export function createOpenCodeSessionLinker({
     async fromToolActivity(input) {
       if (!isPolygraphMcpToolName(input?.tool)) return false;
       return submit(input?.sessionID);
+    },
+
+    // Identity-only capture liveness. Resolves the root session (subagent
+    // activity wakes the parent's capture) and pokes the sidecar; it records
+    // no mapping, no provenance, and no step boundary.
+    async wakeCapture(openCodeSessionId, cwd) {
+      if (
+        !openCodeSessionId ||
+        (env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'))
+      ) {
+        return false;
+      }
+
+      const agentSessionId = await rootSessionId(openCodeSessionId);
+      if (!agentSessionId) return false;
+
+      return submitEnsure({
+        agentType: 'opencode',
+        agentSessionId,
+        cwd: cwd || directory || process.cwd(),
+      });
     },
   };
 }

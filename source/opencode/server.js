@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   createOpenCodeSessionLinker,
+  deferOpenCodeCaptureWake,
   deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
   logHookFailure,
@@ -40,6 +41,25 @@ export const PolygraphPlugin = async ({ client, directory } = {}) => {
           sessionID: input?.event?.properties?.info?.id,
         });
       }
+
+      // session.idle is OpenCode's agent-done signal. It is a capture
+      // liveness wake only — the transcript decides step boundaries.
+      if (input?.event?.type === 'session.idle') {
+        const sessionID = input.event.properties?.sessionID;
+        deferOpenCodeCaptureWake(sessionID, sessionLinker, (error) => {
+          logHookFailure('opencode:session.idle', error, { sessionID });
+        });
+      }
+    },
+
+    // Fires when the user submits a prompt; wakes capture so the prompt is
+    // available promptly even if the sidecar died. Liveness only.
+    'chat.message': async (input, output) => {
+      const sessionID =
+        output?.message?.sessionID ?? input?.message?.sessionID;
+      deferOpenCodeCaptureWake(sessionID, sessionLinker, (error) => {
+        logHookFailure('opencode:chat.message', error, { sessionID });
+      });
     },
 
     config: async (cfg) => {
