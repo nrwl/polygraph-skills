@@ -381,6 +381,7 @@ If the session has a description timeline, also display:
 1. **Delegate asynchronously** — Use `spawn_agent` which returns immediately with a delegation id, then poll with `show_agent`.
    {% endif %}
 1. **Read each result once** — when a poller exits, read that child with a single unwaited `show_agent(sessionId, id)`; `result.text` is the child's final message. Only reach for an explicit `tail` if that is not enough.
+1. **State the output in every brief** — children are told to be concise, so the instruction must say what to return: the shape, a cap where one makes sense, and the exact token for "nothing to report". See [`reference/delegation.md`](reference/delegation.md).
 1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready

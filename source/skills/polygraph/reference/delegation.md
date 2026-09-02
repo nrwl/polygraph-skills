@@ -28,11 +28,23 @@ spawn_agent(
 
 `agent` picks the child's harness and `model` overrides its default model; include either only when the user named one.
 
-Write the instruction as if to a competent engineer who cannot see your conversation: state the goal, the constraints, and what "done" looks like. The child has its own repo and its own context; it inherits nothing from yours.
+Write the instruction as if to a competent engineer who cannot see your conversation: state the goal, the constraints, what "done" looks like, and what to report back. The child has its own repo and its own context; it inherits nothing from yours.
 
 Delegate to several repos in parallel by calling `spawn_agent` once per repo before waiting on any of them.
 
 **Own-repo rule.** With the default role, `repo` must be a repository other than the one you are working in — never delegate into your own repo with the default role; work on it directly (ordinary local subagents are fine for that). Delegating into your own repo IS allowed with an explicit non-default `role`, because each (repo, role) pair is a separate agent slot and the child then runs alongside your own default-role work without colliding with it.
+
+## The output contract
+
+Every child is told in its system prompt to be concise: its final message is consumed by another agent and paid for twice — once when the child writes it, and again on every parent turn that carries it. Expect terse reports, and do not read brevity as the child having done less.
+
+Your half of the contract is the brief. The instruction sets the input; it must also set the output — the shape (which fields, in what order), a cap where one makes sense, the exact token to return when there is nothing to report, and what to leave out. A child that knows what to return does not have to guess, and a child that guesses pads.
+
+This matters most during investigation. A fan-out over many repos usually means most of them have nothing to report, and without an explicit "nothing here" answer every uninvolved repo writes several thousand characters to say so. Name the empty answer (`NONE`, `no matches`) and each miss costs one line.
+
+During implementation, conciseness still applies, but losing information is the worse failure. A missed detail in an implementation handoff costs another round trip, which is more expensive than the prose would have been. Brevity is about cutting what the next agent does not need — narration, recap, hedging — never about cutting what it does: branch names, files touched, decisions taken, anything found that contradicts the brief.
+
+Prose is limited to what is necessary. The consumers of these messages are agents first and humans second, so ask for dense and structural over narrative — no preamble, no recap of the instruction, no summary of the summary.
 
 ## Waiting
 
@@ -59,7 +71,7 @@ When a poller exits, read the child's answer yourself with a single **unwaited**
 show_agent(sessionId: "<sessionId>", id: "<id>")
 ```
 
-`result.text` is the child's final message: what it did, what it found, what it wants you to know. This is the payload. Read it once, in the main conversation, and act on it.
+`result.text` is the child's final message: what it did and what it found, in the shape the instruction asked for. This is the payload. Read it once, in the main conversation, and act on it.
 
 One-off unwaited reads like this are cheap and expected inline. It is the *waiting* that belongs in a subagent, not the reading.
 
