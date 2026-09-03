@@ -41,8 +41,30 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           path: pull-request
           persist-credentials: false
+
+      - name: Check out pull request base history
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          path: pull-request-base
+          persist-credentials: false
+
+      - name: Prepare pull request parent
+        run: |
+          git -C "$GITHUB_WORKSPACE/pull-request-base" fetch \
+            --no-tags \
+            "$GITHUB_WORKSPACE/pull-request" \
+            HEAD
+          parent_sha="$(git -C "$GITHUB_WORKSPACE/pull-request-base" merge-base HEAD FETCH_HEAD)"
+          git -C "$GITHUB_WORKSPACE/pull-request-base" worktree add \
+            --detach \
+            "$GITHUB_WORKSPACE/pull-request-parent" \
+            "$parent_sha"
 
       - uses: actions/setup-node@v4
         with:
@@ -56,6 +78,7 @@ jobs:
         run: >-
           node trusted/scripts/report-token-costs.mjs
           --root-dir "$GITHUB_WORKSPACE/pull-request"
+          --baseline-root-dir "$GITHUB_WORKSPACE/pull-request-parent"
           > token-cost-report.md
 
       - name: Create or update pull request comment

@@ -244,6 +244,48 @@ test('renders a Markdown report with totals and the estimation ratio', () => {
   assert.doesNotMatch(report, /\| Characters \|/);
 });
 
+test('renders signed token deltas against a baseline', () => {
+  const current = [
+    tokenEntry('claude', 'Skill', 'changed', 90),
+    tokenEntry('codex', 'Skill', 'changed', 110),
+    tokenEntry('opencode', 'Skill', 'changed', 100),
+    tokenEntry('claude', 'Skill', 'added', 20),
+    tokenEntry('codex', 'Skill', 'added', 20),
+    tokenEntry('opencode', 'Skill', 'added', 20),
+  ];
+  const baseline = [
+    tokenEntry('claude', 'Skill', 'changed', 100),
+    tokenEntry('codex', 'Skill', 'changed', 100),
+    tokenEntry('opencode', 'Skill', 'changed', 100),
+    tokenEntry('claude', 'Skill', 'removed', 5),
+    tokenEntry('codex', 'Skill', 'removed', 5),
+    tokenEntry('opencode', 'Skill', 'removed', 5),
+  ];
+
+  const report = renderTokenCostReport(current, 4, baseline);
+
+  assert.match(
+    report,
+    /\| Kind \| Skill \/ subagent \| Claude Code \| Codex \| OpenCode \| Δ vs PR parent<br>Claude \/ Codex \/ OpenCode \|/
+  );
+  assert.match(
+    report,
+    /\| Skill \| changed \| 90 \| 110 \| 100 \| 🟢 -10 \/ 🔴 \+10 \/ ±0 \|/
+  );
+  assert.match(
+    report,
+    /\| Skill \| added \| 20 \| 20 \| 20 \| 🔴 \+20 \/ 🔴 \+20 \/ 🔴 \+20 \|/
+  );
+  assert.match(
+    report,
+    /\| Skill \| removed \| — \| — \| — \| 🟢 -5 \/ 🟢 -5 \/ 🟢 -5 \|/
+  );
+  assert.match(
+    report,
+    /\| \*\*Total\*\* \| \*\*2 files\*\* \| \*\*110\*\* \| \*\*130\*\* \| \*\*120\*\* \| \*\*🔴 \+5 \/ 🔴 \+25 \/ 🔴 \+15\*\* \|/
+  );
+});
+
 test('escapes generated names before placing them in the Markdown table', () => {
   const report = renderTokenCostReport([
     {
@@ -263,6 +305,7 @@ test('parses a configurable characters-per-token ratio', () => {
   assert.deepEqual(parseCliArgs([]), {
     charactersPerToken: 4,
     rootDir: resolve(import.meta.dirname, '..'),
+    baselineRootDir: undefined,
     help: false,
   });
   assert.deepEqual(
@@ -271,10 +314,12 @@ test('parses a configurable characters-per-token ratio', () => {
       '3.5',
       '--root-dir',
       'fixture',
+      '--baseline-root-dir=main-fixture',
     ]),
     {
       charactersPerToken: 3.5,
       rootDir: resolve('fixture'),
+      baselineRootDir: resolve('main-fixture'),
       help: false,
     }
   );
@@ -285,7 +330,25 @@ test('parses a configurable characters-per-token ratio', () => {
   assert.throws(() => parseCliArgs(['--unknown']), /Unknown argument/);
   assert.throws(() => parseCliArgs(['--root-dir']), /requires a path/);
   assert.throws(() => parseCliArgs(['--root-dir=']), /requires a path/);
+  assert.throws(
+    () => parseCliArgs(['--baseline-root-dir']),
+    /requires a path/
+  );
+  assert.throws(
+    () => parseCliArgs(['--baseline-root-dir=']),
+    /requires a path/
+  );
 });
+
+function tokenEntry(platform, kind, name, estimatedTokens) {
+  return {
+    platform,
+    kind,
+    name,
+    characters: estimatedTokens * 4,
+    estimatedTokens,
+  };
+}
 
 function writeFixture(rootDir, relativePath, content) {
   const path = join(rootDir, relativePath);

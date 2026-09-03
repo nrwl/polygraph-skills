@@ -103,52 +103,56 @@ export function collectTokenCostEntries({
 
 export function renderTokenCostReport(
   entries,
-  charactersPerToken = DEFAULT_CHARACTERS_PER_TOKEN
+  charactersPerToken = DEFAULT_CHARACTERS_PER_TOKEN,
+  baselineEntries
 ) {
   validateCharactersPerToken(charactersPerToken);
 
-  const rowsByKey = new Map();
-  for (const entry of entries) {
-    const key = `${entry.kind}\0${entry.name}`;
-    const row = rowsByKey.get(key) ?? {
-      kind: entry.kind,
-      name: entry.name,
-      tokens: {},
-    };
-    row.tokens[entry.platform] = entry.estimatedTokens;
-    rowsByKey.set(key, row);
+  const rowsByKey = groupEntries(entries);
+  const currentRowCount = rowsByKey.size;
+  const baselineRowsByKey =
+    baselineEntries === undefined ? undefined : groupEntries(baselineEntries);
+
+  if (baselineRowsByKey) {
+    for (const [key, row] of baselineRowsByKey) {
+      if (!rowsByKey.has(key)) {
+        rowsByKey.set(key, { kind: row.kind, name: row.name, tokens: {} });
+      }
+    }
   }
 
   const rows = [...rowsByKey.values()].map(
-    (row) =>
-      `| ${row.kind} | ${escapeMarkdownTableCell(row.name)} | ${formatTokens(row.tokens.claude)} | ${formatTokens(row.tokens.codex)} | ${formatTokens(row.tokens.opencode)} |`
+    (row) => {
+      const key = `${row.kind}\0${row.name}`;
+      const baselineTokens = baselineRowsByKey?.get(key)?.tokens;
+      const deltaCell = baselineRowsByKey
+        ? ` | ${formatTokenDeltas(row.tokens, baselineTokens)}`
+        : '';
+
+      return `| ${row.kind} | ${escapeMarkdownTableCell(row.name)} | ${formatTokens(row.tokens.claude)} | ${formatTokens(row.tokens.codex)} | ${formatTokens(row.tokens.opencode)}${deltaCell} |`;
+    }
   );
-  const totals = Object.fromEntries(
-    SUPPORTED_PLATFORMS.map((platform) => {
-      const platformEntries = entries.filter(
-        (entry) => entry.platform === platform
-      );
-      return [
-        platform,
-        platformEntries.length === 0
-          ? undefined
-          : platformEntries.reduce(
-              (total, entry) => total + entry.estimatedTokens,
-              0
-            ),
-      ];
-    })
-  );
+  const totals = calculateTotals(entries);
+  const baselineTotals = baselineEntries
+    ? calculateTotals(baselineEntries)
+    : undefined;
+  const deltaHeader = baselineRowsByKey
+    ? ' | Δ vs PR parent<br>Claude / Codex / OpenCode'
+    : '';
+  const deltaAlignment = baselineRowsByKey ? ' | ---:' : '';
+  const totalDeltaCell = baselineTotals
+    ? ` | **${formatTokenDeltas(totals, baselineTotals)}**`
+    : '';
 
   return [
     '# Estimated compiled token costs',
     '',
     `Estimated at 1 token per ${formatNumber(charactersPerToken)} compiled characters, rounded up per file.`,
     '',
-    '| Kind | Skill / subagent | Claude Code | Codex | OpenCode |',
-    '| --- | --- | ---: | ---: | ---: |',
+    `| Kind | Skill / subagent | Claude Code | Codex | OpenCode${deltaHeader} |`,
+    `| --- | --- | ---: | ---: | ---:${deltaAlignment} |`,
     ...rows,
-    `| **Total** | **${formatNumber(rowsByKey.size)} files** | **${formatTokens(totals.claude)}** | **${formatTokens(totals.codex)}** | **${formatTokens(totals.opencode)}** |`,
+    `| **Total** | **${formatNumber(currentRowCount)} files** | **${formatTokens(totals.claude)}** | **${formatTokens(totals.codex)}** | **${formatTokens(totals.opencode)}**${totalDeltaCell} |`,
     '',
   ].join('\n');
 }
@@ -156,6 +160,7 @@ export function renderTokenCostReport(
 export function parseCliArgs(args) {
   let charactersPerToken = DEFAULT_CHARACTERS_PER_TOKEN;
   let rootDir = projectRoot;
+  let baselineRootDir;
   let help = false;
 
   for (let index = 0; index < args.length; index++) {
@@ -198,18 +203,37 @@ export function parseCliArgs(args) {
       continue;
     }
 
+    if (argument === '--baseline-root-dir') {
+      const value = args[++index];
+      if (!value) {
+        throw new Error('--baseline-root-dir requires a path');
+      }
+      baselineRootDir = resolve(value);
+      continue;
+    }
+
+    if (argument.startsWith('--baseline-root-dir=')) {
+      const value = argument.slice(argument.indexOf('=') + 1);
+      if (!value) {
+        throw new Error('--baseline-root-dir requires a path');
+      }
+      baselineRootDir = resolve(value);
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${argument}`);
   }
 
   validateCharactersPerToken(charactersPerToken);
-  return { charactersPerToken, rootDir, help };
+  return { charactersPerToken, rootDir, baselineRootDir, help };
 }
 
 export function runTokenCostReport(args = process.argv.slice(2)) {
-  const { charactersPerToken, rootDir, help } = parseCliArgs(args);
+  const { charactersPerToken, rootDir, baselineRootDir, help } =
+    parseCliArgs(args);
   if (help) {
     return [
-      'Usage: npm run report:token-costs -- [--characters-per-token <number>] [--root-dir <path>]',
+      'Usage: npm run report:token-costs -- [--characters-per-token <number>] [--root-dir <path>] [--baseline-root-dir <path>]',
       '',
       `Defaults to ${DEFAULT_CHARACTERS_PER_TOKEN} characters per estimated token.`,
       '',
@@ -217,7 +241,17 @@ export function runTokenCostReport(args = process.argv.slice(2)) {
   }
 
   const entries = collectTokenCostEntries({ rootDir, charactersPerToken });
-  return renderTokenCostReport(entries, charactersPerToken);
+  const baselineEntries = baselineRootDir
+    ? collectTokenCostEntries({
+        rootDir: baselineRootDir,
+        charactersPerToken,
+      })
+    : undefined;
+  return renderTokenCostReport(
+    entries,
+    charactersPerToken,
+    baselineEntries
+  );
 }
 
 function createEntry({
@@ -292,12 +326,60 @@ function validatePlatforms(platforms) {
   }
 }
 
+function groupEntries(entries) {
+  const rowsByKey = new Map();
+  for (const entry of entries) {
+    const key = `${entry.kind}\0${entry.name}`;
+    const row = rowsByKey.get(key) ?? {
+      kind: entry.kind,
+      name: entry.name,
+      tokens: {},
+    };
+    row.tokens[entry.platform] = entry.estimatedTokens;
+    rowsByKey.set(key, row);
+  }
+  return rowsByKey;
+}
+
+function calculateTotals(entries) {
+  return Object.fromEntries(
+    SUPPORTED_PLATFORMS.map((platform) => {
+      const platformEntries = entries.filter(
+        (entry) => entry.platform === platform
+      );
+      return [
+        platform,
+        platformEntries.length === 0
+          ? undefined
+          : platformEntries.reduce(
+              (total, entry) => total + entry.estimatedTokens,
+              0
+            ),
+      ];
+    })
+  );
+}
+
 function formatNumber(value) {
   return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function formatTokens(value) {
   return value === undefined ? '—' : formatNumber(value);
+}
+
+function formatTokenDeltas(tokens, baselineTokens = {}) {
+  return SUPPORTED_PLATFORMS.map((platform) => {
+    const current = tokens[platform];
+    const baseline = baselineTokens[platform];
+    if (current === undefined && baseline === undefined) return '—';
+
+    const delta = (current ?? 0) - (baseline ?? 0);
+    if (delta === 0) return '±0';
+    return delta > 0
+      ? `🔴 +${formatNumber(delta)}`
+      : `🟢 -${formatNumber(Math.abs(delta))}`;
+  }).join(' / ');
 }
 
 function escapeMarkdownTableCell(value) {
