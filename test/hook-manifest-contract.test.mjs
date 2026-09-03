@@ -129,9 +129,10 @@ test('cursor hook commands stay relative because cursor runs them from the plugi
   }
 });
 
-test('Claude and Cursor register one detached-worker finalization each; Codex none', () => {
+test('Claude, Codex, and Cursor register one detached-worker finalization each', () => {
   const finalizers = [
     ['claude', 'SessionEnd', 'node ${CLAUDE_PLUGIN_ROOT}/hooks/finalize-agent-session.mjs claude'],
+    ['codex', 'SessionEnd', 'node ${PLUGIN_ROOT}/hooks/finalize-agent-session.mjs codex'],
     ['cursor', 'sessionEnd', 'node hooks/finalize-agent-session.mjs cursor'],
   ];
   for (const [harness, eventName, command] of finalizers) {
@@ -146,11 +147,6 @@ test('Claude and Cursor register one detached-worker finalization each; Codex no
     // Exactly one casing per harness.
     const otherCasing = eventName === 'SessionEnd' ? 'sessionEnd' : 'SessionEnd';
     assert.equal(otherCasing in manifest.hooks, false, `${harness} ${otherCasing}`);
-  }
-
-  const codex = readManifest('codex');
-  for (const eventName of ['SessionEnd', 'sessionEnd']) {
-    assert.equal(eventName in codex.hooks, false, `codex ${eventName}`);
   }
 });
 
@@ -294,7 +290,14 @@ test('non-wake lifecycle events and foreign harness casing never build a wake cl
       'SubagentStop',
       'PreCompact',
     ],
-    codex: ['stop', 'beforeSubmitPrompt', 'SessionStart', 'PostToolUse', 'SubagentStop'],
+    codex: [
+      'stop',
+      'beforeSubmitPrompt',
+      'SessionStart',
+      'SessionEnd',
+      'PostToolUse',
+      'SubagentStop',
+    ],
     cursor: [
       'Stop',
       'UserPromptSubmit',
@@ -336,6 +339,13 @@ const FINALIZE_PAYLOADS = {
     transcript_path: '/tmp/claude transcript.jsonl',
     reason: 'exit',
   },
+  codex: {
+    hook_event_name: 'SessionEnd',
+    session_id: 'codex/thread id',
+    cwd: '/workspace/codex repo',
+    transcript_path: '/tmp/codex rollout.jsonl',
+    reason: 'other',
+  },
   cursor: {
     hook_event_name: 'sessionEnd',
     conversation_id: 'cursor/session id',
@@ -370,7 +380,8 @@ test('finalization payloads keep identity, paths, and provenance and drop everyt
     ], harness);
     assert.doesNotMatch(args.join('\n'), /--pid|reason|status|exit|completed/);
 
-    // The wrong casing, another harness, or a wake event never finalizes.
+    // The wrong casing, a harness with a different event casing, or a wake
+    // event never finalizes. Claude and Codex intentionally share SessionEnd.
     const otherCasing =
       payload.hook_event_name === 'SessionEnd' ? 'sessionEnd' : 'SessionEnd';
     assert.equal(
@@ -378,8 +389,16 @@ test('finalization payloads keep identity, paths, and provenance and drop everyt
       undefined,
       `${harness} ${otherCasing}`
     );
-    for (const other of ['claude', 'codex', 'cursor', 'opencode'].filter((h) => h !== harness)) {
-      assert.equal(buildCommandHookFinalize(payload, other, {}), undefined, `${harness}->${other}`);
+    for (const other of ['claude', 'codex', 'cursor', 'opencode'].filter(
+      (candidate) =>
+        candidate !== harness &&
+        FINALIZE_PAYLOADS[candidate]?.hook_event_name !== payload.hook_event_name
+    )) {
+      assert.equal(
+        buildCommandHookFinalize(payload, other, {}),
+        undefined,
+        `${harness}->${other}`
+      );
     }
     for (const eventName of ['Stop', 'stop', 'afterAgentResponse', 'UserPromptSubmit']) {
       assert.equal(
@@ -390,17 +409,15 @@ test('finalization payloads keep identity, paths, and provenance and drop everyt
     }
   }
 
-  for (const harness of ['codex', 'opencode']) {
-    assert.throws(
-      () =>
-        buildFinalizeAgentSessionArgs({
-          agentType: harness,
-          agentSessionId: 'x',
-          source: 'hook',
-        }),
-      /Unsupported agent type/
-    );
-  }
+  assert.throws(
+    () =>
+      buildFinalizeAgentSessionArgs({
+        agentType: 'opencode',
+        agentSessionId: 'x',
+        source: 'hook',
+      }),
+    /Unsupported agent type/
+  );
 });
 
 test('finalization carries the hook-fired observation time exactly as a wake does', () => {

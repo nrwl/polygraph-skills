@@ -12,15 +12,14 @@ import {
 
 export const FINALIZE_TIMEOUT_MS = 90_000;
 
-const FINALIZE_AGENT_TYPES = new Set(['claude', 'cursor']);
+const FINALIZE_AGENT_TYPES = new Set(['claude', 'codex', 'cursor']);
 
 // The one lifecycle event per harness that means the conversation ended.
-// Claude sends PascalCase, Cursor camelCase. Codex documents a SessionEnd
-// hook but is deliberately not wired: Ocean's finalize command accepts only
-// Claude and Cursor sessions, so a Codex finalize must land there first.
-// OpenCode exposes no session-exit event at all.
+// Claude and Codex send PascalCase; Cursor sends camelCase. OpenCode exposes
+// no trustworthy per-session exit event.
 const FINALIZE_EVENTS_BY_AGENT = {
   claude: 'SessionEnd',
+  codex: 'SessionEnd',
   cursor: 'sessionEnd',
 };
 

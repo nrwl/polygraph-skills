@@ -188,6 +188,7 @@ export function finalizeCodexDist(pkgJson) {
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
   copyCaptureWakeHookScripts(codexHooksDir);
+  copyFinalizeHookScripts(codexHooksDir);
 
   cpSync(
     join(sourceDir, 'assets'),

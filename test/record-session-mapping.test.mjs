@@ -10,7 +10,6 @@ import {
   buildLinkAgentSessionArgs,
   isPolygraphMcpToolName,
   linkAgentSession,
-  commandHookHarnessPid,
 } from '../source/hooks/agent-session-link.mjs';
 import { main } from '../source/hooks/record-session-mapping.mjs';
 import {
@@ -101,7 +100,6 @@ test('the hook helper exposes no operation-specific parsing API', () => {
   assert.deepEqual(Object.keys(linkModule).sort(), [
     'buildCommandHookLink',
     'buildLinkAgentSessionArgs',
-    'commandHookHarnessPid',
     'hookPayloadSessionId',
     'isPolygraphMcpToolName',
     'linkAgentSession',
@@ -127,7 +125,7 @@ test('the hook helper exposes no operation-specific parsing API', () => {
   }
 });
 
-test('builds a lifecycle link with exact session and capture metadata', () => {
+test('builds a lifecycle link with exact session and capture metadata but no PID', () => {
   const { args, input } = buildLinkAgentSessionArgs({
     polygraphSessionId: 'poly/session?exact=true',
     agentType: 'codex',
@@ -150,8 +148,6 @@ test('builds a lifecycle link with exact session and capture metadata', () => {
       '/workspace/repo with spaces',
       '--transcript-path',
       '/tmp/rollout exact.jsonl',
-      '--pid',
-      '1234',
       '--source',
       'hook',
   ]);
@@ -424,7 +420,6 @@ test('ordinary Codex SessionStart submits a speculative identity-only link', () 
   const result = main({
     agentType: 'codex',
     env: {},
-    pid: 4321,
     payload: {
       hook_event_name: 'SessionStart',
       session_id: 'codex/root-thread',
@@ -443,7 +438,8 @@ test('ordinary Codex SessionStart submits a speculative identity-only link', () 
   assert.ok(invocation.args.includes('codex'));
   assert.ok(invocation.args.includes('codex/root-thread'));
   assert.ok(invocation.args.includes('/tmp/rollout.jsonl'));
-  assert.deepEqual(invocation.args.slice(-4), ['--pid', '4321', '--source', 'hook']);
+  assert.equal(invocation.args.includes('--pid'), false);
+  assert.deepEqual(invocation.args.slice(-2), ['--source', 'hook']);
 });
 
 test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
@@ -484,9 +480,47 @@ test('SessionEnd forwards only exact Claude lifecycle metadata', () => {
     '--observed-at',
     String(HOOK_FIRED_AT),
   ]);
-  assert.equal(buildCommandHookFinalize(payload, 'codex', {}), undefined);
   // Cursor finalizes on its own camelCase event, never on Claude's.
   assert.equal(buildCommandHookFinalize(payload, 'cursor', {}), undefined);
+});
+
+test('Codex SessionEnd forwards only identity and transcript evidence', () => {
+  const payload = {
+    hook_event_name: 'SessionEnd',
+    session_id: 'codex/root-thread',
+    cwd: '/workspace/exact repo',
+    transcript_path: '/tmp/rollout exact.jsonl',
+    reason: 'other',
+  };
+  const claim = buildCommandHookFinalize(payload, 'codex', {}, () => HOOK_FIRED_AT);
+
+  assert.deepEqual(claim, {
+    agentType: 'codex',
+    agentSessionId: 'codex/root-thread',
+    cwd: '/workspace/exact repo',
+    transcriptPath: '/tmp/rollout exact.jsonl',
+    source: 'hook',
+    observedAt: HOOK_FIRED_AT,
+  });
+  assert.deepEqual(buildFinalizeAgentSessionArgs(claim), [
+    '_finalize-agent-session',
+    '--agent-type',
+    'codex',
+    '--agent-session-id',
+    'codex/root-thread',
+    '--cwd',
+    '/workspace/exact repo',
+    '--transcript-path',
+    '/tmp/rollout exact.jsonl',
+    '--source',
+    'hook',
+    '--observed-at',
+    String(HOOK_FIRED_AT),
+  ]);
+  assert.equal(
+    buildCommandHookFinalize({ ...payload, hook_event_name: 'sessionEnd' }, 'codex', {}),
+    undefined
+  );
 });
 
 // Cursor sessionEnd payload shape from live cursor-agent --plugin-dir probes
@@ -1011,7 +1045,6 @@ test('Claude and Codex lifecycle hooks preserve session and capture-token eviden
     const result = main({
       agentType,
       env,
-      pid: 4321,
       payload: {
         hook_event_name: 'SessionStart',
         session_id: agentSessionId,
@@ -1034,7 +1067,7 @@ test('Claude and Codex lifecycle hooks preserve session and capture-token eviden
     assert.ok(invocation.args.includes(agentType));
     assert.ok(invocation.args.includes(agentSessionId));
     assert.ok(invocation.args.includes('/tmp/transcript.jsonl'));
-    assert.equal(invocation.args.includes('--pid'), agentType !== 'claude');
+    assert.equal(invocation.args.includes('--pid'), false);
     assert.equal(invocation.options.env, env);
     assert.equal(invocation.options.env.POLYGRAPH_SESSION_ID, 'poly-session');
     assert.equal(invocation.options.env.POLYGRAPH_CAPTURE_TOKEN, 'opaque-token');
@@ -1055,7 +1088,6 @@ test('read and failed PostToolUse activity forwards identity without session sem
     const result = main({
       agentType: 'codex',
       env,
-      pid: 9876,
       payload: {
         hook_event_name: 'PostToolUse',
         session_id: 'codex/root-thread',
@@ -1075,6 +1107,7 @@ test('read and failed PostToolUse activity forwards identity without session sem
     assert.equal(invocation.args.includes('ambient-session'), false);
     assert.equal(invocation.args.includes('input-session'), false);
     assert.equal(invocation.args.includes('--set-resume-target'), false);
+    assert.equal(invocation.args.includes('--pid'), false);
     assert.ok(invocation.args.includes('codex/root-thread'));
     assert.equal(
       Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'),
@@ -1198,7 +1231,6 @@ test('ordinary cursor sessionStart submits a speculative identity-only link', ()
   const result = main({
     agentType: 'cursor',
     env: {},
-    pid: 8765,
     payload: {
       hook_event_name: 'sessionStart',
       session_id: 'cursor/root-conversation',
@@ -1219,22 +1251,41 @@ test('ordinary cursor sessionStart submits a speculative identity-only link', ()
   assert.ok(invocation.args.includes('cursor/root-conversation'));
   assert.ok(invocation.args.includes('/workspace/repo'));
   assert.equal(invocation.args.includes('--transcript-path'), false);
-  // Cursor's hook parent is a transient shell wrapper, never cursor-agent.
   assert.equal(invocation.args.includes('--pid'), false);
   assert.deepEqual(invocation.args.slice(-2), ['--source', 'hook']);
 });
 
-test('cursor links never bind a mapping to the transient hook-runner PID', () => {
-  const hookRunnerPid = 66900;
-  const payloads = [
-    {
-      hook_event_name: 'sessionStart',
-      session_id: 'cursor/root-conversation',
-      conversation_id: 'cursor/root-conversation',
-      workspace_roots: ['/workspace/repo'],
-      transcript_path: null,
-    },
-    CURSOR_POST_TOOL_USE_PAYLOAD,
+test('command-hook links never bind a mapping to a hook process PID', () => {
+  const hookProcessPid = 66900;
+  const cases = [
+    [
+      'claude',
+      {
+        hook_event_name: 'PostToolUse',
+        session_id: 'claude/root-session',
+        tool_name: 'mcp__polygraph-mcp__show_session',
+      },
+    ],
+    [
+      'codex',
+      {
+        hook_event_name: 'SessionStart',
+        session_id: 'codex/root-thread',
+        cwd: '/workspace/repo',
+        transcript_path: '/tmp/rollout.jsonl',
+      },
+    ],
+    [
+      'cursor',
+      {
+        hook_event_name: 'sessionStart',
+        session_id: 'cursor/root-conversation',
+        conversation_id: 'cursor/root-conversation',
+        workspace_roots: ['/workspace/repo'],
+        transcript_path: null,
+      },
+    ],
+    ['cursor', CURSOR_POST_TOOL_USE_PAYLOAD],
   ];
 
   for (const env of [
@@ -1244,13 +1295,13 @@ test('cursor links never bind a mapping to the transient hook-runner PID', () =>
       POLYGRAPH_CAPTURE_TOKEN: 'capture-token-1',
     },
   ]) {
-    for (const payload of payloads) {
+    for (const [agentType, payload] of cases) {
       let invocation;
       assert.equal(
         main({
-          agentType: 'cursor',
+          agentType,
           env,
-          pid: hookRunnerPid,
+          pid: hookProcessPid,
           payload,
           spawn(command, args, options) {
             invocation = { command, args, options };
@@ -1262,38 +1313,8 @@ test('cursor links never bind a mapping to the transient hook-runner PID', () =>
       );
       assert.equal(invocation.args[0], '_link-agent-session');
       assert.equal(invocation.args.includes('--pid'), false, payload.hook_event_name);
-      assert.equal(invocation.args.includes(String(hookRunnerPid)), false);
+      assert.equal(invocation.args.includes(String(hookProcessPid)), false);
     }
-  }
-
-  assert.equal(
-    commandHookHarnessPid('cursor', { hook_event_name: 'sessionStart' }, hookRunnerPid),
-    undefined
-  );
-  assert.equal(
-    commandHookHarnessPid('cursor', { hook_event_name: 'postToolUse' }, hookRunnerPid),
-    undefined
-  );
-  // Claude SessionStart stays PID-less; other Claude and Codex links keep the
-  // hook's parent PID exactly as before.
-  assert.equal(
-    commandHookHarnessPid('claude', { hook_event_name: 'SessionStart' }, 4321),
-    undefined
-  );
-  assert.equal(
-    commandHookHarnessPid('claude', { hook_event_name: 'PostToolUse' }, 4321),
-    4321
-  );
-  assert.equal(
-    commandHookHarnessPid('codex', { hook_event_name: 'SessionStart' }, 4321),
-    4321
-  );
-  for (const invalid of [0, -1, 1.5, NaN, undefined, '4321']) {
-    assert.equal(
-      commandHookHarnessPid('codex', { hook_event_name: 'PostToolUse' }, invalid),
-      undefined,
-      String(invalid)
-    );
   }
 });
 
@@ -1305,7 +1326,6 @@ test('polygraph-launched cursor sessionStart links with session and capture evid
       POLYGRAPH_SESSION_ID: 'poly/launched-session',
       POLYGRAPH_CAPTURE_TOKEN: 'capture-token-1',
     },
-    pid: 8765,
     payload: {
       hook_event_name: 'sessionStart',
       session_id: 'cursor/root-conversation',
@@ -1460,7 +1480,6 @@ test('cursor postToolUse invokes the link command with the hook operation', () =
   const result = main({
     agentType: 'cursor',
     env: {},
-    pid: 8765,
     payload: CURSOR_POST_TOOL_USE_PAYLOAD,
     spawn(command, args, options) {
       invocation = { command, args, options };
@@ -1569,7 +1588,6 @@ test('cursor links and finalizations never record the hook process cwd as eviden
     main({
       agentType: 'claude',
       env: {},
-      pid: 4321,
       payload: { hook_event_name: 'SessionStart', session_id: 'claude/root-session' },
       spawn(command, args, options) {
         claudeInvocation = { command, args, options };

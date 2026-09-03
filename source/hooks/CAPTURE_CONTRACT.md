@@ -53,17 +53,15 @@ its own `--observed-at`, described under Finalization.
 
 ## Process identity
 
-A mapping PID lets Ocean close capture when the harness exits, so a link
-carries a PID only when it names the long-lived harness process. Wakes
-(`_ensure-agent-session-capture` and its legacy fallback) never carry one.
-Cursor runs every hook through a short-lived shell wrapper: a hook's parent
-PID is that wrapper, not `cursor-agent`, and Cursor's payload and environment
-expose no harness PID. Cursor links therefore omit `--pid` entirely, and
-Ocean's transcript and explicit harness-exit mechanisms govern that
-lifecycle rather than a PID that dies the moment the hook returns. OpenCode
-links carry the in-process plugin host's own PID. Claude SessionStart omits
-the PID because the asynchronous hook's parent can be stale; other Claude
-and Codex links are unchanged.
+Harness and plugin links never carry a PID. A command hook's `process.ppid`
+is an implementation detail of the harness's hook launcher and may name a
+short-lived shell or helper rather than the agent. OpenCode's in-process
+plugin PID is host-wide rather than session-specific. Neither is trustworthy
+session lifecycle evidence, so `_link-agent-session`, capture wakes, and
+finalizers never emit `--pid`. Claude, Codex, and Cursor use their explicit
+session-end events for graceful finalization. OpenCode exposes no trustworthy
+per-session exit event; capture already uploads transcript records
+incrementally, and an unobserved hard exit does not create a semantic boundary.
 
 ## Execution rules
 
@@ -105,9 +103,9 @@ claim with no directory and no `--cwd` on the finalize or legacy link
 command; the launch then starts from the home directory as a spawn detail
 only.
 
-Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
-off to a detached worker. A wake worker enforces the shared twenty-second CLI
-kill deadline; the finalization worker allows at most 90 seconds. Each
+Detached command hooks, OpenCode wakes, and Claude/Codex/Cursor finalization
+hand off to a detached worker. A wake worker enforces the shared twenty-second
+CLI kill deadline; the finalization worker allows at most 90 seconds. Each
 worker owns the complete CLI invocation and writes failures durably to
 `~/.polygraph/logs/hooks.log`; the harness event loop observes launch errors
 only. Workers always launch through a Node runtime — `process.execPath` when
@@ -122,10 +120,10 @@ no hook ever writes to its own stdout, and no hook waits on a worker.
 
 ## Finalization
 
-Claude's `SessionEnd` and Cursor's `sessionEnd` finalize
+Claude's and Codex's `SessionEnd` and Cursor's `sessionEnd` finalize
 (`_finalize-agent-session`, which keeps `--source`): each is the one
-lifecycle event of its harness that means the conversation has ended. Both
-hand off to the detached finalization worker and emit nothing on stdout.
+lifecycle event of its harness that means the conversation has ended. All
+three hand off to the detached finalization worker and emit nothing on stdout.
 Cursor's `sessionEnd` is observational and dispatched to plugin-scope hooks
 under `cursor-agent --plugin-dir`; its payload carries `session_id` and
 `conversation_id`, `workspace_roots`, `transcript_path`, `reason`, and
@@ -139,12 +137,10 @@ final answer was. The observation time is what lets Ocean order a finalize
 against wakes and relinks: the finalization worker may run up to 90 seconds
 after the harness exit it describes, and its own start time is never used. Claude `SessionStart` accepts
 `startup`, `resume`, `clear`, `compact`, and `fork`. Ordinary Stop/idle
-events never finalize. Codex documents a `SessionEnd` hook (a one-second
-default budget, three-second maximum, which a detached handoff would fit),
-but Codex finalization is deliberately not wired: Ocean's
-`_finalize-agent-session` accepts only Claude and Cursor sessions, so a
-Codex finalize must land in Ocean before this plugin registers the hook.
-OpenCode exposes no session-exit event and cannot finalize.
+events never finalize. Codex's graceful `SessionEnd` hook has a one-second
+default budget and three-second maximum; the hook only launches the detached
+worker, so final capture continues outside that budget. OpenCode exposes no
+trustworthy per-session exit event and cannot finalize.
 
 ## Environment
 

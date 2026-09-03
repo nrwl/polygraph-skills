@@ -129,7 +129,6 @@ export function createOpenCodeSessionLinker({
   client,
   directory,
   env = process.env,
-  pid = process.pid,
   link,
   ensure,
   spawn,
@@ -173,7 +172,6 @@ export function createOpenCodeSessionLinker({
       agentType: 'opencode',
       agentSessionId,
       cwd: cwd || directory || process.cwd(),
-      pid,
       source: 'hook',
     });
     if (linked && lifecycleKey) linkedLifecycleSessions.add(lifecycleKey);

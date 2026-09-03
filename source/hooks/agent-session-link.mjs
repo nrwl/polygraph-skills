@@ -43,32 +43,12 @@ export function hookPayloadSessionId(payload) {
   );
 }
 
-/**
- * The PID a command hook may bind a mapping to. Ocean closes capture when
- * a mapped PID exits, so a link carries a PID only when it names the
- * long-lived harness process. Cursor runs every hook through a short-lived
- * shell wrapper, so the hook's parent PID is that wrapper rather than
- * cursor-agent, and neither the payload nor the environment exposes the
- * harness PID; Cursor links therefore bind no PID and Ocean's transcript and
- * explicit harness-exit mechanisms govern that lifecycle. Claude SessionStart
- * omits it too: the hook is asynchronous and its parent PID can be stale by
- * the time it runs.
- */
-export function commandHookHarnessPid(agentType, payload, ppid) {
-  if (agentType === 'cursor') return undefined;
-  if (agentType === 'claude' && payload?.hook_event_name === 'SessionStart') {
-    return undefined;
-  }
-  return Number.isSafeInteger(ppid) && ppid > 0 ? ppid : undefined;
-}
-
 export function buildLinkAgentSessionArgs({
   polygraphSessionId,
   agentType,
   agentSessionId,
   cwd,
   transcriptPath,
-  pid,
   source,
   hookOperation,
 }) {
@@ -88,10 +68,6 @@ export function buildLinkAgentSessionArgs({
 
   const transcript = nonEmptyString(transcriptPath);
   if (transcript) args.push('--transcript-path', transcript);
-
-  if (Number.isSafeInteger(pid) && pid > 0) {
-    args.push('--pid', String(pid));
-  }
 
   // Cursor post-tool evidence rides the hook payload (the transcript stores
   // no tool results); forwarded verbatim, classified by the CLI. The

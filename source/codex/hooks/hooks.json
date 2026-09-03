@@ -50,6 +50,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${PLUGIN_ROOT}/hooks/finalize-agent-session.mjs codex",
+            "statusMessage": "Finalizing Polygraph session capture"
+          }
+        ]
+      }
     ]
   }
 }

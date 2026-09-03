@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildCommandHookLink,
-  commandHookHarnessPid,
   hookPayloadSessionId,
   linkAgentSession,
   logHookFailure,
@@ -23,7 +22,6 @@ export function main({
   payload = readPayload(),
   agentType = process.argv[2],
   env = process.env,
-  pid = process.ppid,
   spawn,
   logFailure = logHookFailure,
 } = {}) {
@@ -35,14 +33,14 @@ export function main({
     // own cwd stands in when the payload carries none; Cursor's hook cwd is
     // the plugin root and is never recorded. Read lazily, inside the
     // protected path, because a deleted cwd makes process.cwd() throw.
-    const claim = {
-      ...link,
-      cwd: link.cwd ?? fallbackClaimDirectory(agentType),
-    };
-    const harnessPid = commandHookHarnessPid(agentType, payload, pid);
-    if (harnessPid !== undefined) claim.pid = harnessPid;
-
-    return linkAgentSession(claim, spawn, env);
+    return linkAgentSession(
+      {
+        ...link,
+        cwd: link.cwd ?? fallbackClaimDirectory(agentType),
+      },
+      spawn,
+      env
+    );
   } catch (error) {
     logFailure(`${agentType || 'unknown'}:link-agent-session`, error, {
       hookEventName: payload?.hook_event_name,

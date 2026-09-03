@@ -125,7 +125,6 @@ test('session.created links the exact OpenCode lifecycle identity once', async (
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/exact',
-      pid: process.pid,
       source: 'hook',
     },
   ]);
@@ -137,7 +136,6 @@ test('session.created outside a launched Polygraph session links speculatively o
   const linker = createOpenCodeSessionLinker({
     client,
     env: {},
-    pid: 7654,
     link(claim) {
       claims.push(claim);
       return true;
@@ -158,7 +156,6 @@ test('session.created outside a launched Polygraph session links speculatively o
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace',
-      pid: 7654,
       source: 'hook',
     },
   ]);
@@ -262,7 +259,6 @@ test('environment binding links the exact root OpenCode session', async () => {
     client,
     directory: '/workspace/default',
     env: { POLYGRAPH_SESSION_ID: 'poly-session' },
-    pid: 7654,
     link(claim) {
       claims.push(claim);
       return true;
@@ -276,7 +272,6 @@ test('environment binding links the exact root OpenCode session', async () => {
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/repo',
-      pid: 7654,
       source: 'hook',
     },
   ]);
@@ -310,7 +305,6 @@ test('OpenCode tool activity forwards only the exact root session identity', asy
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/repo',
-      pid: process.pid,
       source: 'hook',
     },
   ]);
@@ -331,7 +325,6 @@ test('OpenCode tool activity strips ambient session and capture-token evidence',
     client,
     directory: '/workspace/repo',
     env,
-    pid: 2468,
     spawn(command, args, options) {
       invocations.push({ command, args, options });
       return { status: 0, stderr: '' };
@@ -347,6 +340,7 @@ test('OpenCode tool activity strips ambient session and capture-token evidence',
   assert.equal(invocations.length, 1);
   assert.equal(invocations[0].command, 'polygraph');
   assert.equal(invocations[0].args.includes('--session'), false);
+  assert.equal(invocations[0].args.includes('--pid'), false);
   assert.ok(invocations[0].args.includes('root'));
   assert.equal(
     Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_SESSION_ID'),
@@ -374,7 +368,6 @@ test('OpenCode lifecycle links preserve session and capture-token evidence', asy
     client,
     directory: '/workspace/repo',
     env,
-    pid: 2468,
     spawn(command, args, options) {
       invocation = { command, args, options };
       return { status: 0, stderr: '' };
@@ -386,6 +379,7 @@ test('OpenCode lifecycle links preserve session and capture-token evidence', asy
   assert.ok(invocation.args.includes('lifecycle-poly-session'));
   assert.ok(invocation.args.includes('root'));
   assert.ok(invocation.args.includes('/workspace/exact'));
+  assert.equal(invocation.args.includes('--pid'), false);
   assert.equal(invocation.options.env, env);
   assert.equal(
     invocation.options.env.POLYGRAPH_SESSION_ID,

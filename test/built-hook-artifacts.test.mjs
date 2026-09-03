@@ -172,35 +172,37 @@ test('built harness artifacts contain every executable hook module dependency', 
   );
 });
 
-test('the packaged cursor finalize worker finalizes end to end without a PID', () => {
-  const home = mkdtempSync(join(tmpdir(), 'pg packaged finalize-'));
-  try {
-    const cliPath = join(home, 'polygraph cli.js');
-    writeFinalizeCli(cliPath);
+for (const harness of ['codex', 'cursor']) {
+  test(`the packaged ${harness} finalize worker finalizes end to end without a PID`, () => {
+    const home = mkdtempSync(join(tmpdir(), 'pg packaged finalize-'));
+    try {
+      const cliPath = join(home, 'polygraph cli.js');
+      writeFinalizeCli(cliPath);
 
-    const result = spawnSync(
-      process.execPath,
-      [
-        join(distDir, 'cursor', 'hooks', 'finalize-agent-session-worker.mjs'),
-        JSON.stringify({
-          agentType: 'cursor',
-          agentSessionId: 'cursor/conversation-id',
-          cwd: home,
-          transcriptPath: join(home, 'transcript.jsonl'),
-          source: 'hook',
-          observedAt: 1_767_225_600_000,
-        }),
-      ],
-      { cwd: home, encoding: 'utf8', env: workerEnv(home, cliPath) }
-    );
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(distDir, harness, 'hooks', 'finalize-agent-session-worker.mjs'),
+          JSON.stringify({
+            agentType: harness,
+            agentSessionId: `${harness}/session-id`,
+            cwd: home,
+            transcriptPath: join(home, 'transcript.jsonl'),
+            source: 'hook',
+            observedAt: 1_767_225_600_000,
+          }),
+        ],
+        { cwd: home, encoding: 'utf8', env: workerEnv(home, cliPath) }
+      );
 
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    assert.equal(result.stdout, '');
-    assert.equal(result.stderr, '');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
+      assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+      assert.equal(result.stdout, '');
+      assert.equal(result.stderr, '');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+}
 
 // The detached wake worker runs from the published layout of every harness
 // with only its packaged siblings available, against a plain JS CLI entry in
@@ -272,7 +274,7 @@ test('packaged hook scripts and manifests are byte-identical to source', () => {
   }
 
   // Finalization ships only where it is wired.
-  for (const harness of ['claude', 'cursor']) {
+  for (const harness of ['claude', 'codex', 'cursor']) {
     for (const name of [
       'finalize-agent-session.mjs',
       'finalize-agent-session-worker.mjs',
@@ -281,7 +283,6 @@ test('packaged hook scripts and manifests are byte-identical to source', () => {
       assert.equal(existsSync(join(distDir, harness, 'hooks', name)), true, `${harness} ${name}`);
     }
   }
-  assert.equal(existsSync(join(distDir, 'codex', 'hooks', 'finalize-agent-session.mjs')), false);
   for (const bundle of ['agent-session-link.mjs', 'ensure-agent-session-capture-worker.mjs']) {
     assert.doesNotMatch(
       readFileSync(join(distDir, 'opencode', bundle), 'utf8'),
@@ -306,7 +307,6 @@ test('the packaged OpenCode linker launches links from an existing directory and
       client: { session: { get: async ({ path }) => ({ data: { id: path.id } }) } },
       directory: gone,
       env: { HOME: home, POLYGRAPH_SESSION_ID: 'poly/session' },
-      pid: 2468,
       spawn(command, args, options) {
         invocations.push({ command, args, options });
         return { status: 0, stderr: '' };
@@ -316,6 +316,7 @@ test('the packaged OpenCode linker launches links from an existing directory and
     assert.equal(await linker.fromEnvironment('root'), true);
     assert.equal(invocations.length, 1);
     assert.equal(invocations[0].args[0], '_link-agent-session');
+    assert.equal(invocations[0].args.includes('--pid'), false);
     // The launch moved to home; the recorded working directory did not.
     assert.equal(invocations[0].options.cwd, home);
     const cwdIndex = invocations[0].args.indexOf('--cwd');
