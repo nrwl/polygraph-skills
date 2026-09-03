@@ -206,3 +206,98 @@ test('buildPolygraphContext omits the URL when org or base URL is missing', () =
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('findSidecar skips speculative sidecars and returns null when only speculative sidecars exist', () => {
+  const root = makeRoot('new');
+  try {
+    // Replace the regular sidecar with a speculative one
+    const sidecarDir = sidecarDirFor(root, 'new');
+    writeParentSidecar(root, 'new', { target: 'speculative' });
+
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.equal(sidecar, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findSidecar returns regular sidecar when both speculative and regular sidecars exist', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pg-mixed-'));
+  try {
+    const speculativeSessionId = '6a85cae00aa11f3613806334';
+    const regularSessionId = POLY_ID;
+
+    // Create a speculative sidecar in one session directory
+    const speculativeSidecarDir = path.join(root, 'sessions', speculativeSessionId, 'sidecars');
+    mkdirSync(speculativeSidecarDir, { recursive: true });
+    writeFileSync(
+      path.join(speculativeSidecarDir, `parent-${CLAUDE_ID}.json`),
+      JSON.stringify({
+        sessionId: speculativeSessionId,
+        parentSessionId: CLAUDE_ID,
+        parentAgentType: 'claude',
+        target: 'speculative',
+      })
+    );
+
+    // Create a regular sidecar in another session directory
+    const regularSidecarDir = path.join(root, 'sessions', regularSessionId, 'sidecars');
+    mkdirSync(regularSidecarDir, { recursive: true });
+    writeFileSync(
+      path.join(regularSidecarDir, `parent-${CLAUDE_ID}.json`),
+      JSON.stringify({
+        sessionId: regularSessionId,
+        parentSessionId: CLAUDE_ID,
+        parentAgentType: 'claude',
+        target: 'regular',
+      })
+    );
+
+    // Set up session metadata for the regular session
+    const sessionDir = path.join(root, 'sessions', regularSessionId, 'session');
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      path.join(sessionDir, 'session.json'),
+      JSON.stringify({
+        sessionId: regularSessionId,
+        orgId: 'org-456',
+        agentType: 'claude',
+        repos: [],
+      })
+    );
+
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.ok(sidecar);
+    assert.equal(sidecar.sessionId, regularSessionId);
+    assert.equal(sidecar.target, 'regular');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('buildPolygraphContext returns null when only speculative sidecars exist', () => {
+  const root = makeRoot('new');
+  try {
+    // Replace the regular sidecar with a speculative one
+    const sidecarDir = sidecarDirFor(root, 'new');
+    writeParentSidecar(root, 'new', { target: 'speculative' });
+
+    const ctx = buildPolygraphContext(CLAUDE_ID, root);
+    assert.equal(ctx, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findSidecar treats missing target field as regular (not speculative)', () => {
+  const root = makeRoot('new');
+  try {
+    // The makeRoot() function already creates a sidecar without a target field
+    const sidecar = findSidecar(CLAUDE_ID, root);
+    assert.ok(sidecar);
+    assert.equal(sidecar.sessionId, POLY_ID);
+    assert.equal(sidecar.target, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
