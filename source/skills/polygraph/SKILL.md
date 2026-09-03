@@ -56,6 +56,7 @@ Polygraph functionality is available via both MCP tools and CLI commands. Use wh
 | `stop_agent` | — | Cancel an in-progress child by delegation id; its session is preserved for later read-only context restoration. |
 | `push_branch` | — | Push a local git branch to the remote repository. For the repo you are in, this pushes from your current checkout. Requires a session description. |
 | `create_pr` | — | Create draft PRs with session metadata linking related PRs |
+| `update_pr` | — | Update title, user-authored body, labels, or assignees on one PR associated with a session |
 | `show_session` | `polygraph session show <id> [--details]` | Query status of the current session. Use details when session summary, repo IDs, PR URLs, and PR descriptions are needed. |
 | `update_session` | `polygraph session update --session <id> [--title] [--description]` | Update the session title and/or description (at least one required); metadata only, independent of PR creation or mark-ready. |
 | `link_reference` | — | Link an external reference to a session. |
@@ -287,9 +288,9 @@ The `allow_agent` and `deny_agent` tools exist for parents whose MCP clients do 
 
 ### Publish Changes (Push Branches, Create PRs, Mark Ready)
 
-Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), and `associate_pr` (link PRs created outside Polygraph).
+Publishing covers the branch-to-PR flow: `push_branch` (push local commits; must precede PR creation), `create_pr` (linked draft PRs, including fork PRs via `targetRepository`), `mark_pr_ready` (transition drafts to OPEN), `associate_pr` (link PRs created outside Polygraph), and `update_pr` (update metadata on an associated PR).
 
-**Whenever you push a branch, create or associate a PR, or mark PRs ready, read [`reference/publish-changes.md`](reference/publish-changes.md) first.** That reference file holds the full flow.
+**Whenever you push a branch, create, associate, or update a PR, or mark PRs ready, read [`reference/publish-changes.md`](reference/publish-changes.md) first.** That reference file holds the full flow.
 
 ### Session Description Policy
 

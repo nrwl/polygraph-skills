@@ -4,7 +4,7 @@
 
 `description` is user-facing Polygraph session context.
 
-`description` is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (which takes `title` and/or `description`). (`mark_pr_ready` does not take a description.) The Polygraph web app renders the description as Markdown, so use real Markdown headings — not flat `Label:` lines. Use the canonical structured format:
+`description` is required for `push_branch`, `create_pr`, and `associate_pr`, and is the primary input to `update_session` (which takes `title` and/or `description`). Metadata updates through `update_pr` do not require a session timeline description, and `mark_pr_ready` does not take one. The Polygraph web app renders the description as Markdown, so use real Markdown headings — not flat `Label:` lines. Use the canonical structured format:
 
 ```markdown
 ## Goal
