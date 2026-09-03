@@ -67,7 +67,7 @@ and Codex links are unchanged.
 
 ## Execution rules
 
-Command-hook wakes are bounded by one shared five-second deadline,
+Command-hook wakes are bounded by one shared twenty-second deadline,
 repeatable, and may overlap or arrive out of order with SessionEnd. A
 timed-out or ambiguously executed command is never retried by the plugin.
 An older CLI that reports `_ensure-agent-session-capture` as unsupported is
@@ -106,7 +106,7 @@ command; the launch then starts from the home directory as a spawn detail
 only.
 
 Detached command hooks, OpenCode wakes, and Claude/Cursor finalization hand
-off to a detached worker. A wake worker enforces the shared five-second CLI
+off to a detached worker. A wake worker enforces the shared twenty-second CLI
 kill deadline; the finalization worker allows at most 90 seconds. Each
 worker owns the complete CLI invocation and writes failures durably to
 `~/.polygraph/logs/hooks.log`; the harness event loop observes launch errors

@@ -389,6 +389,7 @@ test('Stop launcher invokes only the configured hidden CLI command', () => withR
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
   assert.equal(invocation.options.killSignal, 'SIGKILL');
+  assert.equal(ENSURE_CAPTURE_TIMEOUT_MS, 20_000);
   assert.ok(invocation.options.timeout <= ENSURE_CAPTURE_TIMEOUT_MS);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_SESSION_ID'), false);
   assert.equal(Object.hasOwn(invocation.options.env, 'POLYGRAPH_CAPTURE_TOKEN'), false);
@@ -437,7 +438,7 @@ test('Stop launcher also contains spawn errors', () => {
 
 test('Stop uses one strict bounded deadline across version-skew fallback', () => {
   const invocations = [];
-  const times = [1_000, 1_100, 5_700];
+  const times = [1_000, 1_100, 20_700];
   const claim = {
     agentType: 'claude',
     agentSessionId: 'claude-session',
@@ -479,7 +480,7 @@ test('Stop uses one strict bounded deadline across version-skew fallback', () =>
     '/workspace/repo',
   ]);
   assert.deepEqual(invocations[1].args.slice(-2), ['--source', 'hook']);
-  assert.equal(invocations[0].options.timeout, 4_900);
+  assert.equal(invocations[0].options.timeout, 19_900);
   assert.equal(invocations[1].options.timeout, 300);
   assert.equal(invocations[0].options.killSignal, 'SIGKILL');
   assert.equal(invocations[1].options.killSignal, 'SIGKILL');

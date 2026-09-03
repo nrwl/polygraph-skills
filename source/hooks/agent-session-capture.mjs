@@ -10,7 +10,10 @@ import {
   runCaptureCliSync,
 } from './capture-cli.mjs';
 
-export const ENSURE_CAPTURE_TIMEOUT_MS = 5_000;
+// Ocean may spend up to 2.5 seconds waiting for its singleton startup lock and
+// 10 seconds on the sidecar handshake. Keep enough headroom for CLI startup
+// while retaining one bounded deadline across ensure and its legacy fallback.
+export const ENSURE_CAPTURE_TIMEOUT_MS = 20_000;
 export const ENSURE_CAPTURE_UNSUPPORTED_MARKER =
   'POLYGRAPH_ENSURE_AGENT_SESSION_CAPTURE_UNSUPPORTED';
 

@@ -52,6 +52,7 @@ test('worker wakes capture from a parsed claim and reports success', () => {
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.options.windowsHide, true);
   assert.equal(invocation.options.killSignal, 'SIGKILL');
+  assert.equal(ENSURE_CAPTURE_TIMEOUT_MS, 20_000);
   assert.ok(invocation.options.timeout <= ENSURE_CAPTURE_TIMEOUT_MS);
   rmSync(repo, { recursive: true, force: true });
 });
