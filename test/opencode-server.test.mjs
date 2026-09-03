@@ -13,8 +13,10 @@ import { PolygraphPlugin } from '../source/opencode/server.js';
 import * as serverModule from '../source/opencode/server.js';
 import {
   createOpenCodeSessionLinker,
+  deferOpenCodeCaptureWake,
   deferOpenCodeToolActivity,
   linkOpenCodeSessionCreatedEvent,
+  openCodeChatMessageSessionId,
   resolveOpenCodeRootSessionId,
 } from '../source/opencode/agent-session-link.mjs';
 
@@ -89,6 +91,7 @@ test('PolygraphPlugin exposes the supported OpenCode hooks', async () => {
     const plugin = await PolygraphPlugin();
     assert.equal(typeof plugin.config, 'function');
     assert.equal(typeof plugin.event, 'function');
+    assert.equal(typeof plugin['chat.message'], 'function');
     assert.equal(typeof plugin['shell.env'], 'function');
     assert.equal(typeof plugin['tool.execute.after'], 'function');
     assert.equal(typeof plugin['experimental.session.compacting'], 'function');
@@ -122,7 +125,6 @@ test('session.created links the exact OpenCode lifecycle identity once', async (
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/exact',
-      pid: process.pid,
       source: 'hook',
     },
   ]);
@@ -134,7 +136,6 @@ test('session.created outside a launched Polygraph session links speculatively o
   const linker = createOpenCodeSessionLinker({
     client,
     env: {},
-    pid: 7654,
     link(claim) {
       claims.push(claim);
       return true;
@@ -155,7 +156,6 @@ test('session.created outside a launched Polygraph session links speculatively o
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace',
-      pid: 7654,
       source: 'hook',
     },
   ]);
@@ -259,7 +259,6 @@ test('environment binding links the exact root OpenCode session', async () => {
     client,
     directory: '/workspace/default',
     env: { POLYGRAPH_SESSION_ID: 'poly-session' },
-    pid: 7654,
     link(claim) {
       claims.push(claim);
       return true;
@@ -273,7 +272,6 @@ test('environment binding links the exact root OpenCode session', async () => {
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/repo',
-      pid: 7654,
       source: 'hook',
     },
   ]);
@@ -307,7 +305,6 @@ test('OpenCode tool activity forwards only the exact root session identity', asy
       agentType: 'opencode',
       agentSessionId: 'root',
       cwd: '/workspace/repo',
-      pid: process.pid,
       source: 'hook',
     },
   ]);
@@ -328,7 +325,6 @@ test('OpenCode tool activity strips ambient session and capture-token evidence',
     client,
     directory: '/workspace/repo',
     env,
-    pid: 2468,
     spawn(command, args, options) {
       invocations.push({ command, args, options });
       return { status: 0, stderr: '' };
@@ -344,6 +340,7 @@ test('OpenCode tool activity strips ambient session and capture-token evidence',
   assert.equal(invocations.length, 1);
   assert.equal(invocations[0].command, 'polygraph');
   assert.equal(invocations[0].args.includes('--session'), false);
+  assert.equal(invocations[0].args.includes('--pid'), false);
   assert.ok(invocations[0].args.includes('root'));
   assert.equal(
     Object.hasOwn(invocations[0].options.env, 'POLYGRAPH_SESSION_ID'),
@@ -371,7 +368,6 @@ test('OpenCode lifecycle links preserve session and capture-token evidence', asy
     client,
     directory: '/workspace/repo',
     env,
-    pid: 2468,
     spawn(command, args, options) {
       invocation = { command, args, options };
       return { status: 0, stderr: '' };
@@ -383,6 +379,7 @@ test('OpenCode lifecycle links preserve session and capture-token evidence', asy
   assert.ok(invocation.args.includes('lifecycle-poly-session'));
   assert.ok(invocation.args.includes('root'));
   assert.ok(invocation.args.includes('/workspace/exact'));
+  assert.equal(invocation.args.includes('--pid'), false);
   assert.equal(invocation.options.env, env);
   assert.equal(
     invocation.options.env.POLYGRAPH_SESSION_ID,
@@ -542,5 +539,210 @@ test('compacting hook is a no-op outside a Polygraph session', async () => {
       output
     );
     assert.deepEqual(output.context, []);
+  });
+});
+
+test('PolygraphPlugin registers the chat.message prompt wake', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    assert.equal(typeof plugin['chat.message'], 'function');
+  });
+});
+
+test('chat.message wakes from the documented input.sessionID, falling back to the created message', () => {
+  assert.equal(
+    openCodeChatMessageSessionId(
+      { sessionID: 'ses_input', message: { sessionID: 'wrong-nested-field' } },
+      { message: { sessionID: 'ses_output' } }
+    ),
+    'ses_input'
+  );
+  assert.equal(
+    openCodeChatMessageSessionId({}, { message: { sessionID: 'ses_output' } }),
+    'ses_output'
+  );
+  assert.equal(
+    openCodeChatMessageSessionId({ sessionID: '' }, { message: { sessionID: '' } }),
+    undefined
+  );
+  assert.equal(openCodeChatMessageSessionId(undefined, undefined), undefined);
+});
+
+test('OpenCode wakes capture on chat.message, deferred and identity-only', async () => {
+  const wakes = [];
+  let scheduled;
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture(sessionId) {
+        wakes.push(sessionId);
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
+
+  assert.deepEqual(wakes, []);
+  await scheduled();
+  assert.deepEqual(wakes, ['ses_root']);
+});
+
+test('a deferred wake reads the observation time when the event fires, not when it runs', async () => {
+  const wakes = [];
+  let scheduled;
+  let clock = 1_767_225_600_000;
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture(sessionId, options) {
+        wakes.push({ sessionId, ...options });
+      },
+    },
+    (error) => {
+      throw error;
+    },
+    (callback) => {
+      scheduled = callback;
+    },
+    () => clock
+  );
+
+  // The host loop moves on; the deferred wake runs much later.
+  clock += 45_000;
+  await scheduled();
+  assert.deepEqual(wakes, [{ sessionId: 'ses_root', observedAt: 1_767_225_600_000 }]);
+});
+
+test('a deferred wake contains rejections and even a throwing error handler', async () => {
+  let scheduled;
+  const seen = [];
+  deferOpenCodeCaptureWake(
+    'ses_root',
+    {
+      async wakeCapture() {
+        throw new Error('CLI unavailable');
+      },
+    },
+    (error) => {
+      seen.push(error.message);
+      throw new Error('handler exploded');
+    },
+    (callback) => {
+      scheduled = callback;
+    }
+  );
+
+  await scheduled();
+  assert.deepEqual(seen, ['CLI unavailable']);
+});
+
+test('wakeCapture resolves subagent sessions to their root before waking', async () => {
+  const ensured = [];
+  const client = fakeClient({
+    ses_child: { id: 'ses_child', parentID: 'ses_root' },
+    ses_root: { id: 'ses_root' },
+  });
+  const linker = createOpenCodeSessionLinker({
+    client,
+    directory: '/workspace/repo with spaces',
+    env: {},
+    now: () => 1_767_225_600_000,
+    ensure(claim) {
+      ensured.push(claim);
+      return true;
+    },
+  });
+
+  assert.equal(await linker.wakeCapture('ses_child'), true);
+  assert.deepEqual(ensured, [
+    {
+      agentType: 'opencode',
+      agentSessionId: 'ses_root',
+      cwd: '/workspace/repo with spaces',
+      observedAt: 1_767_225_600_000,
+    },
+  ]);
+
+  // Wakes are repeatable: no lifecycle dedupe, identical claims each time.
+  assert.equal(await linker.wakeCapture('ses_child'), true);
+  assert.equal(ensured.length, 2);
+  assert.deepEqual(ensured[0], ensured[1]);
+});
+
+test('the default OpenCode wake detaches a worker instead of running the CLI in the host loop', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'pg-opencode-wake-'));
+  let invocation;
+  let unrefCount = 0;
+  const listeners = {};
+
+  try {
+    const linker = createOpenCodeSessionLinker({
+      client: fakeClient({ ses_root: { id: 'ses_root' } }),
+      directory: '/workspace/repo with spaces',
+      env: { HOME: home, POLYGRAPH_CLI: '/opt/polygraph' },
+      now: () => 1_767_225_600_000,
+      spawn(command, args, options) {
+        invocation = { command, args, options };
+        return {
+          once(event, listener) {
+            listeners[event] = listener;
+            return this;
+          },
+          unref() {
+            unrefCount += 1;
+          },
+        };
+      },
+    });
+
+    assert.equal(await linker.wakeCapture('ses_root'), true);
+    assert.equal(invocation.command, process.execPath);
+    assert.match(
+      invocation.args[0],
+      /ensure-agent-session-capture-worker\.mjs$/
+    );
+    assert.deepEqual(JSON.parse(invocation.args[1]), {
+      agentType: 'opencode',
+      agentSessionId: 'ses_root',
+      cwd: '/workspace/repo with spaces',
+      observedAt: 1_767_225_600_000,
+    });
+    assert.equal(invocation.options.detached, true);
+    assert.equal(invocation.options.shell, false);
+    assert.equal(unrefCount, 1);
+    assert.deepEqual(Object.keys(listeners), ['error']);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('wakeCapture never runs for managed children or empty sessions', async () => {
+  let ensureCount = 0;
+  const linker = createOpenCodeSessionLinker({
+    client: fakeClient({ ses_root: { id: 'ses_root' } }),
+    env: { POLYGRAPH_CHILD_AGENT: '' },
+    ensure() {
+      ensureCount += 1;
+      return true;
+    },
+  });
+
+  assert.equal(await linker.wakeCapture('ses_root'), false);
+  assert.equal(await linker.wakeCapture(undefined), false);
+  assert.equal(ensureCount, 0);
+});
+
+test('session.idle wakes capture through the event hook without touching linking', async () => {
+  await withoutPolygraphEnv(async () => {
+    const plugin = await PolygraphPlugin();
+    // No client is wired in this harness, so the deferred wake resolves no
+    // root and stays a no-op — the hook itself must not throw or link.
+    await plugin.event({
+      event: { type: 'session.idle', properties: { sessionID: 'ses_root' } },
+    });
   });
 });

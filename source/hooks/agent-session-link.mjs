@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+import { resolveLaunchDirectory } from './capture-cli.mjs';
+
 const HOOK_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 const AGENT_TYPES = new Set(['claude', 'codex', 'opencode', 'cursor']);
@@ -29,13 +31,24 @@ export function isPolygraphMcpToolName(toolName) {
   return Boolean(name && (COMMAND_HOOK_TOOL.test(name) || OPENCODE_TOOL.test(name)));
 }
 
+/**
+ * The harness session a hook payload names, for failure diagnostics. Claude
+ * and Codex carry it as session_id; Cursor's prompt and agent-done payloads
+ * carry only conversation_id, and its lifecycle payloads carry both with
+ * the same value.
+ */
+export function hookPayloadSessionId(payload) {
+  return (
+    nonEmptyString(payload?.session_id) ?? nonEmptyString(payload?.conversation_id)
+  );
+}
+
 export function buildLinkAgentSessionArgs({
   polygraphSessionId,
   agentType,
   agentSessionId,
   cwd,
   transcriptPath,
-  pid,
   source,
   hookOperation,
 }) {
@@ -55,10 +68,6 @@ export function buildLinkAgentSessionArgs({
 
   const transcript = nonEmptyString(transcriptPath);
   if (transcript) args.push('--transcript-path', transcript);
-
-  if (Number.isSafeInteger(pid) && pid > 0) {
-    args.push('--pid', String(pid));
-  }
 
   // Cursor post-tool evidence rides the hook payload (the transcript stores
   // no tool results); forwarded verbatim, classified by the CLI. The
@@ -99,22 +108,35 @@ export function linkAgentSession(claim, spawn = spawnSync, env = process.env) {
     delete commandEnv.POLYGRAPH_CAPTURE_TOKEN;
   }
 
+  // The link launches from a directory that exists — the claim's own when it
+  // still does, else home, else temp — exactly like the wake and finalize
+  // processes. The launch directory is a spawn detail only: the recorded
+  // working directory is the claim's `--cwd` above, which a Cursor claim
+  // without workspace roots omits rather than substituting the plugin root.
+  const launchDirectory = resolveLaunchDirectory(claim.cwd, env);
   const spawnOptions = {
     encoding: 'utf8',
     env: commandEnv,
     stdio: [input === undefined ? 'ignore' : 'pipe', 'ignore', 'pipe'],
     ...(input === undefined ? {} : { input }),
+    ...(launchDirectory ? { cwd: launchDirectory } : {}),
   };
 
-  let result = spawn(command, args, spawnOptions);
-
   // POLYGRAPH_CLI may point at a plain JS entry that cannot be spawned
-  // directly: a dev build without the executable bit, or a platform that
-  // cannot exec scripts. A spawn that failed to LAUNCH ran nothing, so the
-  // retry under a Node runtime is side-effect free — and anything that
-  // spawns directly today keeps its exact behavior.
-  if (result?.error && /\.[cm]?js$/i.test(command)) {
-    result = spawn(nodeRuntime(), [command, ...args], spawnOptions);
+  // directly: a dev build without the executable bit, a local package
+  // install, or a platform that cannot exec scripts. Such entries run
+  // through a Node runtime up front, so exactly one process ever launches
+  // per link. Bun (which hosts this module in-process for OpenCode) throws
+  // launch errors from spawnSync instead of returning them, so both error
+  // shapes must land in the same path.
+  const jsEntry = /\.[cm]?js$/i.test(command);
+  let result;
+  try {
+    result = jsEntry
+      ? spawn(nodeRuntime(), [command, ...args], spawnOptions)
+      : spawn(command, args, spawnOptions);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error));
   }
 
   if (result?.error) throw result.error;

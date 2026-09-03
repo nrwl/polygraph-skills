@@ -90,6 +90,7 @@ export function buildOpenCodePackageJson(pkgJson) {
   return buildPublishPackageJson(pkgJson, '@polygraph/opencode-plugin', [
     'server.js',
     'agent-session-link.mjs',
+    'ensure-agent-session-capture-worker.mjs',
     'frontmatter.mjs',
     'skills/',
     'agents/',
@@ -186,10 +187,8 @@ export function finalizeCodexDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(codexHooksDir, 'record-session-mapping.mjs')
   );
-  cpSync(
-    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
-    join(codexHooksDir, 'agent-session-link.mjs')
-  );
+  copyCaptureWakeHookScripts(codexHooksDir);
+  copyFinalizeHookScripts(codexHooksDir);
 
   cpSync(
     join(sourceDir, 'assets'),
@@ -200,6 +199,37 @@ export function finalizeCodexDist(pkgJson) {
   )
 
   copySharedDocs(codexDir);
+}
+
+/**
+ * The capture wake hook and its module graph. agent-session-link.mjs is both
+ * the wake's failure logger and a standalone hook dependency, so it rides
+ * along here for every harness that ships the wake.
+ */
+function copyCaptureWakeHookScripts(hooksDir) {
+  for (const script of [
+    'agent-session-link.mjs',
+    'agent-session-capture.mjs',
+    'capture-cli.mjs',
+    'ensure-agent-session-capture.mjs',
+    'ensure-agent-session-capture-worker.mjs',
+  ]) {
+    cpSync(join(sourceDir, 'hooks', script), join(hooksDir, script));
+  }
+}
+
+/**
+ * The sessionEnd finalization hook and its worker. Its shared dependencies
+ * (capture-cli, agent-session-link) already ride along with the wake hook.
+ */
+function copyFinalizeHookScripts(hooksDir) {
+  for (const script of [
+    'agent-session-finalize.mjs',
+    'finalize-agent-session.mjs',
+    'finalize-agent-session-worker.mjs',
+  ]) {
+    cpSync(join(sourceDir, 'hooks', script), join(hooksDir, script));
+  }
 }
 
 function buildCursorPluginManifest(pkgJson) {
@@ -259,10 +289,8 @@ export function finalizeCursorDist(pkgJson) {
     join(sourceDir, 'hooks', 'record-session-mapping.mjs'),
     join(cursorHooksDir, 'record-session-mapping.mjs')
   );
-  cpSync(
-    join(sourceDir, 'hooks', 'agent-session-link.mjs'),
-    join(cursorHooksDir, 'agent-session-link.mjs')
-  );
+  copyCaptureWakeHookScripts(cursorHooksDir);
+  copyFinalizeHookScripts(cursorHooksDir);
   copySharedDocs(cursorDir);
 }
 
@@ -286,6 +314,17 @@ export function finalizeOpenCodeDist(pkgJson) {
   buildSync({
     entryPoints: [join(sourceDir, 'opencode', 'agent-session-link.mjs')],
     outfile: join(opencodeDir, 'agent-session-link.mjs'),
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'silent',
+  });
+  buildSync({
+    entryPoints: [
+      join(sourceDir, 'hooks', 'ensure-agent-session-capture-worker.mjs'),
+    ],
+    outfile: join(opencodeDir, 'ensure-agent-session-capture-worker.mjs'),
     bundle: true,
     format: 'esm',
     platform: 'node',

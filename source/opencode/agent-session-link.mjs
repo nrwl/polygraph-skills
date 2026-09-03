@@ -3,6 +3,7 @@ import {
   linkAgentSession,
   logHookFailure,
 } from '../hooks/agent-session-link.mjs';
+import { launchAgentSessionCaptureWake } from '../hooks/agent-session-capture.mjs';
 
 export { logHookFailure } from '../hooks/agent-session-link.mjs';
 
@@ -60,6 +61,20 @@ export async function linkOpenCodeSessionCreatedEvent(input, sessionLinker) {
   return sessionLinker.fromSessionCreated(event.properties?.info);
 }
 
+// chat.message's documented hook input carries the session on
+// input.sessionID; output.message.sessionID is the same id stamped on the
+// created user message and only backs up a host that omits the input field.
+export function openCodeChatMessageSessionId(input, output) {
+  return (
+    sessionIdValue(input?.sessionID) ??
+    sessionIdValue(output?.message?.sessionID)
+  );
+}
+
+function sessionIdValue(value) {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
 export function deferOpenCodeToolActivity(
   input,
   sessionLinker,
@@ -67,7 +82,46 @@ export function deferOpenCodeToolActivity(
   schedule = setTimeout
 ) {
   schedule(() => {
-    Promise.resolve(sessionLinker.fromToolActivity(input)).catch(onError);
+    return Promise.resolve()
+      .then(() => sessionLinker.fromToolActivity(input))
+      .catch((error) => {
+        try {
+          return onError(error);
+        } catch {
+          // Deferred proof reads are best-effort and cannot reject the host hook.
+        }
+      })
+      .catch(() => {});
+  }, 0);
+}
+
+/**
+ * Deferred, liveness-only capture wake. Fired on prompt submission
+ * (chat.message) and on session.idle; neither event carries step semantics —
+ * the transcript alone decides step boundaries. Deferral keeps the host hook
+ * from ever waiting on the CLI. The observation time is read here, while the
+ * event is being handled, so a delayed wake still reports when the host
+ * actually fired it.
+ */
+export function deferOpenCodeCaptureWake(
+  sessionId,
+  sessionLinker,
+  onError,
+  schedule = setTimeout,
+  now = Date.now
+) {
+  const observedAt = now();
+  schedule(() => {
+    return Promise.resolve()
+      .then(() => sessionLinker.wakeCapture(sessionId, { observedAt }))
+      .catch((error) => {
+        try {
+          return onError(error);
+        } catch {
+          // Wakes are best-effort and cannot reject the host hook.
+        }
+      })
+      .catch(() => {});
   }, 0);
 }
 
@@ -75,13 +129,16 @@ export function createOpenCodeSessionLinker({
   client,
   directory,
   env = process.env,
-  pid = process.pid,
   link,
+  ensure,
   spawn,
+  now = Date.now,
 } = {}) {
   const roots = new Map();
   const linkedLifecycleSessions = new Set();
   const submitLink = link ?? ((claim) => linkAgentSession(claim, spawn, env));
+  const submitEnsure =
+    ensure ?? ((claim) => launchAgentSessionCaptureWake(claim, spawn, env));
 
   async function rootSessionId(sessionId) {
     if (!sessionId) return undefined;
@@ -115,7 +172,6 @@ export function createOpenCodeSessionLinker({
       agentType: 'opencode',
       agentSessionId,
       cwd: cwd || directory || process.cwd(),
-      pid,
       source: 'hook',
     });
     if (linked && lifecycleKey) linkedLifecycleSessions.add(lifecycleKey);
@@ -145,6 +201,28 @@ export function createOpenCodeSessionLinker({
     async fromToolActivity(input) {
       if (!isPolygraphMcpToolName(input?.tool)) return false;
       return submit(input?.sessionID);
+    },
+
+    // Identity-only capture liveness. Resolves the root session (subagent
+    // activity wakes the parent's capture) and pokes the sidecar; it records
+    // no mapping, no provenance, and no step boundary.
+    async wakeCapture(openCodeSessionId, { cwd, observedAt = now() } = {}) {
+      if (
+        !openCodeSessionId ||
+        (env && Object.hasOwn(env, 'POLYGRAPH_CHILD_AGENT'))
+      ) {
+        return false;
+      }
+
+      const agentSessionId = await rootSessionId(openCodeSessionId);
+      if (!agentSessionId) return false;
+
+      return submitEnsure({
+        agentType: 'opencode',
+        agentSessionId,
+        cwd: cwd || directory || process.cwd(),
+        observedAt,
+      });
     },
   };
 }

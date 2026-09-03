@@ -3,9 +3,11 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildCommandHookLink,
+  hookPayloadSessionId,
   linkAgentSession,
   logHookFailure,
 } from './agent-session-link.mjs';
+import { fallbackClaimDirectory } from './capture-cli.mjs';
 
 function readPayload() {
   try {
@@ -20,29 +22,29 @@ export function main({
   payload = readPayload(),
   agentType = process.argv[2],
   env = process.env,
-  pid = process.ppid,
   spawn,
+  logFailure = logHookFailure,
 } = {}) {
   try {
     const link = buildCommandHookLink(payload, agentType, env);
     if (!link) return false;
 
-    const claim = {
-      ...link,
-      cwd: link.cwd ?? process.cwd(),
-    };
-    // Claude lifecycle hooks deliberately forward only the exact harness
-    // identity, transcript, cwd, and hook source. PID is not identity and can
-    // be stale by the time an asynchronous SessionStart hook runs.
-    if (!(agentType === 'claude' && payload?.hook_event_name === 'SessionStart')) {
-      claim.pid = pid;
-    }
-
-    return linkAgentSession(claim, spawn, env);
+    // Claude and Codex run this hook in the session directory, so the hook's
+    // own cwd stands in when the payload carries none; Cursor's hook cwd is
+    // the plugin root and is never recorded. Read lazily, inside the
+    // protected path, because a deleted cwd makes process.cwd() throw.
+    return linkAgentSession(
+      {
+        ...link,
+        cwd: link.cwd ?? fallbackClaimDirectory(agentType),
+      },
+      spawn,
+      env
+    );
   } catch (error) {
-    logHookFailure(`${agentType || 'unknown'}:link-agent-session`, error, {
+    logFailure(`${agentType || 'unknown'}:link-agent-session`, error, {
       hookEventName: payload?.hook_event_name,
-      agentSessionId: payload?.session_id,
+      agentSessionId: hookPayloadSessionId(payload),
     });
     return false;
   }
