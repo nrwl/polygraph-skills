@@ -266,7 +266,7 @@ test('renders signed token deltas against a baseline', () => {
 
   assert.match(
     report,
-    /\| Kind \| Skill \/ subagent \| Claude Code \| Codex \| OpenCode \| Δ vs main<br>Claude \/ Codex \/ OpenCode \|/
+    /\| Kind \| Skill \/ subagent \| Claude Code \| Codex \| OpenCode \| Δ vs PR parent<br>Claude \/ Codex \/ OpenCode \|/
   );
   assert.match(
     report,

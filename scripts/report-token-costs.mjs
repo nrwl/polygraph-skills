@@ -137,7 +137,7 @@ export function renderTokenCostReport(
     ? calculateTotals(baselineEntries)
     : undefined;
   const deltaHeader = baselineRowsByKey
-    ? ' | Δ vs main<br>Claude / Codex / OpenCode'
+    ? ' | Δ vs PR parent<br>Claude / Codex / OpenCode'
     : '';
   const deltaAlignment = baselineRowsByKey ? ' | ---:' : '';
   const totalDeltaCell = baselineTotals
