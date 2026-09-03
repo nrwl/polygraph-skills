@@ -44,6 +44,14 @@ jobs:
           path: pull-request
           persist-credentials: false
 
+      - name: Check out current main content
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
+          path: main
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22.14.0
@@ -56,6 +64,7 @@ jobs:
         run: >-
           node trusted/scripts/report-token-costs.mjs
           --root-dir "$GITHUB_WORKSPACE/pull-request"
+          --baseline-root-dir "$GITHUB_WORKSPACE/main"
           > token-cost-report.md
 
       - name: Create or update pull request comment
