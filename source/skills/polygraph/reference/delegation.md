@@ -30,9 +30,29 @@ spawn_agent(
 
 Write the instruction as if to a competent engineer who cannot see your conversation: state the goal, the constraints, what "done" looks like, and what to report back. The child has its own repo and its own context; it inherits nothing from yours.
 
-Delegate to several repos in parallel before waiting on any of them. When the work is the same in every repo, prefer a **batch spawn**: one call carrying the shared instruction and the list of repos, returning one delegation id per repo. The instruction is transmitted once rather than once per repo, and every sibling starts from a byte-identical prompt prefix that can be served from cache — fewer tokens written, and cache hits across the batch. Each id still gets its own poller.
+Delegate to several repos in parallel before waiting on any of them, and prefer one call over N. There are three shapes, the same three `polygraph agent spawn` takes:
 
-The qualifier is load-bearing: batch only when the work is genuinely identical. If the repos need different things, keep one brief per repo and call `spawn_agent` once each. Flattening N different tasks into one shared brief to look efficient produces worse work, and the round trips to repair it cost more than the batch saved.
+- **One repo** — `repo` with an `instruction`.
+- **Several repos, one task** — `repos` with one `instruction`, run verbatim in each.
+- **Several repos, different tasks** — `specFile`, a JSON file you write, whose path you pass.
+
+Batching pays because the shared text is transmitted once rather than once per repo, and every sibling starts from a byte-identical prompt prefix that can be served from cache. Each id still gets its own poller.
+
+The spec file is the many-to-many form. Each entry names a repo and carries its own `instruction`, and optionally its own `context`, `role`, `agent`, and `model`. Whatever the entries share goes in `sharedInstruction` / `sharedContext`, which are prepended to each entry's own text with a blank line between — so the common brief stays one identical prefix and only the per-repo part varies. An entry may carry no `instruction` of its own and rely entirely on the shared one. Being a file, it also carries a brief too large to pass as an argument, and it is straightforward to generate programmatically.
+
+```jsonc
+{
+  "sharedInstruction": "Brief every child gets, verbatim.",
+  "sharedContext": "Optional background every child gets.",
+  "agents": [
+    { "repo": "api", "instruction": "Add the expand parameter to the endpoint." },
+    { "repo": "people", "instruction": "Consume it in the client.", "context": "This repo still pins the old SDK." },
+    { "repo": "planets", "role": "reviewer", "agent": "codex", "instruction": "Review the change against the shared brief." }
+  ]
+}
+```
+
+One qualifier is load-bearing: share only what is genuinely shared. Flattening several different tasks into one `sharedInstruction` to look efficient produces worse work, and the round trips to repair it cost more than the batch saved. Work that differs belongs in each entry's own `instruction`, which is what the file is for.
 
 **Own-repo rule.** With the default role, `repo` must be a repository other than the one you are working in — never delegate into your own repo with the default role; work on it directly (ordinary local subagents are fine for that). Delegating into your own repo IS allowed with an explicit non-default `role`, because each (repo, role) pair is a separate agent slot and the child then runs alongside your own default-role work without colliding with it.
 
