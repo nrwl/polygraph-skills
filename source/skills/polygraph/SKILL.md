@@ -383,6 +383,7 @@ If the session has a description timeline, also display:
    {% endif %}
 1. **Read each result once** — when a poller exits, read that child with a single unwaited `show_agent(sessionId, id)`; `result.text` is the child's final message. Only reach for an explicit `tail` if that is not enough.
 1. **State the output in every brief** — children are told to be concise, so the instruction must say what to return: the shape, a cap where one makes sense, and the exact token for "nothing to report". See [`reference/delegation.md`](reference/delegation.md).
+1. **Batch the spawn and the read** — send several repos in one spawn call and collect their results in one read. Identical work rides a single instruction; differing work goes in a spec file with an entry per repo, sharing only what is genuinely shared. See [`reference/delegation.md`](reference/delegation.md).
 1. **Poll child status before proceeding** — Always verify child agents have reached a terminal `child.status` (`'completed'`, `'failed'`, or `'cancelled'`) before pushing branches or creating PRs
 1. **Link PRs in descriptions** - Reference related PRs in each PR body
 1. **Keep PRs as drafts** until all repos are ready
