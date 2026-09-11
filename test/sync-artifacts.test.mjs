@@ -595,8 +595,12 @@ test('delegate subagent pins the exit message shape', () => {
     assert.match(agent, /^\*\*Repo:\*\* <repoFullName>$/m);
     assert.match(agent, /^\*\*Delegation id:\*\* <id>$/m);
     assert.match(agent, /^\*\*Status:\*\* <status>$/m);
-    assert.match(agent, /^Read the result with show_agent \(id: "<id>"\)\.$/m);
     assert.match(agent, /replace "is done\." with "needs attention\."/);
+
+    // The exit message names the child and stops. Prescribing a read shape
+    // here made every poller hand the parent a single-id read instruction,
+    // so the batched read was never chosen.
+    assert.doesNotMatch(agent, /Read the result with show_agent/);
 
     // The verbose summary the poller used to build is gone — it echoed the
     // child's output back through a second context for no reason.

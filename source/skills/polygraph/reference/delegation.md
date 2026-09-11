@@ -97,7 +97,7 @@ show_agent(sessionId: "<sessionId>", id: "<id>")
 
 One-off unwaited reads like this are cheap and expected inline. It is the *waiting* that belongs in a subagent, not the reading.
 
-When several pollers have exited, a **batch read** collects their results in one unwaited call: pass the list of ids and correlate each result by its delegation id.
+When several pollers have exited, a **batch read** collects their results in one unwaited call: pass the list of ids and correlate each result by its delegation id. Batch when you spawned children together and have nothing to do until they all finish. Read one at a time when you act on each result as it lands, or only one child is in flight.
 
 ## When the result is not enough
 

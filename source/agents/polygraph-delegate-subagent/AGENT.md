@@ -66,10 +66,8 @@ Child agent <id> is done.
 **Repo:** <repoFullName>
 **Delegation id:** <id>
 **Status:** <status>
-
-Read the result with show_agent (id: "<id>").
 ```
 
 For `input-required` or `permission-required`, replace "is done." with "needs attention." and keep everything else identical.
 
-Do not summarize, quote, or describe the child's work. Do not include log lines. The main agent reads the result itself via `show_agent`.
+Do not summarize, quote, or describe the child's work. Do not include log lines. The main agent reads the result itself via `show_agent`, and chooses how to read it. Never tell it which call to make.
