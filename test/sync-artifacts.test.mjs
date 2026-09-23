@@ -266,6 +266,8 @@ test('codex polygraph skill uses custom Codex subagent guidance', () => {
   assert.match(rendered, /fresh Codex Desktop conversation started with `\/polygraph:session-start`/);
   assert.match(rendered, /Resume is not a work command/);
   assert.match(rendered, /Treat "resume" as context restoration followed by waiting for user instructions/);
+  assert.match(rendered, /--json \[--prompt <task>\]/);
+  assert.match(rendered, /restore context, then carry out that task without waiting/);
   assert.doesNotMatch(rendered, /- target: "<org\/repo-name>"/);
   assert.doesNotMatch(rendered, /target: "org\/repo-name"/);
   // The spawn_agent call shape moved to reference/delegation.md. The parameter
